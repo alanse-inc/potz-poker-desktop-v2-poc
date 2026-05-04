@@ -14,6 +14,20 @@ vi.mock("../../api/client", () => ({
   },
 }));
 
+// useAuth を mock して AuthProvider 依存を排除
+vi.mock("../../contexts/auth_context", () => ({
+  useAuth: () => ({
+    isSignedIn: false,
+    isInitializing: false,
+    isLoggingIn: false,
+    authError: null,
+    user: null,
+    loginWithPassword: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 // react-router の useNavigate を mock
 const mockNavigate = vi.fn();
 vi.mock("react-router", async (importOriginal) => {

@@ -33,5 +33,15 @@
     "category": "Game",
     "shortDescription": "Potz Poker Pro Tauri PoC",
     "longDescription": "Proof-of-concept Tauri 2 port of the Potz Poker Pro Electron desktop application."
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "endpoints": [
+        "https://example.com/updater/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "pubkey": "",
+      "dialog": false
+    }
   }
 }
