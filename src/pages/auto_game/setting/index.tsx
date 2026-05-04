@@ -1,25 +1,3 @@
-/**
- * Auto Game 設定画面
- *
- * Electron 版の pages/auto_game/setting を Tauri 版に移植
- * - プレイヤーの追加・編集・削除
- * - BTN プレイヤーの選択 (select-btn ページへ遷移)
- * - GAME START でプレイ画面へ遷移
- */
-
-import { useEffect, useMemo, useState } from "react";
-import toast from "react-hot-toast";
-import { useLocation, useNavigate } from "react-router";
-import { useAutoBoard } from "../../../contexts/auto_board_context";
-import {
-  assignPositions,
-  initializePlayers,
-} from "../../../domain/auto_game/player";
-import type {
-  AutoModeGameSetting,
-  AutoModePlayer,
-} from "../../../domain/auto_game/types";
-import type { EditPlayerData } from "../../../features/modal/auto_mode_player_edit_modal";
 import { AutoModePlayerEditModal } from "../../../features/modal/auto_mode_player_edit_modal";
 import { useAutoScale } from "../../../hooks/useAutoScale";
 import { RoundButton } from "../../../ui/button/round_button";
@@ -27,164 +5,23 @@ import { BasicPage } from "../../../ui/page/basic";
 import { Switch } from "../../../ui/switch";
 import { AutoGameSettingButtons } from "./components/game_setting_buttons";
 import { SettingBoard } from "./components/setting_board";
-
-/**
- * ゲスト ID 生成 (g1〜g9)
- */
-function pickNextGuestId(players: AutoModePlayer[]): string | null {
-  for (let i = 1; i <= 9; i++) {
-    const id = `g${i}`;
-    if (!players.find((p) => p.id === id)) return id;
-  }
-  return null;
-}
+import { useAutoGameSetting } from "./hooks/useAutoGameSetting";
+import { usePlayerActions } from "./hooks/usePlayerActions";
 
 export function AutoGameSetting() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { setBoard } = useAutoBoard();
-
-  // プレイヤー状態
-  const [players, setPlayers] = useState<AutoModePlayer[]>([]);
-  const gameName = "AUTO GAME";
-  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const { containerRef, contentRef } = useAutoScale(950, 400, 1.6, 0.7);
 
-  // select-btn ページから戻ってきたときのハンドリング
-  useEffect(() => {
-    const state = location.state as { selectedBtnSeat?: number } | null;
-    if (!state?.selectedBtnSeat) return;
-    const btnSeat = state.selectedBtnSeat;
-    setPlayers((prev) => {
-      const btnPlayer = prev.find((p) => p.seat === btnSeat);
-      if (!btnPlayer) return prev;
-      return assignPositions(prev, btnPlayer.id);
-    });
-    navigate("/auto-game/setting", { replace: true, state: {} });
-  }, [location.state, navigate]);
+  const {
+    players,
+    setting,
+    isStartable,
+    onChangeGameMode,
+    handleBtnButtonClick,
+    handleGameStart,
+  } = useAutoGameSetting();
 
-  const selectedPlayer = useMemo(
-    () =>
-      selectedSeat !== null
-        ? players.find((p) => p.seat === selectedSeat)
-        : undefined,
-    [selectedSeat, players],
-  );
-
-  // ゲーム開始可能かどうか (BTN プレイヤーがいる & 2 人以上)
-  const isStartable = useMemo(() => {
-    if (players.length < 2) return false;
-    return players.some((p) => p.position === "btn" || p.position === "btn_sb");
-  }, [players]);
-
-  const setting: AutoModeGameSetting = { name: gameName };
-
-  const handleClickSeat = (seat: number) => {
-    setSelectedSeat(seat);
-  };
-
-  const handleJoin = (data: EditPlayerData) => {
-    const { name, icon, playerId } = data;
-    if (!name || selectedSeat === null) return;
-
-    setPlayers((prev) => {
-      const existingIndex = prev.findIndex((p) => p.seat === selectedSeat);
-
-      if (existingIndex !== -1) {
-        // 既存プレイヤーの更新
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...updated[existingIndex],
-          name,
-          icon: icon ?? null,
-          ...(playerId ? { id: playerId } : {}),
-        };
-        return updated;
-      }
-
-      // 新規プレイヤーの追加
-      const id = playerId ?? pickNextGuestId(prev);
-      if (!id) {
-        toast.error("プレイヤーを追加できません (最大 9 人)");
-        return prev;
-      }
-
-      const newPlayer: AutoModePlayer = {
-        id,
-        name,
-        icon: icon ?? null,
-        seat: selectedSeat,
-        position: null,
-        action: null,
-        hand: [],
-        odds: null,
-      };
-      return [...prev, newPlayer];
-    });
-
-    setSelectedSeat(null);
-  };
-
-  const handleDelete = () => {
-    if (!selectedPlayer) return;
-    setPlayers((prev) => {
-      const filtered = prev.filter((p) => p.id !== selectedPlayer.id);
-      // ポジションをリセット
-      return filtered.map((p) => ({ ...p, position: null }));
-    });
-    setSelectedSeat(null);
-  };
-
-  const handleCancel = () => {
-    setSelectedSeat(null);
-  };
-
-  const handleBtnButtonClick = () => {
-    navigate("/auto-game/select-btn", {
-      state: { players, gameName },
-    });
-  };
-
-  const handleGameStart = () => {
-    if (!isStartable) return;
-
-    const btnPlayer = players.find(
-      (p) => p.position === "btn" || p.position === "btn_sb",
-    );
-    if (!btnPlayer) {
-      toast.error("BTN プレイヤーが設定されていません");
-      return;
-    }
-
-    // ポジションを確定して初期ゲームボードを作成
-    const initializedPlayers = initializePlayers(
-      players.map((p) => ({
-        id: p.id,
-        name: p.name,
-        icon: p.icon,
-        seat: p.seat,
-      })),
-    );
-    const playersWithPositions = assignPositions(
-      initializedPlayers,
-      btnPlayer.id,
-    );
-
-    setBoard({
-      setting,
-      players: playersWithPositions,
-      communityCards: [],
-      burnCards: [],
-      handNumber: 1,
-      winners: null,
-    });
-
-    navigate("/auto-game/playing");
-  };
-
-  const handleChangeGameMode = () => {
-    navigate("/game/first-game/setting");
-  };
+  const { selectedSeat, selectedPlayer, playerActionHandlers } =
+    usePlayerActions();
 
   return (
     <BasicPage>
@@ -194,7 +31,7 @@ export function AutoGameSetting() {
             text="AUTO MODE"
             checked={true}
             disabled={false}
-            onChange={handleChangeGameMode}
+            onChange={onChangeGameMode}
           />
         </div>
 
@@ -209,9 +46,18 @@ export function AutoGameSetting() {
           >
             <div className="flex h-full items-center gap-60 pl-16">
               <SettingBoard
-                players={players}
-                gameName={gameName}
-                onClickSeat={handleClickSeat}
+                players={players.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  icon: p.icon ?? null,
+                  seat: p.seat,
+                  position: p.position,
+                  action: null,
+                  hand: [],
+                  odds: null,
+                }))}
+                gameName={setting.name}
+                onClickSeat={playerActionHandlers.onClickSeat}
               />
               <AutoGameSettingButtons onBtnButtonClick={handleBtnButtonClick} />
             </div>
@@ -223,9 +69,9 @@ export function AutoGameSetting() {
             playerId={selectedPlayer?.id}
             name={selectedPlayer?.name}
             icon={selectedPlayer?.icon ?? null}
-            onJoin={handleJoin}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
+            onJoin={playerActionHandlers.onJoin}
+            onCancel={playerActionHandlers.onCancel}
+            onDelete={playerActionHandlers.onDelete}
           />
         )}
 
