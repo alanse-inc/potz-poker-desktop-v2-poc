@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@auth0/auth0-spa-js": "2.19.2",
+    "@sentry/react": "^10.51.0",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.0.1",
     "@tauri-apps/plugin-process": "^2.3.1",
@@ -31,6 +32,7 @@
     "dayjs": "^1.11.20",
     "html5-qrcode": "^2.3.8",
     "immer": "^11.1.4",
+    "mixpanel-browser": "^2.78.0",
     "nanoid": "^5.1.11",
     "neverthrow": "^8.2.0",
     "react": "^19.2.3",
@@ -49,6 +51,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",
+    "@types/mixpanel-browser": "^2.66.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.10.5",
     "@types/react": "^19.2.3",
