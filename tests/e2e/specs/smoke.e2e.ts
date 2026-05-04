@@ -57,6 +57,8 @@ describe("smoke", () => {
     await $("button=デバッグ").click();
     const runButton = await $("button=実行");
     await expect(runButton).toBeDisplayed({ timeout: 10_000 });
+    // fetchSnapshot() が完了するまで待つ (「読込中...」→「リフレッシュ」)
+    await $("button=リフレッシュ").waitForDisplayed({ timeout: 15_000 });
     await runButton.click();
     await browser.waitUntil(async () => (await $$("span=PASS").length) === 8, {
       timeout: 90_000,
