@@ -69,6 +69,15 @@ describe("smoke", () => {
     await $("button=実行中...").waitForDisplayed({ timeout: 5_000 });
     // スモークテストが完了するまで待つ (「実行中...」が消えて「実行」に戻る)
     await $("button=実行中...").waitForDisplayed({ reverse: true, timeout: 90_000 });
+    // DOM 反映を待つ: PASS+FAIL の合計が 8 になるまでポーリング
+    await browser.waitUntil(
+      async () => {
+        const p = (await $$("span=PASS")).length;
+        const f = (await $$("span=FAIL")).length;
+        return p + f === 8;
+      },
+      { timeout: 10_000, timeoutMsg: "smoke results did not render (8 steps)" },
+    );
     // 全ステップが PASS であることを確認
     const passCount = (await $$("span=PASS")).length;
     const failCount = (await $$("span=FAIL")).length;
