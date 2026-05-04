@@ -45,6 +45,9 @@ import {
   type PersistedGameSettings,
   TableNameSync,
 } from "../domain/table_name";
+import { TauriGameSettingsGateway } from "../port/game_settings_gateway";
+
+const gameSettingsGateway = new TauriGameSettingsGateway();
 
 // ---------------------------------------------------------------------------
 // 型定義 (Electron 版 domain/player.ts / workflow/command.ts 相当)
@@ -227,96 +230,69 @@ export const InitializeBoardCommandProvider = ({
   // Desktop/Web共通：初期値の読み込みと変更監視
   useEffect(() => {
     const loadInitialData = async () => {
-      // 保存された設定を読み込む（HTTP API経由）
-      try {
-        const response = await apiFetch("/api/game-settings");
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const savedSettings = await response.json();
+      const settingsResult = await gameSettingsGateway.get();
+      const savedSettings = settingsResult.isOk() ? settingsResult.value : null;
 
-        if (
-          savedSettings.type === "success" &&
-          savedSettings.value?.manualMode
-        ) {
-          // Manual Mode用の保存された設定からコマンドを構築
-          const manualModeData = savedSettings.value.manualMode;
+      if (savedSettings?.manualMode) {
+        const manualModeData = savedSettings.manualMode;
 
-          // プレイヤー情報を復元（保存されたポジション情報を使用）
-          const players = manualModeData.players.map(
-            (p: {
-              id: string;
-              name: string;
-              icon: string | null;
-              status: string;
-              stack: number;
-              seat: number;
-              position: string | null;
-            }) => {
-              const icon =
-                p.icon === null ? undefined : (p.icon as unknown as PlayerIcon);
-              const seat = p.seat as PlayerSeatRange;
-              return {
-                id: p.id,
-                name: p.name,
-                icon,
-                status: p.status as ManualPlayerStatus,
-                stack: p.stack,
-                seat,
-                position: p.position as TexasHoldemPosition | null,
-              };
+        const players = manualModeData.players.map(
+          (p: {
+            id: string;
+            name: string;
+            icon: string | null;
+            status: string;
+            stack: number;
+            seat: number;
+            position: string | null;
+          }) => {
+            const icon =
+              p.icon === null ? undefined : (p.icon as unknown as PlayerIcon);
+            const seat = p.seat as PlayerSeatRange;
+            return {
+              id: p.id,
+              name: p.name,
+              icon,
+              status: p.status as ManualPlayerStatus,
+              stack: p.stack,
+              seat,
+              position: p.position as TexasHoldemPosition | null,
+            };
+          },
+        );
+
+        const restoredCommand: ManualModeInitializeBoardCommand = {
+          kind: "initializeBoard",
+          input: {
+            players,
+            setting: {
+              mode: "manual",
+              name: manualModeData.settings?.name ?? "",
+              miniChip: manualModeData.settings?.miniChip ?? 0,
+              smallBlind: manualModeData.settings?.smallBlind ?? 0,
+              bigBlind: manualModeData.settings?.bigBlind ?? 0,
+              anteRule: manualModeData.settings?.anteRule ?? "none",
+              blindExceptionRule:
+                manualModeData.settings?.blindExceptionRule ?? "dead_button",
             },
-          );
+          },
+        };
+        setInitializeBoardCommand(restoredCommand);
 
-          const restoredCommand: ManualModeInitializeBoardCommand = {
-            kind: "initializeBoard",
-            input: {
-              players,
-              setting: {
-                mode: "manual",
-                name: manualModeData.settings?.name ?? "",
-                miniChip: manualModeData.settings?.miniChip ?? 0,
-                smallBlind: manualModeData.settings?.smallBlind ?? 0,
-                bigBlind: manualModeData.settings?.bigBlind ?? 0,
-                anteRule: manualModeData.settings?.anteRule ?? "none",
-                blindExceptionRule:
-                  manualModeData.settings?.blindExceptionRule ?? "dead_button",
-              },
-            },
-          };
-          setInitializeBoardCommand(restoredCommand);
-
-          // Tauri コマンドへの通知 (stub: 未実装コマンドはログのみ)
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            await invoke("set_initial_board_command", {
-              command: restoredCommand,
-            });
-          } catch {
-            // コマンド未実装のため無視
-          }
-        } else {
-          // 保存された設定がない場合は Tauri コマンドから取得を試みる
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const command =
-              await invoke<ManualModeInitializeBoardCommand | null>(
-                "get_initial_board_command",
-              );
-            if (command) {
-              setInitializeBoardCommand(command);
-            }
-          } catch {
-            // コマンド未実装のため無視
-          }
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("set_initial_board_command", {
+            command: restoredCommand,
+          });
+        } catch {
+          // コマンド未実装のため無視
         }
-      } catch (error) {
-        trackClientSideError("Failed to load game settings", {
-          cause: error,
-          stack: error instanceof Error ? error.stack : undefined,
-          name: error instanceof Error ? error.name : undefined,
-        });
-        // エラーの場合も Tauri コマンドから取得を試みる
+      } else {
+        if (settingsResult.isErr()) {
+          trackClientSideError("Failed to load game settings", {
+            cause: settingsResult.error,
+          });
+        }
         try {
           const { invoke } = await import("@tauri-apps/api/core");
           const command = await invoke<ManualModeInitializeBoardCommand | null>(
@@ -423,20 +399,15 @@ export const InitializeBoardCommandProvider = ({
         key === "blindExceptionRule"
       ) {
         try {
-          // 既存の設定を読み込む
-          const response = await apiFetch("/api/game-settings");
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+          const getResult = await gameSettingsGateway.get();
+          if (getResult.isErr()) {
+            throw getResult.error;
           }
-          const result = await response.json();
-
-          if (result.type !== "success" || !result.value) {
+          const existingSettings = getResult.value;
+          if (!existingSettings) {
             throw new Error("Failed to fetch game settings");
           }
 
-          const existingSettings = result.value as PersistedGameSettings;
-
-          // ドメインサービスを使用して設定を更新
           const updateResult =
             key === "name"
               ? TableNameSync.syncTableName(existingSettings, value as string)
@@ -456,22 +427,9 @@ export const InitializeBoardCommandProvider = ({
             throw new Error("Failed to update settings");
           }
 
-          const updatedSettings = updateResult.value;
-
-          // 保存
-          const saveResponse = await apiFetch("/api/game-settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedSettings),
-          });
-
-          if (!saveResponse.ok) {
-            throw new Error(`HTTP error! status: ${saveResponse.status}`);
-          }
-
-          const saveResult = await saveResponse.json();
-          if (saveResult.type !== "success") {
-            throw new Error("Failed to save game settings");
+          const saveResult = await gameSettingsGateway.save(updateResult.value);
+          if (saveResult.isErr()) {
+            throw saveResult.error;
           }
         } catch (error) {
           trackClientSideError(`Failed to save ${key}`, {
@@ -928,25 +886,15 @@ export const InitializeBoardCommandProvider = ({
           throw new Error("Failed to edit player");
         }
 
-        // ゲーム設定にもプレイヤー情報を保存
         try {
-          const gameSettingsResponse = await apiFetch("/api/game-settings");
-          if (!gameSettingsResponse.ok) {
-            throw new Error(
-              `HTTP error! status: ${gameSettingsResponse.status}`,
-            );
+          const getResult = await gameSettingsGateway.get();
+          if (getResult.isErr()) {
+            throw getResult.error;
           }
-          const gameSettingsResult = await gameSettingsResponse.json();
-
-          if (
-            gameSettingsResult.type !== "success" ||
-            !gameSettingsResult.value
-          ) {
+          const existingSettings = getResult.value;
+          if (!existingSettings) {
             throw new Error("Failed to fetch game settings");
           }
-
-          const existingSettings =
-            gameSettingsResult.value as PersistedGameSettings;
 
           const updatedGameSettings: PersistedGameSettings = {
             ...existingSettings,
@@ -978,19 +926,10 @@ export const InitializeBoardCommandProvider = ({
             },
           };
 
-          const saveResponse = await apiFetch("/api/game-settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedGameSettings),
-          });
-
-          if (!saveResponse.ok) {
-            throw new Error(`HTTP error! status: ${saveResponse.status}`);
-          }
-
-          const saveResult = await saveResponse.json();
-          if (saveResult.type !== "success") {
-            throw new Error("Failed to save game settings");
+          const saveResult =
+            await gameSettingsGateway.save(updatedGameSettings);
+          if (saveResult.isErr()) {
+            throw saveResult.error;
           }
         } catch (gameSettingsError) {
           trackClientSideError(
@@ -1117,17 +1056,14 @@ export const InitializeBoardCommandProvider = ({
           throw new Error("Failed to delete player from board");
         }
 
-        const settingsResponse = await apiFetch("/api/game-settings");
-        if (!settingsResponse.ok) {
-          throw new Error(`HTTP error! status: ${settingsResponse.status}`);
+        const getResult = await gameSettingsGateway.get();
+        if (getResult.isErr()) {
+          throw getResult.error;
         }
-        const settingsResult = await settingsResponse.json();
-
-        if (settingsResult.type !== "success" || !settingsResult.value) {
+        const existingSettings = getResult.value;
+        if (!existingSettings) {
           throw new Error("Failed to fetch game settings");
         }
-
-        const existingSettings = settingsResult.value as PersistedGameSettings;
 
         const updatedSettings: PersistedGameSettings = {
           ...existingSettings,
@@ -1158,19 +1094,9 @@ export const InitializeBoardCommandProvider = ({
           },
         };
 
-        const saveResponse = await apiFetch("/api/game-settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updatedSettings),
-        });
-
-        if (!saveResponse.ok) {
-          throw new Error(`HTTP error! status: ${saveResponse.status}`);
-        }
-
-        const saveResult = await saveResponse.json();
-        if (saveResult.type !== "success") {
-          throw new Error("Failed to save game settings");
+        const saveResult = await gameSettingsGateway.save(updatedSettings);
+        if (saveResult.isErr()) {
+          throw saveResult.error;
         }
       } catch (error) {
         trackClientSideError("Failed to delete player", {

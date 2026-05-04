@@ -20,6 +20,9 @@ import type { PersistedGameSettings } from "../domain/table_name";
 import { TableNameSync } from "../domain/table_name";
 import { trackClientSideError } from "../features/error_tracker";
 import { useSSEConnection } from "../hooks/useSSEConnection";
+import { TauriGameSettingsGateway } from "../port/game_settings_gateway";
+
+const gameSettingsGateway = new TauriGameSettingsGateway();
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -113,60 +116,53 @@ export const AutoModeInitializeBoardCommandProvider = ({
   // 初期値の読み込みと変更監視
   useEffect(() => {
     const loadInitialData = async () => {
-      try {
-        const response = await apiFetch("/api/game-settings");
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const savedSettings = await response.json();
-
-        if (savedSettings.type === "success" && savedSettings.value?.autoMode) {
-          // Auto Mode用の保存された設定からコマンドを構築
-          const autoModeData = savedSettings.value.autoMode;
-
-          // 保存されたプレイヤー情報を復元
-          const mappedPlayers = autoModeData.players.map(
-            (player: {
-              id: string;
-              name: string;
-              icon: string | null;
-              seat: number;
-              position: string | null;
-            }) => {
-              let playerIcon: PlayerIcon | undefined;
-              if (player.icon && player.icon.length > 0) {
-                playerIcon = player.icon;
-              }
-
-              return {
-                id: player.id,
-                name: player.name,
-                icon: playerIcon,
-                seat: player.seat as PlayerSeatRange,
-                position: player.position as TexasHoldemPosition | null,
-              };
-            },
-          );
-
-          const restoredCommand: AutoModeInitializeBoardCommand = {
-            kind: "initializeBoard",
-            input: {
-              players: mappedPlayers,
-              setting: {
-                mode: "auto",
-                name: autoModeData?.settings?.name ?? "",
-              },
-            },
-          };
-
-          setInitializeBoardCommand(restoredCommand);
-        }
-        // 保存された設定がない場合は初期状態のまま
-      } catch (error) {
+      const settingsResult = await gameSettingsGateway.get();
+      if (settingsResult.isErr()) {
         trackClientSideError("Failed to load Auto Mode game settings", {
-          cause: error,
+          cause: settingsResult.error,
         });
-        // エラーの場合も初期状態のまま
+        return;
+      }
+
+      const savedSettings = settingsResult.value;
+      if (savedSettings?.autoMode) {
+        const autoModeData = savedSettings.autoMode;
+
+        const mappedPlayers = autoModeData.players.map(
+          (player: {
+            id: string;
+            name: string;
+            icon: string | null;
+            seat: number;
+            position: string | null;
+          }) => {
+            let playerIcon: PlayerIcon | undefined;
+            if (player.icon && player.icon.length > 0) {
+              playerIcon = player.icon;
+            }
+
+            return {
+              id: player.id,
+              name: player.name,
+              icon: playerIcon,
+              seat: player.seat as PlayerSeatRange,
+              position: player.position as TexasHoldemPosition | null,
+            };
+          },
+        );
+
+        const restoredCommand: AutoModeInitializeBoardCommand = {
+          kind: "initializeBoard",
+          input: {
+            players: mappedPlayers,
+            setting: {
+              mode: "auto",
+              name: autoModeData?.settings?.name ?? "",
+            },
+          },
+        };
+
+        setInitializeBoardCommand(restoredCommand);
       }
     };
 
@@ -199,24 +195,17 @@ export const AutoModeInitializeBoardCommandProvider = ({
       // ローカル状態を即座に更新（レスポンシブに）
       setInitializeBoardCommand(updatedCommand);
 
-      // Auto Modeのトーナメント名はサーバーに保存
       if (key === "name") {
         try {
-          // 既存の設定を読み込む
-          const response = await apiFetch("/api/game-settings");
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+          const getResult = await gameSettingsGateway.get();
+          if (getResult.isErr()) {
+            throw getResult.error;
           }
-          const result = await response.json();
-
-          if (result.type !== "success" || !result.value) {
+          const existingSettings = getResult.value;
+          if (!existingSettings) {
             throw new Error("Failed to fetch game settings");
           }
 
-          const existingSettings = result.value satisfies PersistedGameSettings;
-
-          // ドメインサービスを使用して設定を更新
-          // テーブル名はAuto/Manual両モードで共有する（ビジネスルール）
           const updateResult = TableNameSync.syncTableName(
             existingSettings,
             value as string,
@@ -226,22 +215,9 @@ export const AutoModeInitializeBoardCommandProvider = ({
             throw updateResult.error;
           }
 
-          const updatedSettings = updateResult.value;
-
-          // 保存
-          const saveResponse = await apiFetch("/api/game-settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedSettings),
-          });
-
-          if (!saveResponse.ok) {
-            throw new Error(`HTTP error! status: ${saveResponse.status}`);
-          }
-
-          const saveResult = await saveResponse.json();
-          if (saveResult.type !== "success") {
-            throw new Error("Failed to save game settings");
+          const saveResult = await gameSettingsGateway.save(updateResult.value);
+          if (saveResult.isErr()) {
+            throw saveResult.error;
           }
         } catch (error) {
           trackClientSideError(`Failed to save Auto Mode ${key}`, {
@@ -324,20 +300,15 @@ export const AutoModeInitializeBoardCommandProvider = ({
       const latestCommand = commandRef.current;
 
       try {
-        // 既存の設定を読み込む
-        const response = await apiFetch("/api/game-settings");
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        const getResult = await gameSettingsGateway.get();
+        if (getResult.isErr()) {
+          throw getResult.error;
         }
-        const result = await response.json();
-
-        if (result.type !== "success" || !result.value) {
+        const existingSettings = getResult.value;
+        if (!existingSettings) {
           throw new Error("Failed to fetch game settings");
         }
 
-        const existingSettings = result.value satisfies PersistedGameSettings;
-
-        // Auto Modeのプレイヤー情報を更新（最新の状態を使用）
         const updatedSettings: PersistedGameSettings = {
           ...existingSettings,
           autoMode: {
@@ -356,20 +327,9 @@ export const AutoModeInitializeBoardCommandProvider = ({
           },
         };
 
-        // 保存
-        const saveResponse = await apiFetch("/api/game-settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updatedSettings),
-        });
-
-        if (!saveResponse.ok) {
-          throw new Error(`HTTP error! status: ${saveResponse.status}`);
-        }
-
-        const saveResult = await saveResponse.json();
-        if (saveResult.type !== "success") {
-          throw new Error("Failed to save game settings");
+        const saveResult = await gameSettingsGateway.save(updatedSettings);
+        if (saveResult.isErr()) {
+          throw saveResult.error;
         }
       } catch (error) {
         trackClientSideError("Failed to save Auto Mode player data", {
@@ -452,26 +412,17 @@ export const AutoModeInitializeBoardCommandProvider = ({
     // ゲーム設定にもプレイヤー情報を保存（Mode switch時の同期用）
     (async () => {
       try {
-        const gameSettingsResponse = await apiFetch("/api/game-settings");
-        if (!gameSettingsResponse.ok) {
-          throw new Error(`HTTP error! status: ${gameSettingsResponse.status}`);
+        const getResult = await gameSettingsGateway.get();
+        if (getResult.isErr()) {
+          throw getResult.error;
         }
-        const gameSettingsResult = await gameSettingsResponse.json();
-
-        if (
-          gameSettingsResult.type !== "success" ||
-          !gameSettingsResult.value
-        ) {
+        const existingSettings = getResult.value;
+        if (!existingSettings) {
           throw new Error("Failed to fetch game settings");
         }
 
-        const existingSettings =
-          gameSettingsResult.value satisfies PersistedGameSettings;
-
-        // commandRefから最新の状態を取得
         const latestCommand = commandRef.current;
 
-        // Auto Mode と Manual Mode のプレイヤー情報を更新
         const updatedGameSettings: PersistedGameSettings = {
           ...existingSettings,
           autoMode: {
@@ -513,20 +464,9 @@ export const AutoModeInitializeBoardCommandProvider = ({
           },
         };
 
-        // ゲーム設定を保存
-        const saveResponse = await apiFetch("/api/game-settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updatedGameSettings),
-        });
-
-        if (!saveResponse.ok) {
-          throw new Error(`HTTP error! status: ${saveResponse.status}`);
-        }
-
-        const saveResult = await saveResponse.json();
-        if (saveResult.type !== "success") {
-          throw new Error("Failed to save game settings");
+        const saveResult = await gameSettingsGateway.save(updatedGameSettings);
+        if (saveResult.isErr()) {
+          throw saveResult.error;
         }
       } catch (gameSettingsError) {
         trackClientSideError(
