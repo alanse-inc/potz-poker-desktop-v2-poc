@@ -21,6 +21,7 @@ use commands::serial::{
     set_register_mode, start_serial_listener, unregister_rfid_card,
 };
 use commands::settings::{load_game_settings, save_game_settings};
+use commands::table_name::{get_table_name, set_table_name};
 use commands::telop::{
     close_telop_window, get_telop_state, open_telop_window, set_telop_color, set_telop_message,
 };
@@ -58,6 +59,9 @@ pub fn run() {
             // settings
             load_game_settings,
             save_game_settings,
+            // table name
+            get_table_name,
+            set_table_name,
             // telop
             open_telop_window,
             close_telop_window,

@@ -6,4 +6,5 @@ pub mod deck;
 pub mod expose;
 pub mod serial;
 pub mod settings;
+pub mod table_name;
 pub mod telop;
