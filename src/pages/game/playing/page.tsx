@@ -35,7 +35,7 @@ type Props = {
   centerText?: string;
   onPlayerCardPress: (position: number) => void;
   onBackAction: () => void;
-  onNextGame: () => void;
+  onNextGame: () => void | Promise<void>;
   isNextGameDisabled: boolean;
   isShowdown: boolean;
   onRequestBet: () => void;

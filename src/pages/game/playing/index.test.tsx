@@ -60,6 +60,47 @@ vi.mock("../../../contexts/board_context", () => ({
   }),
 }));
 
+// session_context を mock
+vi.mock("../../../contexts/session_context", () => ({
+  useSession: () => ({
+    currentSession: null,
+    setCurrentSession: vi.fn(),
+    currentGameSessionId: null,
+    setCurrentGameSessionId: vi.fn(),
+    lastHandNumber: 0,
+    setLastHandNumber: vi.fn(),
+  }),
+}));
+
+// operator_context を mock
+vi.mock("../../../contexts/operator_context", () => ({
+  useOperator: () => ({
+    operator: null,
+    gameTable: null,
+    isLoadingOperator: false,
+    isLoadingGameTable: false,
+    operatorError: null,
+    gameTableError: null,
+    loadGameTable: vi.fn(),
+  }),
+}));
+
+// auth_context を mock
+vi.mock("../../../contexts/auth_context", () => ({
+  useAuth: () => ({
+    isSignedIn: false,
+    user: null,
+    isInitializing: false,
+    isLoggingIn: false,
+    authError: null,
+    loginWithRedirect: vi.fn(),
+    loginWithPassword: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+    getAccessToken: vi.fn().mockResolvedValue(null),
+  }),
+}));
+
 // Page コンポーネントをスタブ化（重い子コンポーネントの依存を回避）
 vi.mock("./page", () => ({
   Page: ({

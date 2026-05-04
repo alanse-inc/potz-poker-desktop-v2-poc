@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
+import { createHand } from "../../../api/backend_hands";
 import { api } from "../../../api/client";
+import { fetchHandContext } from "../../../api/hand_context_api";
+import { mapShowdownBoardToCreateHandRequest } from "../../../api/mappers/board_to_hand_request";
+import { useAuth } from "../../../contexts/auth_context";
 import { useBoard } from "../../../contexts/board_context";
+import { useOperator } from "../../../contexts/operator_context";
+import { useSession } from "../../../contexts/session_context";
+import { trackClientSideError } from "../../../features/error_tracker";
 import { PlayerEditModal } from "../../../features/modal/player_edit_modal";
 import {
   type VoiceCommandLogEntry,
@@ -64,6 +71,9 @@ function reportError(e: unknown, fallback: string) {
 export function GamePlaying() {
   const { board, refresh } = useBoard();
   const navigate = useNavigate();
+  const { currentSession, currentGameSessionId } = useSession();
+  const { gameTable } = useOperator();
+  const { getAccessToken } = useAuth();
 
   // RFID カード配置イベントを処理
   useCardPlacedHandler();
@@ -131,9 +141,65 @@ export function GamePlaying() {
 
   const actionProps = useActionProps(board, handleCommandLogged, refresh);
 
-  const handleNextGame = useCallback(() => {
+  const handleNextGame = useCallback(async () => {
+    if (
+      board?.phase === "showdown" &&
+      currentSession &&
+      currentGameSessionId &&
+      gameTable &&
+      gameSettings
+    ) {
+      try {
+        const handContextResult = await fetchHandContext();
+        if (handContextResult.isErr()) {
+          trackClientSideError(
+            `[GamePlaying] fetchHandContext failed: ${handContextResult.error.message}`,
+          );
+        } else {
+          const endTime = new Date().toISOString();
+          const requestResult = await mapShowdownBoardToCreateHandRequest(
+            board,
+            currentGameSessionId,
+            currentSession.gameEventId,
+            gameTable.tableId,
+            "ring_game",
+            handContextResult.value,
+            gameSettings,
+            endTime,
+          );
+          if (requestResult.isErr()) {
+            trackClientSideError(
+              `[GamePlaying] Hand request mapping failed: ${requestResult.error.message}`,
+            );
+          } else {
+            const apiResult = await createHand(
+              requestResult.value,
+              getAccessToken,
+            );
+            if (!apiResult.ok) {
+              trackClientSideError(
+                `[GamePlaying] Hand submission failed: ${apiResult.message} (${apiResult.status})`,
+              );
+            }
+          }
+        }
+      } catch (error) {
+        trackClientSideError("[GamePlaying] Hand submission error", {
+          cause: error,
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      }
+    }
     navigate("/game/next-game");
-  }, [navigate]);
+  }, [
+    navigate,
+    board,
+    currentSession,
+    currentGameSessionId,
+    gameTable,
+    gameSettings,
+    getAccessToken,
+  ]);
 
   const handleResetConfirm = useCallback(async () => {
     try {

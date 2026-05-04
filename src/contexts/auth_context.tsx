@@ -49,6 +49,7 @@ type AuthContextValue = {
   loginWithPassword: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  getAccessToken: () => Promise<string | null>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -166,6 +167,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     [loginWithRedirect],
   );
+
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const client = await getClient();
+      if (!client) return null;
+      return await client.getTokenSilently();
+    } catch {
+      return null;
+    }
+  }, [getClient]);
 
   const logout = useCallback(async () => {
     try {
@@ -288,6 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginWithPassword,
         logout,
         refresh,
+        getAccessToken,
       }}
     >
       {children}
