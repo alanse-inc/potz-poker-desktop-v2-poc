@@ -56,7 +56,17 @@ jobs:
       - name: Build Tauri app (debug)
         run: pnpm tauri build --debug
 
+      - name: Diagnose WebKitWebDriver
+        run: |
+          which WebKitWebDriver || echo "WebKitWebDriver not in PATH"
+          ls -la /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/ 2>/dev/null | head -10 || true
+          dpkg -L webkit2gtk-driver 2>/dev/null | grep -i driver || true
+          WebKitWebDriver --version 2>/dev/null || true
+
       - name: Run E2E with virtual display
+        env:
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_FORCE_SANDBOX: "0"
         run: xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24' pnpm e2e
 
       - name: Upload screenshots on failure
