@@ -54,6 +54,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Build Tauri app (debug)
+        env:
+          VITE_E2E: "true"
         run: pnpm tauri build --debug
 
       - name: Diagnose WebKitWebDriver

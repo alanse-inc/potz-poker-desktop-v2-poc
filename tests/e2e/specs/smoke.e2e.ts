@@ -16,9 +16,9 @@ import { $, $$, browser, expect } from "@wdio/globals";
 
 describe("smoke", () => {
   it("Home 画面が表示される", async () => {
-    // アプリ起動直後はホーム画面が表示される
+    // アプリ起動直後はホーム画面が表示される（DRI3 警告などで初回レンダリングが遅れるため長めに待つ）
     const title = await $("h1=POTZ POKER");
-    await expect(title).toBeDisplayed();
+    await expect(title).toBeDisplayed({ timeout: 30_000 });
   });
 
   it("Home の主要ボタンが揃っている", async () => {
@@ -32,9 +32,12 @@ describe("smoke", () => {
       "アカウント",
       "デバッグ",
     ];
-    for (const label of labels) {
+    // 最初のボタンは長めに待ち、以降はデフォルトタイムアウトで OK
+    const firstBtn = await $(`button=${labels[0]}`);
+    await expect(firstBtn).toBeDisplayed({ timeout: 30_000 });
+    for (const label of labels.slice(1)) {
       const btn = await $(`button=${label}`);
-      await expect(btn).toBeDisplayed();
+      await expect(btn).toBeDisplayed({ timeout: 10_000 });
     }
   });
 
@@ -49,7 +52,7 @@ describe("smoke", () => {
   it("デバッグ画面のスモークテストを実行して全 PASS する", async () => {
     // セッション一覧の「戻る」ボタンでホームに戻る
     await $("button=戻る").click();
-    await $("h1=POTZ POKER").waitForDisplayed({ timeout: 10_000 });
+    await $("h1=POTZ POKER").waitForDisplayed({ timeout: 30_000 });
     // ホームの「デバッグ」ボタンでデバッグ画面に遷移
     await $("button=デバッグ").click();
     const runButton = await $("button=実行");
