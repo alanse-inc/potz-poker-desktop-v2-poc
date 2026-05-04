@@ -65,8 +65,10 @@ describe("smoke", () => {
     });
     await $("button=リフレッシュ").waitForDisplayed({ timeout: 30_000 });
     await runButton.click();
-    // 「実行中...」が消えて「実行」に戻るまで待つ (= スモークテスト完了)
-    await $("button=実行").waitForDisplayed({ timeout: 90_000 });
+    // スモークテストが開始されることを確認 (「実行中...」が表示されるまで待つ)
+    await $("button=実行中...").waitForDisplayed({ timeout: 5_000 });
+    // スモークテストが完了するまで待つ (「実行中...」が消えて「実行」に戻る)
+    await $("button=実行中...").waitForDisplayed({ reverse: true, timeout: 90_000 });
     // 全ステップが PASS であることを確認
     const passCount = (await $$("span=PASS")).length;
     const failCount = (await $$("span=FAIL")).length;
