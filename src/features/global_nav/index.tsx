@@ -18,7 +18,7 @@ function resolveActiveByPath(pathname: string): ActiveMenu | null {
   if (pathname.startsWith("/deck")) return "deck";
   if (
     pathname.startsWith("/game") ||
-    pathname.startsWith("/auto_game") ||
+    pathname.startsWith("/auto-game") ||
     pathname === "/"
   ) {
     return "game";

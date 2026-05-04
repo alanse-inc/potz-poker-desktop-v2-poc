@@ -7,7 +7,7 @@
  * - GAME START でプレイ画面へ遷移
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { useLocation, useNavigate } from "react-router";
 import { useAutoBoard } from "../../../contexts/auto_board_context";
@@ -51,18 +51,17 @@ export function AutoGameSetting() {
   const { containerRef, contentRef } = useAutoScale(950, 400, 1.6, 0.7);
 
   // select-btn ページから戻ってきたときのハンドリング
-  const state = location.state as { selectedBtnSeat?: number } | null;
-  if (state?.selectedBtnSeat) {
-    // BTN プレイヤーのポジションを更新
+  useEffect(() => {
+    const state = location.state as { selectedBtnSeat?: number } | null;
+    if (!state?.selectedBtnSeat) return;
     const btnSeat = state.selectedBtnSeat;
-    const btnPlayer = players.find((p) => p.seat === btnSeat);
-    if (btnPlayer) {
-      const updated = assignPositions(players, btnPlayer.id);
-      setPlayers(updated);
-    }
-    // state をクリア
+    setPlayers((prev) => {
+      const btnPlayer = prev.find((p) => p.seat === btnSeat);
+      if (!btnPlayer) return prev;
+      return assignPositions(prev, btnPlayer.id);
+    });
     navigate("/auto-game/setting", { replace: true, state: {} });
-  }
+  }, [location.state, navigate]);
 
   const selectedPlayer = useMemo(
     () =>
