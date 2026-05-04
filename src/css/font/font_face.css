@@ -1,0 +1,26 @@
+@font-face {
+	font-family: "AmericanTypewriter";
+	src: url("./AmericanTypewriterBold.ttf");
+}
+
+@font-face {
+	font-family: "FuturaPT";
+	src: url("./FuturaCyrillicHeavy.ttf");
+}
+
+@font-face {
+	font-family: "SourceSerif4";
+	src: url("./SourceSerif4.ttf");
+}
+
+@font-face {
+	font-family: "Oswald";
+	src: url("./Oswald-Bold.ttf");
+	font-weight: 700;
+}
+
+@font-face {
+	font-family: "Montserrat";
+	src: url("./Montserrat-Bold.ttf");
+	font-weight: 700;
+}

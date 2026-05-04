@@ -1,5 +1,5 @@
 @import "tailwindcss";
-/* @import "./font/font_face.css"; */ /* PoC: フォントは省略 */
+@import "./font/font_face.css";
 @import "./themes/color_theme.css";
 @import "./tokens/color_tokens.css";
 
