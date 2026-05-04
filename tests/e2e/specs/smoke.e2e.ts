@@ -79,7 +79,22 @@ describe("smoke", () => {
     // 全ステップが PASS であることを確認
     const passCount = (await $$("span=PASS")).length;
     const failCount = (await $$("span=FAIL")).length;
+    if (failCount > 0) {
+      // 失敗したステップの名前とエラーメッセージを収集してデバッグ出力
+      const listItems = await $$("li");
+      const failDetails: string[] = [];
+      for (const li of listItems) {
+        const badge = await li.$("span=FAIL").catch(() => null);
+        if (badge && (await badge.isExisting())) {
+          const name = await li.$("span.font-mono").getText().catch(() => "?");
+          const error = await li.$("span.text-red-400").getText().catch(() => "");
+          failDetails.push(`${name}: ${error}`);
+        }
+      }
+      throw new Error(
+        `smoke test: ${failCount} step(s) FAILED. Details: ${failDetails.join("; ")}`,
+      );
+    }
     expect(passCount).toBe(8);
-    expect(failCount).toBe(0);
   });
 });

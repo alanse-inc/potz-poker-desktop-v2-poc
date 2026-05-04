@@ -30,8 +30,8 @@ describe("navigation", () => {
 
   it("AUTO ゲーム設定 から Auto-game Setting 画面に遷移する", async () => {
     await $("button=AUTO ゲーム設定").click();
-    // AUTO MODE スイッチが表示される
-    await expect(await $("=AUTO MODE")).toBeDisplayed({ timeout: 5000 });
+    // Switch コンポーネントは button[role="switch"] で確認
+    await expect(await $('button[role="switch"]')).toBeDisplayed({ timeout: 5000 });
   });
 
   it("テロップ設定 → Home に遷移できる", async () => {

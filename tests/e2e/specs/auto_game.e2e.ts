@@ -22,7 +22,8 @@ describe("auto_game", () => {
   });
 
   it("AUTO MODE スイッチと GAME START ボタンが表示される", async () => {
-    await expect(await $("=AUTO MODE")).toBeDisplayed();
+    // Switch コンポーネントは button[role="switch"] で確認
+    await expect(await $('button[role="switch"]')).toBeDisplayed();
     await expect(await $("button=GAME START")).toBeDisplayed();
   });
 
@@ -33,17 +34,10 @@ describe("auto_game", () => {
   });
 
   it("AUTO MODE スイッチで通常 (first-game) モードに戻る", async () => {
-    // Switch コンポーネントは role="switch" の input
-    const swt = await $('input[type="checkbox"][role="switch"]');
-    if (await swt.isExisting()) {
-      await swt.click();
-    } else {
-      // フォールバック: 文言の親要素クリック
-      await $("=AUTO MODE").click();
-    }
+    // Switch コンポーネントは button[role="switch"] でクリック
+    await $('button[role="switch"]').click();
     // createMemoryRouter のため getUrl() は常に tauri://localhost/ を返す
-    // ホーム画面 → game/first-game/setting or game/setting に遷移した場合
-    // BACK ボタンが表示されることで確認
+    // game/first-game/setting に遷移したことを BACK ボタンで確認
     await $("button=BACK").waitForDisplayed({ timeout: 5000 });
   });
 });
