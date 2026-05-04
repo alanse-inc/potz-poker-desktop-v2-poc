@@ -105,3 +105,33 @@ export type RfidCardMapping = {
 };
 
 export type AccountInfo = { appVersion: string };
+
+// ---------------------------------------------------------------------------
+// テキサスホールデム初期ボード (initial_board_context 用)
+// ---------------------------------------------------------------------------
+
+/** ゲーム開始前の初期ボード状態 */
+export type TexasHoldemInitialBoard = {
+  /** ハンドナンバー */
+  handNumber: number;
+  /** ディーラーポジション */
+  dealerPosition: number;
+  /** プレイヤー一覧 */
+  players: Player[];
+  /** ゲーム設定 */
+  settings: GameSettings;
+};
+
+// ---------------------------------------------------------------------------
+// テロップ設定 (telop_context 用)
+// ---------------------------------------------------------------------------
+
+/** テロップ ID (表示テンプレート種別) */
+export type TelopId = "basic" | "classic" | "broadcast" | "modern";
+
+/** テロップ画面状態 */
+export type TelopScreenState =
+  | "manual-setting"
+  | "auto-setting"
+  | "playing"
+  | null;

@@ -10,8 +10,11 @@ import type {
   GameSettings,
   RfidCardMapping,
   SerialStatus,
+  TelopId,
+  TelopScreenState,
   TelopState,
   TexasHoldemBoard,
+  TexasHoldemInitialBoard,
 } from "../types";
 
 export const api = {
@@ -114,5 +117,40 @@ export const api = {
       cb: (status: SerialStatus) => void,
     ): Promise<UnlistenFn> =>
       listen<SerialStatus>("serial_status_updated", (e) => cb(e.payload)),
+    onTelopIdUpdated: (cb: (telopId: TelopId) => void): Promise<UnlistenFn> =>
+      listen<TelopId>("telop_id_updated", (e) => cb(e.payload)),
+    onTelopBackgroundColorUpdated: (
+      cb: (color: string) => void,
+    ): Promise<UnlistenFn> =>
+      listen<string>("telop_background_color_updated", (e) => cb(e.payload)),
+    onTelopCurrentScreenUpdated: (
+      cb: (screen: TelopScreenState) => void,
+    ): Promise<UnlistenFn> =>
+      listen<TelopScreenState>("telop_current_screen_updated", (e) =>
+        cb(e.payload),
+      ),
+    onInitialBoardUpdated: (
+      cb: (board: TexasHoldemInitialBoard) => void,
+    ): Promise<UnlistenFn> =>
+      listen<TexasHoldemInitialBoard>("initial_board_updated", (e) =>
+        cb(e.payload),
+      ),
+  },
+  initialBoard: {
+    getInitialBoard: (): Promise<TexasHoldemInitialBoard | null> =>
+      invoke<TexasHoldemInitialBoard | null>("get_initial_board"),
+  },
+  telopSettings: {
+    getTelopId: (): Promise<TelopId> => invoke<TelopId>("get_telop_id"),
+    setTelopId: (telopId: TelopId): Promise<void> =>
+      invoke<void>("set_telop_id", { telopId }),
+    getBackgroundColor: (): Promise<string> =>
+      invoke<string>("get_telop_background_color"),
+    setBackgroundColor: (color: string): Promise<void> =>
+      invoke<void>("set_telop_background_color", { color }),
+    getCurrentScreen: (): Promise<TelopScreenState> =>
+      invoke<TelopScreenState>("get_telop_current_screen"),
+    setCurrentScreen: (screen: TelopScreenState): Promise<void> =>
+      invoke<void>("set_telop_current_screen", { screen }),
   },
 };
