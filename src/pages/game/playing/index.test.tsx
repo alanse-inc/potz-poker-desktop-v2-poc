@@ -240,7 +240,7 @@ vi.mock("./components/add_player_modal", () => ({
   ),
 }));
 
-vi.mock("./components/player_edit_modal", () => ({
+vi.mock("../../../features/modal/player_edit_modal", () => ({
   PlayerEditModal: ({ onClose }: { onClose: () => void }) => (
     <div data-testid="modal-player-edit">
       <button

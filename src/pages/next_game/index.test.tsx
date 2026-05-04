@@ -48,7 +48,7 @@ vi.mock("../../contexts/board_context", () => ({
 }));
 
 // PlayerEditModal をスタブ化
-vi.mock("../game/playing/components/player_edit_modal", () => ({
+vi.mock("../../features/modal/player_edit_modal", () => ({
   PlayerEditModal: ({ onClose }: { onClose: () => void }) => (
     <div data-testid="modal-player-edit">
       <button

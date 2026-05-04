@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { api } from "../../../api/client";
+import { ChipInputModal } from "../../../features/modal/chip_input_modal";
 import { useAutoScale } from "../../../hooks/useAutoScale";
 import { RoundButton } from "../../../ui/button/round_button";
 import { BasicPage } from "../../../ui/page/basic";
-import { ChipInputModal } from "./components/chip_input_modal";
 import type { ChipSettingKey } from "./components/game_setting_buttons";
 import { GameSettingButtons } from "./components/game_setting_buttons";
 import { PlayerModal } from "./components/player_modal";

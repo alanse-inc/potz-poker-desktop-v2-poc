@@ -6,11 +6,11 @@ import { api } from "../../api/client";
 import { useBoard } from "../../contexts/board_context";
 import { Board, type BoardProps, type SeatContent } from "../../features/board";
 import { DealerIcon } from "../../features/dealer_icon";
+import { PlayerEditModal } from "../../features/modal/player_edit_modal";
 import { useAutoScale } from "../../hooks/useAutoScale";
 import { RoundButton } from "../../ui/button/round_button";
 import { BasicPage } from "../../ui/page/basic";
 import { AddPlayerModal } from "../game/playing/components/add_player_modal";
-import { PlayerEditModal } from "../game/playing/components/player_edit_modal";
 
 const EMPTY_SEATS: BoardProps["seats"] = {
   1: { playerCard: undefined },

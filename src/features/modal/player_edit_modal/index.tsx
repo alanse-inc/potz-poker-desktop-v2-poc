@@ -1,9 +1,9 @@
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { api } from "../../../../../api/client";
-import type { Player } from "../../../../../types";
-import { RoundButton } from "../../../../../ui/button/round_button";
-import { TextInput } from "../../../../../ui/text_input";
+import { api } from "../../../api/client";
+import type { Player } from "../../../types";
+import { RoundButton } from "../../../ui/button/round_button";
+import { TextInput } from "../../../ui/text_input";
 
 type Props = {
   player: Player;

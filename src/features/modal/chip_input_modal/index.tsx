@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RoundButton } from "../../../../../ui/button/round_button";
+import { RoundButton } from "../../../ui/button/round_button";
 
 type Props = {
   title: string;
