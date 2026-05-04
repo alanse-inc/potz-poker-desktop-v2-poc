@@ -1,0 +1,36 @@
+@import "../tokens/color_tokens.css";
+
+/* カラートークンを用いてテーマを定義する */
+
+@theme {
+	--color-primary: var(--color-lime-500); /* メインカラー */
+	--color-secondary: var(--color-blue-500); /* セカンダリーカラー */
+
+	/* 以下、仮のセマンティックなテーマ設定を適当に入れている（さくらさんと後日相談） */
+	--color-border-white: var(--color-white);
+	--color-border-gray: var(--color-gray-800);
+	--color-text-white: var(--color-white);
+	--color-text-black: var(--color-black);
+	--color-background-black: var(--color-black);
+	--color-background-light-gray: var(--color-gray-50);
+	--color-background-gray: var(--color-gray-800);
+	--color-background-dark-gray: var(--color-gray-900);
+	--color-background-transparent: var(--color-black-gradient-3);
+
+	/* アクションボタン専用カラー */
+	--color-action-check-call: var(--color-blue-500); /* CHECK/CALL: 青 */
+	--color-action-bet-raise: var(--color-orange-500); /* BET/RAISE: オレンジ */
+
+	/* PlayerCard アクションバッジ用カラー
+	   Footer のアクションボタンと配色を一致させ、配信オペレーターが
+	   「押したボタンの色」と「実行されたバッジの色」が直感的に対応するようにする。
+	   - fold: background-gray と同じ
+	   - check / call: action-check-call と同じ（Footer で両者は統合ボタン）
+	   - bet / raise: action-bet-raise と同じ（Footer で両者は統合ボタン）
+	   - allin: primary（ブランド色 lime）と同じ。重要アクション感を強調する */
+	--color-action-badge-fold: var(--color-background-gray);
+	--color-action-badge-check: var(--color-action-check-call);
+	--color-action-badge-call: var(--color-action-check-call);
+	--color-action-badge-bet: var(--color-action-bet-raise);
+	--color-action-badge-allin: var(--color-primary);
+}

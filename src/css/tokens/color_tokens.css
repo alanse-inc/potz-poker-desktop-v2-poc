@@ -1,0 +1,82 @@
+/* 
+基本的にスタイリングするときはここのカラートークンを直接参照するのではなく、テーマを参照するのが好ましい。
+何をどうテーマに設定するかはさくらさんと相談する
+*/
+
+@theme {
+	/* colors */
+	/* 色の設計トークン（ライム系） */
+	--color-lime-50: #f8ffe5;
+	--color-lime-100: #f1ffcb;
+	--color-lime-200: #e3ff97;
+	--color-lime-300: #d5ff63;
+	--color-lime-400: #cfff45;
+	--color-lime-500: #caff33; /* バージョン1の Primary */
+	--color-lime-600: #b8e62e;
+	--color-lime-700: #a4d029;
+	--color-lime-800: #90b823;
+	--color-lime-900: #7ca01e;
+	/* 色の設計トークン（ブルー系） */
+	--color-blue-50: #eff6ff;
+	--color-blue-100: #dbeafe;
+	--color-blue-200: #bfdbfe;
+	--color-blue-300: #93c5fd;
+	--color-blue-400: #60a5fa;
+	--color-blue-500: #2f80ed; /* バージョン1の light-blue */
+	--color-blue-600: #2563eb;
+	--color-blue-700: #1d4ed8;
+	--color-blue-800: #1e40af;
+	--color-blue-900: #0354a6; /* バージョン1の black-blue*/
+	/* 色の設計トークン（グレー系） */
+	--color-white: #ffffff;
+	--color-gray-50: #e0e0e0;
+	--color-gray-100: #cdcdcd;
+	--color-gray-200: #bababa;
+	--color-gray-300: #a6a6a6;
+	--color-gray-400: #939393;
+	--color-gray-500: #808080;
+	--color-gray-600: #6d6d6d;
+	--color-gray-700: #5a5a5a;
+	--color-gray-800: #4f4f4f;
+	--color-gray-900: #333333;
+	--color-black: #262626;
+	--color-black-deep: #222222;
+	--color-black-darkest: #1a1a1a;
+	/* 色の設計トークン（レッド系） */
+	--color-red-50: #fff5f5;
+	--color-red-100: #ffe3e3;
+	--color-red-200: #ffcccb;
+	--color-red-300: #ff9f9e;
+	--color-red-400: #ff6b68;
+	--color-red-500: #ff483b;
+	--color-red-600: #e6412e;
+	--color-red-700: #cc3a21;
+	--color-red-800: #b33314;
+	--color-red-900: #991507;
+	/* 色の設計トークン（オレンジ系） */
+	--color-orange-50: #fff7ed;
+	--color-orange-100: #ffedd5;
+	--color-orange-200: #fed7aa;
+	--color-orange-300: #fdba74;
+	--color-orange-400: #fb923c;
+	--color-orange-500: #f97316;
+	--color-orange-600: #ea580c;
+	--color-orange-700: #c2410c;
+	--color-orange-800: #9a3412;
+	--color-orange-900: #7c2d12;
+	/* 透明色の設計トークン */
+	--color-black-gradient-1: rgba(0, 0, 0, 0.05);
+	--color-black-gradient-2: rgba(0, 0, 0, 0.15);
+	--color-black-gradient-3: rgba(0, 0, 0, 0.25);
+	--color-black-gradient-4: rgba(0, 0, 0, 0.35);
+	--color-black-gradient-5: rgba(0, 0, 0, 0.45);
+	--color-black-gradient-6: rgba(0, 0, 0, 0.55);
+	--color-black-gradient-7: rgba(0, 0, 0, 0.65);
+	--color-black-gradient-8: rgba(0, 0, 0, 0.75);
+	--color-black-gradient-9: rgba(0, 0, 0, 0.85);
+	--color-black-gradient-10: rgba(0, 0, 0, 0.95);
+
+	/* boxShadow */
+	--shadow-custom: -2px -2px 10px rgba(255, 255, 255, 0.16), 18px 18px 36px
+		rgba(0, 0, 0, 0.16);
+}

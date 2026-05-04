@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+release
+out
+coverage
+*.log
+.DS_Store
+test-report.junit.xml
+src-tauri/target
+src-tauri/gen
+.vite

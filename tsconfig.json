@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [{ "path": "./tsconfig.web.json" }],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "src-tauri/target",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "target": "esnext"
+  }
+}

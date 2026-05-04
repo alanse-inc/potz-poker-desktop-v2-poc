@@ -1,0 +1,15 @@
+@import "tailwindcss";
+/* @import "./font/font_face.css"; */ /* PoC: フォントは省略 */
+@import "./themes/color_theme.css";
+@import "./tokens/color_tokens.css";
+
+@theme {
+	--spacing: 0.2rem;
+}
+
+/* inputの矢印を非表示にする */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
