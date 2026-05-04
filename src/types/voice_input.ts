@@ -1,3 +1,18 @@
+export type VoicePositionKey = "btn" | "sb" | "bb";
+
+export const VOICE_POSITION_KEYS: readonly VoicePositionKey[] = [
+  "btn",
+  "sb",
+  "bb",
+] as const;
+
+const VOICE_POSITION_KEY_SET: ReadonlySet<string> = new Set(
+  VOICE_POSITION_KEYS,
+);
+
+export const isVoicePositionKey = (value: unknown): value is VoicePositionKey =>
+  typeof value === "string" && VOICE_POSITION_KEY_SET.has(value);
+
 export type VoicePokerAction =
   | "bet"
   | "raise"
@@ -26,10 +41,12 @@ export const VALID_VOICE_ACTIONS: readonly VoicePokerAction[] = [
 /**
  * 音声入力でディーラーが指定したアクション対象プレイヤー。
  * - `seat`: 「N 番」形式
+ * - `position`: BTN/SB/BB ポジション発話
  * - `current`: 指定なし（現在アクション待ちプレイヤー）
  */
 export type VoiceCommandTarget =
   | { _kind: "seat"; seatNumber: number }
+  | { _kind: "position"; position: VoicePositionKey }
   | { _kind: "current" };
 
 export interface VoicePokerCommand {
