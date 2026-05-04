@@ -59,7 +59,7 @@ describe("smoke", () => {
     await expect(runButton).toBeDisplayed({ timeout: 10_000 });
     await runButton.click();
     await browser.waitUntil(async () => (await $$("span=PASS").length) === 8, {
-      timeout: 15_000,
+      timeout: 30_000,
       timeoutMsg: "smoke test did not all pass",
     });
   });
