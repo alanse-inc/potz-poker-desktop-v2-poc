@@ -7,19 +7,12 @@
  *   - GlobalNav Session ボタンからセッション一覧への遷移
  *   - デバッグ画面への遷移と smoke test 実行
  *
- * 注意: createMemoryRouter を使用しているため browser.url() によるナビゲーション
- *       は機能しない。ボタンクリックによる React Router ナビゲーションのみ使用。
+ * 注意: createMemoryRouter を使用しているため browser.getUrl() は常に
+ *       tauri://localhost/ を返す。ページ確認は DOM 要素の存在で行う。
+ *       またブラウザ URL ナビゲーションでは React Router ルートは変わらない
+ *       ため、ページ遷移は必ずボタンクリックで行う。
  */
 import { $, $$, browser, expect } from "@wdio/globals";
-
-/** Home 画面に戻るユーティリティ */
-async function goHome() {
-  // GlobalNav の Game ボタンでホームに戻る (navigate("/game/setting") だが
-  // ホームと同等の動作。直接 "/" に戻りたい場合は GlobalNav に "/" へのリンクがないため
-  // ブラウザの url で tauri://localhost/ をロードして初期状態に戻す)
-  await browser.url("tauri://localhost/");
-  await $("h1=POTZ POKER").waitForDisplayed({ timeout: 10_000 });
-}
 
 describe("smoke", () => {
   it("Home 画面が表示される", async () => {
@@ -48,18 +41,19 @@ describe("smoke", () => {
   it("GlobalNav からセッション一覧に遷移できる", async () => {
     // GlobalNav の Session ボタン (英語ラベル) をクリック
     await $("button=Session").click();
-    await browser.waitUntil(
-      async () => (await browser.getUrl()).includes("/session/list"),
-      { timeout: 5000, timeoutMsg: "did not navigate to /session/list" },
-    );
+    // URL ではなく DOM 要素でセッション一覧ページを確認
+    const heading = await $("h1=セッション一覧");
+    await expect(heading).toBeDisplayed({ timeout: 10_000 });
   });
 
   it("デバッグ画面のスモークテストを実行して全 PASS する", async () => {
-    // ホームに戻ってからデバッグボタンをクリック
-    await goHome();
+    // セッション一覧の「戻る」ボタンでホームに戻る
+    await $("button=戻る").click();
+    await $("h1=POTZ POKER").waitForDisplayed({ timeout: 10_000 });
+    // ホームの「デバッグ」ボタンでデバッグ画面に遷移
     await $("button=デバッグ").click();
     const runButton = await $("button=実行");
-    await expect(runButton).toBeDisplayed();
+    await expect(runButton).toBeDisplayed({ timeout: 10_000 });
     await runButton.click();
     await browser.waitUntil(async () => (await $$("span=PASS").length) === 8, {
       timeout: 15_000,
