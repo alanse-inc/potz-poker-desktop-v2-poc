@@ -21,6 +21,7 @@ import { SessionList } from "../pages/session/list";
 import { RemoteSettings } from "../pages/settings/remote";
 import { TableNameSettings } from "../pages/settings/table_name";
 import { TelopSettings } from "../pages/settings/telop";
+import { VoiceInputSettings } from "../pages/settings/voice_input";
 
 export const mainRouter = createMemoryRouter([
   {
@@ -43,6 +44,7 @@ export const mainRouter = createMemoryRouter([
       { path: "/settings/telop", element: <TelopSettings /> },
       { path: "/settings/remote", element: <RemoteSettings /> },
       { path: "/settings/table-name", element: <TableNameSettings /> },
+      { path: "/settings/voice-input", element: <VoiceInputSettings /> },
       { path: "/debug", element: <Debug /> },
       { path: "/deck", element: <DeckHome /> },
       { path: "/deck/choose", element: <DeckChoose /> },
