@@ -19,6 +19,29 @@ type DebugSnapshot = {
   serialStatus: SerialStatus | null;
 };
 
+type SmokeStatus = "pending" | "running" | "pass" | "fail";
+
+type SmokeResult = {
+  name: string;
+  status: SmokeStatus;
+  durationMs?: number;
+  error?: string;
+};
+
+const SMOKE_STEPS: ReadonlyArray<{
+  name: string;
+  run: () => Promise<unknown>;
+}> = [
+  { name: "board.getBoard", run: () => api.board.getBoard() },
+  { name: "gameSettings.load", run: () => api.gameSettings.load() },
+  { name: "rfid.getMapping", run: () => api.rfid.getMapping() },
+  { name: "rfid.getSerialStatus", run: () => api.rfid.getSerialStatus() },
+  { name: "deck.getCurrentDeck", run: () => api.deck.getCurrentDeck() },
+  { name: "deck.getAllDecks", run: () => api.deck.getAllDecks() },
+  { name: "telop.getState", run: () => api.telop.getState() },
+  { name: "get_table_name", run: () => invoke<string>("get_table_name") },
+];
+
 export function Debug() {
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<DebugSnapshot>({
@@ -29,6 +52,13 @@ export function Debug() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [tableName, setTableName] = useState<string>("");
+  const [smokeResults, setSmokeResults] = useState<SmokeResult[]>(() =>
+    SMOKE_STEPS.map((s) => ({
+      name: s.name,
+      status: "pending" as SmokeStatus,
+    })),
+  );
+  const [isSmokeRunning, setIsSmokeRunning] = useState(false);
 
   const fetchSnapshot = async () => {
     setIsLoading(true);
@@ -76,6 +106,47 @@ export function Debug() {
     }
   };
 
+  const handleSmokeTest = async () => {
+    setIsSmokeRunning(true);
+    setSmokeResults(
+      SMOKE_STEPS.map((s) => ({ name: s.name, status: "pending" as const })),
+    );
+    let passCount = 0;
+    let failCount = 0;
+    for (let i = 0; i < SMOKE_STEPS.length; i++) {
+      const step = SMOKE_STEPS[i];
+      setSmokeResults((prev) =>
+        prev.map((r, idx) => (idx === i ? { ...r, status: "running" } : r)),
+      );
+      const startedAt = performance.now();
+      try {
+        await step.run();
+        const durationMs = Math.round(performance.now() - startedAt);
+        setSmokeResults((prev) =>
+          prev.map((r, idx) =>
+            idx === i ? { ...r, status: "pass", durationMs } : r,
+          ),
+        );
+        passCount += 1;
+      } catch (e) {
+        const durationMs = Math.round(performance.now() - startedAt);
+        const error = e instanceof Error ? e.message : String(e);
+        setSmokeResults((prev) =>
+          prev.map((r, idx) =>
+            idx === i ? { ...r, status: "fail", durationMs, error } : r,
+          ),
+        );
+        failCount += 1;
+      }
+    }
+    setIsSmokeRunning(false);
+    if (failCount === 0) {
+      toast.success(`スモークテスト ${passCount}/${SMOKE_STEPS.length} 成功`);
+    } else {
+      toast.error(`スモークテスト ${failCount}/${SMOKE_STEPS.length} 失敗`);
+    }
+  };
+
   const handleTestCardPlaced = async () => {
     try {
       await api.rfid.applyCardPlaced(
@@ -110,6 +181,62 @@ export function Debug() {
             />
           </div>
         </div>
+
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-gray-400 text-sm uppercase">
+              全機能スモークテスト
+            </h2>
+            <button
+              type="button"
+              onClick={handleSmokeTest}
+              disabled={isSmokeRunning}
+              className="flex h-9 items-center justify-center rounded-lg bg-primary px-4 font-semibold text-black text-sm transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSmokeRunning ? "実行中..." : "実行"}
+            </button>
+          </div>
+          <ul className="flex flex-col gap-1 rounded-lg bg-gray-900 p-3">
+            {smokeResults.map((r) => {
+              const badge =
+                r.status === "pass"
+                  ? { color: "bg-green-600", label: "PASS" }
+                  : r.status === "fail"
+                    ? { color: "bg-red-600", label: "FAIL" }
+                    : r.status === "running"
+                      ? { color: "bg-yellow-600", label: "RUN" }
+                      : { color: "bg-gray-700", label: "WAIT" };
+              return (
+                <li
+                  key={r.name}
+                  className="flex items-center justify-between gap-3 text-xs"
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex w-12 items-center justify-center rounded px-1 py-0.5 font-bold text-white ${badge.color}`}
+                    >
+                      {badge.label}
+                    </span>
+                    <span className="font-mono text-white">{r.name}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-gray-400">
+                    {r.durationMs !== undefined && (
+                      <span>{r.durationMs}ms</span>
+                    )}
+                    {r.error && (
+                      <span
+                        className="max-w-xs truncate text-red-400"
+                        title={r.error}
+                      >
+                        {r.error}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
 
         <section className="flex flex-col gap-3">
           <h2 className="font-bold text-gray-400 text-sm uppercase">

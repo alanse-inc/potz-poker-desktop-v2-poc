@@ -14,6 +14,13 @@ vi.mock("../../api/client", () => ({
       getSerialStatus: vi.fn(),
       applyCardPlaced: vi.fn(),
     },
+    deck: {
+      getCurrentDeck: vi.fn(),
+      getAllDecks: vi.fn(),
+    },
+    telop: {
+      getState: vi.fn(),
+    },
   },
 }));
 
@@ -57,6 +64,12 @@ describe("Debug", () => {
       portName: null,
     });
     vi.mocked(api.rfid.applyCardPlaced).mockResolvedValue(undefined);
+    vi.mocked(api.deck.getCurrentDeck).mockResolvedValue(null);
+    vi.mocked(api.deck.getAllDecks).mockResolvedValue([]);
+    vi.mocked(api.telop.getState).mockResolvedValue({
+      message: "",
+      color: "#fff",
+    });
   });
 
   it("「デバッグメニュー」の見出しが表示される", () => {
@@ -130,6 +143,61 @@ describe("Debug", () => {
     await user.click(screen.getByText("Ping ボード"));
     await waitFor(() => {
       expect(api.board.getBoard).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("全機能スモークテスト", () => {
+    it("初期表示で 8 ステップが WAIT 状態で並ぶ", async () => {
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("全機能スモークテスト")).toBeInTheDocument();
+      });
+      expect(screen.getByText("board.getBoard")).toBeInTheDocument();
+      expect(screen.getByText("gameSettings.load")).toBeInTheDocument();
+      expect(screen.getByText("rfid.getMapping")).toBeInTheDocument();
+      expect(screen.getByText("rfid.getSerialStatus")).toBeInTheDocument();
+      expect(screen.getByText("deck.getCurrentDeck")).toBeInTheDocument();
+      expect(screen.getByText("deck.getAllDecks")).toBeInTheDocument();
+      expect(screen.getByText("telop.getState")).toBeInTheDocument();
+      expect(screen.getByText("get_table_name")).toBeInTheDocument();
+      expect(screen.getAllByText("WAIT").length).toBe(8);
+    });
+
+    it("実行ボタンをクリックすると全 API が呼ばれ全て PASS になる", async () => {
+      const user = userEvent.setup();
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("全機能スモークテスト")).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: "実行" }));
+      await waitFor(
+        () => {
+          expect(screen.getAllByText("PASS").length).toBe(8);
+        },
+        { timeout: 3000 },
+      );
+      expect(api.deck.getCurrentDeck).toHaveBeenCalled();
+      expect(api.deck.getAllDecks).toHaveBeenCalled();
+      expect(api.telop.getState).toHaveBeenCalled();
+    });
+
+    it("ステップが失敗すると FAIL とエラーメッセージが表示される", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.deck.getAllDecks).mockRejectedValue(
+        new Error("backend down"),
+      );
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("全機能スモークテスト")).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: "実行" }));
+      await waitFor(
+        () => {
+          expect(screen.getByText("FAIL")).toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
+      expect(screen.getByText("backend down")).toBeInTheDocument();
     });
   });
 });
