@@ -44,6 +44,7 @@ export const config: WebdriverIO.Config = {
   ],
   hostname: "127.0.0.1",
   port: TAURI_DRIVER_PORT,
+  baseUrl: "tauri://localhost",
   logLevel: "info",
   bail: 0,
   waitforTimeout: 10_000,
