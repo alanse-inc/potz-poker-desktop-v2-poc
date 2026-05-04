@@ -1,5 +1,8 @@
+import { useTelop } from "../../../contexts/telop_context";
 import type { TexasHoldemBoard } from "../../../types";
+import { useAutoTelopData } from "../hooks/useAutoTelopData";
 import { getActiveTelopPlayers, splitPlayersLeftRight } from "../utils";
+import { TelopModernAutoPage } from "./auto";
 import { ModernCommunityCardsAndPot } from "./components/CommunityCardsAndPot";
 import { ModernPlayerCards } from "./components/PlayerCards";
 
@@ -7,17 +10,12 @@ type Props = {
   board: TexasHoldemBoard;
 };
 
-/**
- * Modern テーマ テロップページ
- * FuturaPT フォント、白黒コントラストなデザイン
- */
-export function TelopModernPage({ board }: Props) {
+function TelopModernManual({ board }: Props) {
   const activePlayers = getActiveTelopPlayers(board);
   const { left, right } = splitPlayersLeftRight(activePlayers);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
-      {/* 左側プレイヤー */}
       <div className="absolute bottom-4 left-4">
         <ModernPlayerCards
           board={board}
@@ -27,7 +25,6 @@ export function TelopModernPage({ board }: Props) {
         />
       </div>
 
-      {/* 右側プレイヤー */}
       <div className="absolute right-4 bottom-4">
         <ModernPlayerCards
           board={board}
@@ -37,10 +34,25 @@ export function TelopModernPage({ board }: Props) {
         />
       </div>
 
-      {/* コミュニティカード + ポット */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
         <ModernCommunityCardsAndPot board={board} />
       </div>
     </div>
   );
+}
+
+function TelopModernAutoWrapper() {
+  const { board, players } = useAutoTelopData();
+  return <TelopModernAutoPage board={board} players={players} />;
+}
+
+export function TelopModernPage({ board }: Props) {
+  const { currentScreen } = useTelop();
+  const isAutoMode = currentScreen === "auto-setting";
+
+  if (isAutoMode) {
+    return <TelopModernAutoWrapper />;
+  }
+
+  return <TelopModernManual board={board} />;
 }
