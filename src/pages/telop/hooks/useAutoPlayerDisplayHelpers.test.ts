@@ -1,6 +1,9 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { AutoModeBoard, AutoModePlayer } from "../../../domain/auto_game/types";
+import type {
+  AutoModeBoard,
+  AutoModePlayer,
+} from "../../../domain/auto_game/types";
 import { useAutoPlayerDisplayHelpers } from "./useAutoPlayerDisplayHelpers";
 
 function makePlayer(overrides: Partial<AutoModePlayer> = {}): AutoModePlayer {

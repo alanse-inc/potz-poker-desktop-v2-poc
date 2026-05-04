@@ -37,7 +37,7 @@ import type { VoicePokerCommand } from "../../../../types/voice_input";
 import { useVoiceCommandQueue } from "./use_voice_command_queue";
 
 const mockTrackError = vi.mocked(trackError);
-const mockTrackClientSideError = vi.mocked(trackClientSideError);
+const _mockTrackClientSideError = vi.mocked(trackClientSideError);
 const mockVoiceInputService = vi.mocked(voiceInputService);
 
 function buildMockBoard(
@@ -144,9 +144,7 @@ describe("useVoiceCommandQueue", () => {
         useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
       );
 
-      result.current.enqueue(
-        buildCommand({ action: "fold", confidence: 0.5 }),
-      );
+      result.current.enqueue(buildCommand({ action: "fold", confidence: 0.5 }));
 
       await vi.runAllTimersAsync();
 
@@ -247,9 +245,7 @@ describe("useVoiceCommandQueue", () => {
         useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
       );
 
-      result.current.enqueue(
-        buildCommand({ action: "bet", amount: null }),
-      );
+      result.current.enqueue(buildCommand({ action: "bet", amount: null }));
       await vi.runAllTimersAsync();
 
       expect(api.action.bet).not.toHaveBeenCalled();
@@ -283,9 +279,7 @@ describe("useVoiceCommandQueue", () => {
         useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
       );
 
-      result.current.enqueue(
-        buildCommand({ action: "raise", amount: null }),
-      );
+      result.current.enqueue(buildCommand({ action: "raise", amount: null }));
       await vi.runAllTimersAsync();
 
       expect(api.action.raise).not.toHaveBeenCalled();
@@ -478,9 +472,7 @@ describe("useVoiceCommandQueue", () => {
         useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
       );
 
-      result.current.enqueue(
-        buildCommand({ action: null, amount: 500 }),
-      );
+      result.current.enqueue(buildCommand({ action: null, amount: 500 }));
       await vi.runAllTimersAsync();
 
       expect(api.action.raise).toHaveBeenCalledWith(500);
@@ -494,9 +486,7 @@ describe("useVoiceCommandQueue", () => {
         useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
       );
 
-      result.current.enqueue(
-        buildCommand({ action: null, amount: 300 }),
-      );
+      result.current.enqueue(buildCommand({ action: null, amount: 300 }));
       await vi.runAllTimersAsync();
 
       expect(api.action.bet).toHaveBeenCalledWith(300);

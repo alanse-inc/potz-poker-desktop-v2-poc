@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TELOP_ANIMATION_SETTINGS } from "../constants";
 import { useAnimationList } from "./useAnimationList";
@@ -121,8 +121,7 @@ describe("useAnimationList (fake timers / async flows)", () => {
   it("アイテムが削除されると activePlayers から除外される", async () => {
     const items = [makeItem("a"), makeItem("b")];
     const { result, rerender } = renderHook(
-      (props: Item[]) =>
-        useAnimationList(props, { ...baseOptions }),
+      (props: Item[]) => useAnimationList(props, { ...baseOptions }),
       { initialProps: items },
     );
 

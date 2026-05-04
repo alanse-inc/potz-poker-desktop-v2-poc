@@ -2,7 +2,10 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { AutoBoardProvider } from "../../../contexts/auto_board_context";
-import type { AutoModeBoard, AutoModePlayer } from "../../../domain/auto_game/types";
+import type {
+  AutoModeBoard,
+  AutoModePlayer,
+} from "../../../domain/auto_game/types";
 import { useAutoTelopData } from "./useAutoTelopData";
 
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -76,7 +79,13 @@ describe("useAutoTelopData (with board from localStorage)", () => {
 
   it("hand が 2 枚未満のプレイヤーはフィルタされる", () => {
     const players: AutoModePlayer[] = [
-      makePlayer({ id: "p1", hand: [{ suit: "spade", value: "A" }, { suit: "heart", value: "K" }] }),
+      makePlayer({
+        id: "p1",
+        hand: [
+          { suit: "spade", value: "A" },
+          { suit: "heart", value: "K" },
+        ],
+      }),
       makePlayer({ id: "p2", hand: [{ suit: "spade", value: "A" }] }),
       makePlayer({ id: "p3", hand: [] }),
     ];
