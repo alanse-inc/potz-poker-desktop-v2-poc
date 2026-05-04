@@ -28,8 +28,29 @@ import {
 // @tauri-apps/api/core と @tauri-apps/api/event は setup.ts でグローバルモック済み
 // (invoke → null, listen → () => {})
 
+const mockStoreGet = vi.fn().mockResolvedValue(null);
+const mockStoreSet = vi.fn().mockResolvedValue(undefined);
+const mockStoreSave = vi.fn().mockResolvedValue(undefined);
+const mockStoreDelete = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("@tauri-apps/plugin-store", () => ({
+  Store: {
+    load: vi.fn().mockResolvedValue({
+      get: mockStoreGet,
+      set: mockStoreSet,
+      save: mockStoreSave,
+      delete: mockStoreDelete,
+    }),
+  },
+}));
+
 // fetch のデフォルトモック（保存データなし）
 beforeEach(() => {
+  vi.clearAllMocks();
+  mockStoreGet.mockResolvedValue(null);
+  mockStoreSet.mockResolvedValue(undefined);
+  mockStoreSave.mockResolvedValue(undefined);
+  mockStoreDelete.mockResolvedValue(undefined);
   global.fetch = vi.fn().mockImplementation((url: string) => {
     if (typeof url === "string" && url.includes("/api/game-settings")) {
       return Promise.resolve({
@@ -1084,35 +1105,13 @@ describe("InitializeBoardCommandProvider", () => {
 
       let savedSettings: typeof existingSettings | null = null;
 
-      global.fetch = vi
-        .fn()
-        .mockImplementation((url: string, options?: RequestInit) => {
-          if (url.includes("/api/game-settings")) {
-            if (options?.method === "POST") {
-              savedSettings = JSON.parse(options.body as string);
-              return Promise.resolve({
-                ok: true,
-                json: () => Promise.resolve({ type: "success", value: null }),
-              });
-            }
-            return Promise.resolve({
-              ok: true,
-              json: () =>
-                Promise.resolve({ type: "success", value: existingSettings }),
-            });
-          }
-          if (url.includes("/api/board")) {
-            return Promise.resolve({
-              ok: true,
-              json: () => Promise.resolve({ type: "success", value: null }),
-            });
-          }
-          return Promise.resolve({
-            ok: false,
-            status: 404,
-            json: () => Promise.resolve({}),
-          });
-        });
+      mockStoreGet.mockResolvedValue(existingSettings);
+      mockStoreSet.mockImplementation(
+        (_key: string, value: typeof existingSettings) => {
+          savedSettings = value;
+          return Promise.resolve(undefined);
+        },
+      );
 
       const { result } = renderHook(() => useInitializeBoardCommand(), {
         wrapper,

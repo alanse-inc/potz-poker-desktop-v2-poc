@@ -11,21 +11,74 @@ import {
   useAutoModeInitializeBoardCommand,
 } from "./auto_mode_initialize_board_command_context";
 
-// useSSEConnection のモック（Tauri イベントリスナーは不要）
 vi.mock("../hooks/useSSEConnection", () => ({
   useSSEConnection: vi.fn(),
+}));
+
+const makeInMemoryStore = () => {
+  const data: Map<string, unknown> = new Map();
+  return {
+    get: vi.fn(async (key: string) => data.get(key) ?? undefined),
+    set: vi.fn(async (key: string, value: unknown) => {
+      data.set(key, value);
+    }),
+    delete: vi.fn(async (key: string) => {
+      data.delete(key);
+    }),
+    save: vi.fn(async () => {}),
+    _data: data,
+  };
+};
+
+let mockStoreInstance: ReturnType<typeof makeInMemoryStore>;
+
+vi.mock("@tauri-apps/plugin-store", () => ({
+  Store: {
+    load: vi.fn(async () => mockStoreInstance),
+  },
+}));
+
+const mockStoreGet = vi.fn().mockResolvedValue(null);
+const mockStoreSet = vi.fn().mockResolvedValue(undefined);
+const mockStoreSave = vi.fn().mockResolvedValue(undefined);
+const mockStoreDelete = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("@tauri-apps/plugin-store", () => ({
+  Store: {
+    load: vi.fn().mockResolvedValue({
+      get: mockStoreGet,
+      set: mockStoreSet,
+      save: mockStoreSave,
+      delete: mockStoreDelete,
+    }),
+  },
 }));
 
 // モックのセットアップ
 beforeEach(() => {
   vi.clearAllMocks();
+  mockStoreGet.mockResolvedValue(null);
+  mockStoreSet.mockResolvedValue(undefined);
+  mockStoreSave.mockResolvedValue(undefined);
+  mockStoreDelete.mockResolvedValue(undefined);
 
-  // apiFetchのモック（HTTP API通信）
+  const { Store } = vi.mocked(
+    // biome-ignore lint/suspicious/noExplicitAny: test mock
+    (globalThis as any).__vitest_mocked_store ?? {},
+  );
+  if (Store) {
+    Store.load.mockResolvedValue({
+      get: mockStoreGet,
+      set: mockStoreSet,
+      save: mockStoreSave,
+      delete: mockStoreDelete,
+    });
+  }
+
   global.fetch = vi
     .fn()
     .mockImplementation((url: string, options?: RequestInit) => {
       if (url.includes("/api/game-settings")) {
-        // POSTリクエスト（保存）の場合
         if (options?.method === "POST") {
           return Promise.resolve({
             ok: true,
@@ -36,7 +89,6 @@ beforeEach(() => {
               }),
           });
         }
-        // GETリクエスト（取得）の場合 - デフォルトでは保存データなし
         return Promise.resolve({
           ok: true,
           json: () =>
@@ -119,25 +171,11 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
         },
       ];
 
-      global.fetch = vi.fn().mockImplementation((url: string) => {
-        if (url.includes("/api/game-settings")) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                type: "success",
-                value: {
-                  autoMode: {
-                    players: savedPlayers,
-                    settings: {
-                      name: "Test Tournament",
-                    },
-                  },
-                },
-              }),
-          });
-        }
-        return Promise.resolve({ ok: false, status: 404 });
+      mockStoreGet.mockResolvedValue({
+        autoMode: {
+          players: savedPlayers,
+          settings: { name: "Test Tournament" },
+        },
       });
 
       const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {
@@ -182,23 +220,11 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
         },
       ];
 
-      global.fetch = vi.fn().mockImplementation((url: string) => {
-        if (url.includes("/api/game-settings")) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                type: "success",
-                value: {
-                  autoMode: {
-                    players: savedPlayers,
-                    settings: { name: "" },
-                  },
-                },
-              }),
-          });
-        }
-        return Promise.resolve({ ok: false, status: 404 });
+      mockStoreGet.mockResolvedValue({
+        autoMode: {
+          players: savedPlayers,
+          settings: { name: "" },
+        },
       });
 
       const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {
@@ -526,27 +552,13 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
 
       let savedSettings: PersistedGameSettings | null = null;
 
-      global.fetch = vi
-        .fn()
-        .mockImplementation((url: string, options?: RequestInit) => {
-          if (url.includes("/api/game-settings")) {
-            if (options?.method === "POST") {
-              // 保存されたデータをキャプチャ
-              savedSettings = JSON.parse(options.body as string);
-              return Promise.resolve({
-                ok: true,
-                json: () => Promise.resolve({ type: "success", value: null }),
-              });
-            }
-            // GET: 既存の設定を返す
-            return Promise.resolve({
-              ok: true,
-              json: () =>
-                Promise.resolve({ type: "success", value: existingSettings }),
-            });
-          }
-          return Promise.resolve({ ok: false, status: 404 });
-        });
+      mockStoreGet.mockResolvedValue(existingSettings);
+      mockStoreSet.mockImplementation(
+        (_key: string, value: PersistedGameSettings) => {
+          savedSettings = value;
+          return Promise.resolve(undefined);
+        },
+      );
 
       const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {
         wrapper,
@@ -556,7 +568,6 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
         expect(result.current.initializeBoardCommand).toBeDefined();
       });
 
-      // トーナメント名を更新
       await act(async () => {
         await result.current.updateInitializeBoardSetting(
           "name",
@@ -564,7 +575,6 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
         );
       });
 
-      // 保存されたデータにAutoModeとManualMode両方のnameが含まれていることを確認
       await waitFor(() => {
         expect(savedSettings).not.toBeNull();
         if (savedSettings) {

@@ -35,6 +35,11 @@
     "longDescription": "Proof-of-concept Tauri 2 port of the Potz Poker Pro Electron desktop application."
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["com.potz.poker"]
+      }
+    },
     "updater": {
       "active": false,
       "endpoints": [
