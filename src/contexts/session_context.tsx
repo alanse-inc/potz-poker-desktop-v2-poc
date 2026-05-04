@@ -25,7 +25,7 @@ type SessionContextValue = {
   setLastHandNumber: (handNumber: number) => void;
 };
 
-const SessionContext = createContext<SessionContextValue | null>(null);
+export const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [currentSession, setCurrentSessionState] =

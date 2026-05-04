@@ -1,11 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as backendModule from "../../api/backend";
-import { BoardProvider } from "../../contexts/board_context";
+import { InitializeBoardCommandContext } from "../../contexts/initialize_board_command_context";
+import { SessionContext } from "../../contexts/session_context";
 import { CheckIn } from "./index";
 
-// backend モジュールをまとめてモック
 vi.mock("../../api/backend", () => ({
   BackendApiError: class BackendApiError extends Error {
     constructor(
@@ -17,15 +18,10 @@ vi.mock("../../api/backend", () => ({
       this.name = "BackendApiError";
     }
   },
-  getHealth: vi.fn(),
-  listGameEvents: vi.fn(),
-  getGameEventDetail: vi.fn(),
   getPlayer: vi.fn(),
   checkinPlayer: vi.fn(),
-  checkoutPlayer: vi.fn(),
 }));
 
-// html5-qrcode をモック（JSdom では動作しないため）
 vi.mock("html5-qrcode", () => ({
   Html5Qrcode: class {
     isScanning = false;
@@ -36,251 +32,309 @@ vi.mock("html5-qrcode", () => ({
   },
 }));
 
-const MOCK_EVENT_DETAIL = {
+const MOCK_SESSION = {
+  gameSessionId: "session000000001",
   gameEventId: "event00000000001",
-  venueId: "e2e00000000000b0",
   gameTableId: "table0000000001",
-  gameRule: "texas_holdem" as const,
-  gameFormat: "ring_game" as const,
   status: "started" as const,
-  gameName: "テストゲーム",
-  defaultStack: 10000,
-  miniChip: 100,
-  smallBlind: 100,
-  bigBlind: 200,
-  anteRule: "none" as const,
-  blindExceptionRule: "dead_button" as const,
-  startDate: "2024-01-01",
+  currentHandNumber: 5,
   startedAt: "2024-01-01T00:00:00Z",
   finishedAt: null,
-  startedTableId: null,
-  sessions: [
-    {
-      gameSessionId: "session000000001",
-      gameEventId: "event00000000001",
-      gameTableId: "table0000000001",
-      status: "started" as const,
-      currentHandNumber: 5,
-      startedAt: "2024-01-01T00:00:00Z",
-      finishedAt: null,
-      gameName: null,
-      texasHoldemSetting: null,
-      players: [],
-    },
-  ],
+  gameName: null,
+  texasHoldemSetting: null,
 };
 
-const MOCK_PLAYER = {
+const MOCK_PLAYER_RESPONSE = {
   playerId: "1234567890abcdef",
   nickName: "テストプレイヤー",
   avatarUrlSmall: null,
   avatarUrlLarge: null,
 };
 
-function renderCheckIn() {
+const MOCK_CHECKIN_RESPONSE = {
+  gameSessionId: "session000000001",
+  playerId: "1234567890abcdef",
+  nickName: "テストプレイヤー",
+  avatarPath: null,
+  startHandNumber: 6,
+  finishedHandNumber: null,
+  checkedInAt: "2024-01-01T01:00:00Z",
+  checkedOutAt: null,
+};
+
+const mockUpdatePlayer = vi.fn();
+const mockInitializeBoardCommand = {
+  kind: "initializeBoard" as const,
+  input: {
+    players: [] as {
+      id: string;
+      name: string;
+      icon?: string;
+      status: "active" | "leaved" | "bust";
+      stack: number;
+      position: null;
+      seat: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+    }[],
+    setting: {
+      mode: "manual" as const,
+      name: "",
+      miniChip: 0,
+      smallBlind: 0,
+      bigBlind: 0,
+      anteRule: "none" as const,
+      blindExceptionRule: "dead_button" as const,
+    },
+  },
+};
+
+function renderCheckIn(initialState?: { source?: string }) {
   return render(
-    <BoardProvider>
-      <CheckIn />
-    </BoardProvider>,
+    <MemoryRouter
+      initialEntries={[{ pathname: "/check-in", state: initialState }]}
+    >
+      <InitializeBoardCommandContext.Provider
+        value={{
+          initializeBoardCommand: mockInitializeBoardCommand,
+          isStartable: false,
+          updateInitializeBoardSetting: vi.fn(),
+          updatePlayer: mockUpdatePlayer,
+          deletePlayer: vi.fn(),
+          updateInitializeBoardSettingForDevelopment: vi.fn(),
+        }}
+      >
+        <SessionContext.Provider
+          value={{
+            currentSession: MOCK_SESSION,
+            setCurrentSession: vi.fn(),
+            currentGameSessionId: MOCK_SESSION.gameSessionId,
+            setCurrentGameSessionId: vi.fn(),
+            lastHandNumber: 0,
+            setLastHandNumber: vi.fn(),
+          }}
+        >
+          <CheckIn />
+        </SessionContext.Provider>
+      </InitializeBoardCommandContext.Provider>
+    </MemoryRouter>,
+  );
+}
+
+function simulateUsbScan(url: string) {
+  for (const char of url) {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: char, bubbles: true }),
+    );
+  }
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
   );
 }
 
 describe("CheckIn", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(backendModule.getHealth).mockResolvedValue({ status: "ok" });
-    vi.mocked(backendModule.listGameEvents).mockResolvedValue([
-      MOCK_EVENT_DETAIL,
-    ]);
-    vi.mocked(backendModule.getGameEventDetail).mockResolvedValue(
-      MOCK_EVENT_DETAIL,
+    vi.mocked(backendModule.getPlayer).mockResolvedValue(MOCK_PLAYER_RESPONSE);
+    vi.mocked(backendModule.checkinPlayer).mockResolvedValue(
+      MOCK_CHECKIN_RESPONSE,
     );
-    vi.mocked(backendModule.getPlayer).mockResolvedValue(MOCK_PLAYER);
-    vi.mocked(backendModule.checkinPlayer).mockResolvedValue({
-      gameSessionId: "session000000001",
-      playerId: "1234567890abcdef",
-      nickName: "テストプレイヤー",
-      avatarPath: null,
-      startHandNumber: 6,
-      finishedHandNumber: null,
-      checkedInAt: "2024-01-01T01:00:00Z",
-      checkedOutAt: null,
-    });
   });
 
-  it("マウント時に health check と listGameEvents を呼ぶ", async () => {
-    renderCheckIn();
-    await waitFor(() => {
-      expect(backendModule.getHealth).toHaveBeenCalled();
-      expect(backendModule.listGameEvents).toHaveBeenCalled();
-    });
-  });
-
-  it("イベントが 1 件の場合、スキャンステップが表示される", async () => {
-    renderCheckIn();
-    await waitFor(() => {
+  describe("スキャニングステップ", () => {
+    it("初期表示でスキャニング UI が表示される", () => {
+      renderCheckIn();
       expect(
         screen.getByText(
-          "USB QR リーダーでプレイヤーの QR コードをスキャンしてください",
+          "USB QRリーダーでプレイヤーのQRコードをスキャンしてください",
         ),
       ).toBeInTheDocument();
     });
-  });
 
-  it("イベントが複数の場合、イベント選択ステップが表示される", async () => {
-    const secondEvent = {
-      ...MOCK_EVENT_DETAIL,
-      gameEventId: "event00000000002",
-      gameName: "セカンドゲーム",
-    };
-    vi.mocked(backendModule.listGameEvents).mockResolvedValue([
-      MOCK_EVENT_DETAIL,
-      secondEvent,
-    ]);
-    vi.mocked(backendModule.getGameEventDetail)
-      .mockResolvedValueOnce(MOCK_EVENT_DETAIL)
-      .mockResolvedValueOnce({
-        ...MOCK_EVENT_DETAIL,
-        gameEventId: "event00000000002",
-        gameName: "セカンドゲーム",
+    it("カメラモード切り替えスイッチが表示される", () => {
+      renderCheckIn();
+      expect(screen.getByText("カメラモード")).toBeInTheDocument();
+    });
+
+    it("BACK ボタンが表示される", () => {
+      renderCheckIn();
+      expect(screen.getByText("BACK")).toBeInTheDocument();
+    });
+
+    it("USB 入力でスキャンするとスタック入力ステップに移行する", async () => {
+      renderCheckIn();
+
+      simulateUsbScan("https://potz.poker/checkin/1234567890abcdef");
+
+      await waitFor(() => {
+        expect(backendModule.getPlayer).toHaveBeenCalledWith(
+          "1234567890abcdef",
+        );
       });
 
-    renderCheckIn();
-    await waitFor(() => {
+      await waitFor(() => {
+        expect(screen.getByText("テストプレイヤー")).toBeInTheDocument();
+        expect(
+          screen.getByText("スタックを入力してください"),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("無効な QR コードの場合は getPlayer が呼ばれない", async () => {
+      renderCheckIn();
+
+      simulateUsbScan("invalid-not-a-valid-url");
+
+      await waitFor(() => {
+        expect(backendModule.getPlayer).not.toHaveBeenCalled();
+      });
+    });
+
+    it("getPlayer が 404 を返した場合はスキャニングステップのまま", async () => {
+      const { BackendApiError } = await import("../../api/backend");
+      vi.mocked(backendModule.getPlayer).mockRejectedValue(
+        new BackendApiError(404, "Not Found", null),
+      );
+
+      renderCheckIn();
+      simulateUsbScan("https://potz.poker/checkin/1234567890abcdef");
+
+      await waitFor(() => {
+        expect(backendModule.getPlayer).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "USB QRリーダーでプレイヤーのQRコードをスキャンしてください",
+          ),
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("スタック入力ステップ", () => {
+    async function advanceToStackInput() {
+      renderCheckIn();
+      simulateUsbScan("https://potz.poker/checkin/1234567890abcdef");
+      await waitFor(() => {
+        expect(
+          screen.getByText("スタックを入力してください"),
+        ).toBeInTheDocument();
+      });
+    }
+
+    it("CANCEL を押すとスキャニングステップに戻る", async () => {
+      const user = userEvent.setup();
+      await advanceToStackInput();
+
+      await user.click(screen.getByText("CANCEL"));
+
       expect(
-        screen.getByText("参加するイベントを選択してください"),
+        screen.getByText(
+          "USB QRリーダーでプレイヤーのQRコードをスキャンしてください",
+        ),
       ).toBeInTheDocument();
     });
+
+    it("スタックが 0 のとき OK ボタンが disabled になる", async () => {
+      await advanceToStackInput();
+
+      const okButton = screen.getByRole("button", { name: "OK" });
+      expect(okButton).toBeDisabled();
+    });
+
+    it("数字ボタンを押すと OK ボタンが有効になる", async () => {
+      const user = userEvent.setup();
+      await advanceToStackInput();
+
+      const btn1 = screen.getAllByRole("button", { name: "1" })[0];
+      await user.click(btn1);
+
+      const okButton = screen.getByRole("button", { name: "OK" });
+      expect(okButton).not.toBeDisabled();
+    });
   });
 
-  it("モード切替ボタンでカメラ/USB を切り替えられる", async () => {
-    const user = userEvent.setup();
-    renderCheckIn();
+  describe("座席選択ステップ", () => {
+    async function advanceToSeatSelection() {
+      const user = userEvent.setup();
+      renderCheckIn();
 
-    await waitFor(() => {
-      expect(screen.getByText("USB QR リーダー")).toBeInTheDocument();
-    });
+      simulateUsbScan("https://potz.poker/checkin/1234567890abcdef");
 
-    await user.click(screen.getByText("USB QR リーダー"));
-    await waitFor(() => {
-      expect(screen.getByText("カメラ")).toBeInTheDocument();
-    });
-  });
+      await waitFor(() => {
+        expect(
+          screen.getByText("スタックを入力してください"),
+        ).toBeInTheDocument();
+      });
 
-  it("USB入力でスキャンするとスタック入力ステップに移行する", async () => {
-    renderCheckIn();
+      const btn1 = screen.getAllByRole("button", { name: "1" })[0];
+      await user.click(btn1);
 
-    // イベント読み込み待ち
-    await waitFor(() => {
-      expect(backendModule.listGameEvents).toHaveBeenCalled();
-    });
+      await user.click(screen.getByRole("button", { name: "OK" }));
 
-    // USB QR リーダー入力をシミュレート: keydown シーケンス
-    const url = "https://potz.poker/checkin/1234567890abcdef";
-    for (const char of url) {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: char, bubbles: true }),
-      );
+      await waitFor(() => {
+        expect(screen.getByText("座席を選択してください")).toBeInTheDocument();
+      });
     }
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-    );
 
-    await waitFor(() => {
-      expect(backendModule.getPlayer).toHaveBeenCalledWith("1234567890abcdef");
+    it("座席選択ステップでボードが表示される", async () => {
+      await advanceToSeatSelection();
+      expect(screen.getByText("座席を選択してください")).toBeInTheDocument();
     });
 
-    await waitFor(() => {
-      expect(screen.getByText("テストプレイヤー")).toBeInTheDocument();
-      expect(screen.getByLabelText("スタック額")).toBeInTheDocument();
-    });
-  });
+    it("空席（+ボタン）をクリックすると checkinPlayer が呼ばれる", async () => {
+      const user = userEvent.setup();
+      await advanceToSeatSelection();
 
-  it("スタック入力後にチェックインボタンを押すと checkinPlayer が呼ばれる", async () => {
-    const user = userEvent.setup();
-    renderCheckIn();
+      const plusButtons = screen.getAllByRole("button", { name: "+" });
+      await user.click(plusButtons[0]);
 
-    await waitFor(() => {
-      expect(backendModule.listGameEvents).toHaveBeenCalled();
-    });
-
-    // スキャンをシミュレート
-    const url = "https://potz.poker/checkin/1234567890abcdef";
-    for (const char of url) {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: char, bubbles: true }),
-      );
-    }
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-    );
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("スタック額")).toBeInTheDocument();
-    });
-
-    await user.type(screen.getByLabelText("スタック額"), "10000");
-    await user.click(screen.getByText("チェックイン"));
-
-    await waitFor(() => {
-      expect(backendModule.checkinPlayer).toHaveBeenCalledWith({
-        gameEventId: "event00000000001",
-        gameSessionId: "session000000001",
-        playerId: "1234567890abcdef",
+      await waitFor(() => {
+        expect(backendModule.checkinPlayer).toHaveBeenCalledWith({
+          gameEventId: "event00000000001",
+          gameSessionId: "session000000001",
+          playerId: "1234567890abcdef",
+        });
       });
     });
-  });
 
-  it("チェックイン成功後に完了ステップが表示される", async () => {
-    const user = userEvent.setup();
-    renderCheckIn();
+    it("チェックイン成功後に updatePlayer が呼ばれる", async () => {
+      const user = userEvent.setup();
+      await advanceToSeatSelection();
 
-    await waitFor(() => {
-      expect(backendModule.listGameEvents).toHaveBeenCalled();
+      const plusButtons = screen.getAllByRole("button", { name: "+" });
+      await user.click(plusButtons[0]);
+
+      await waitFor(() => {
+        expect(mockUpdatePlayer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: "1234567890abcdef",
+            name: "テストプレイヤー",
+            status: "active",
+          }),
+        );
+      });
     });
 
-    // スキャン
-    const url = "https://potz.poker/checkin/1234567890abcdef";
-    for (const char of url) {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: char, bubbles: true }),
+    it("422 エラーの場合はスキャニングステップに戻る", async () => {
+      const user = userEvent.setup();
+      const { BackendApiError } = await import("../../api/backend");
+      vi.mocked(backendModule.checkinPlayer).mockRejectedValue(
+        new BackendApiError(422, "Already checked in", null),
       );
-    }
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-    );
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("スタック額")).toBeInTheDocument();
-    });
+      await advanceToSeatSelection();
 
-    await user.type(screen.getByLabelText("スタック額"), "10000");
-    await user.click(screen.getByText("チェックイン"));
+      const plusButtons = screen.getAllByRole("button", { name: "+" });
+      await user.click(plusButtons[0]);
 
-    await waitFor(() => {
-      expect(screen.getByText("チェックイン完了")).toBeInTheDocument();
-    });
-  });
-
-  it("無効なQRコードの場合はエラートーストが表示される", async () => {
-    renderCheckIn();
-
-    await waitFor(() => {
-      expect(backendModule.listGameEvents).toHaveBeenCalled();
-    });
-
-    // 無効な文字列を入力
-    "invalid-qr-not-url".split("").forEach((char) => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: char, bubbles: true }),
-      );
-    });
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-    );
-
-    await waitFor(() => {
-      expect(backendModule.getPlayer).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "USB QRリーダーでプレイヤーのQRコードをスキャンしてください",
+          ),
+        ).toBeInTheDocument();
+      });
     });
   });
 });
