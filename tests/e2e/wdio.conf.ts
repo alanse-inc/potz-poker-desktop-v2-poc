@@ -37,7 +37,6 @@ export const config: WebdriverIO.Config = {
   maxInstances: 1,
   capabilities: [
     {
-      browserName: "wry",
       "tauri:options": {
         application: TAURI_BIN,
       } as Record<string, string>,
