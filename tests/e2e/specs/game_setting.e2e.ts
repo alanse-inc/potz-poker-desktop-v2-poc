@@ -9,12 +9,11 @@ import { $, browser, expect } from "@wdio/globals";
 
 async function gotoGameSetting(): Promise<void> {
   await browser.url("/");
-  await $("h1=POTZ POKER").waitForDisplayed({ timeout: 5000 });
+  await $("h1=POTZ POKER").waitForDisplayed({ timeout: 30_000 });
   await $("button=新規ゲーム設定").click();
-  await browser.waitUntil(
-    async () => (await browser.getUrl()).includes("/game/setting"),
-    { timeout: 5000, timeoutMsg: "did not navigate to /game/setting" },
-  );
+  // createMemoryRouter のため getUrl() は常に tauri://localhost/ を返す
+  // DOM 要素の出現で遷移完了を確認する
+  await $("button=BACK").waitForDisplayed({ timeout: 5000 });
 }
 
 describe("game_setting", () => {

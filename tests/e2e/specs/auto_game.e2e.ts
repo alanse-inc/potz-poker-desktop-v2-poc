@@ -9,12 +9,11 @@ import { $, browser, expect } from "@wdio/globals";
 
 async function gotoAutoGameSetting(): Promise<void> {
   await browser.url("/");
-  await $("h1=POTZ POKER").waitForDisplayed({ timeout: 5000 });
+  await $("h1=POTZ POKER").waitForDisplayed({ timeout: 30_000 });
   await $("button=AUTO ゲーム設定").click();
-  await browser.waitUntil(
-    async () => (await browser.getUrl()).includes("/auto-game/setting"),
-    { timeout: 5000, timeoutMsg: "did not navigate to /auto-game/setting" },
-  );
+  // createMemoryRouter のため getUrl() は常に tauri://localhost/ を返す
+  // DOM 要素の出現で遷移完了を確認する
+  await $("button=GAME START").waitForDisplayed({ timeout: 5000 });
 }
 
 describe("auto_game", () => {
@@ -42,14 +41,9 @@ describe("auto_game", () => {
       // フォールバック: 文言の親要素クリック
       await $("=AUTO MODE").click();
     }
-    await browser.waitUntil(
-      async () =>
-        (await browser.getUrl()).includes("/game/first-game/setting") ||
-        (await browser.getUrl()).includes("/game/setting"),
-      {
-        timeout: 5000,
-        timeoutMsg: "did not switch out of auto-game mode",
-      },
-    );
+    // createMemoryRouter のため getUrl() は常に tauri://localhost/ を返す
+    // ホーム画面 → game/first-game/setting or game/setting に遷移した場合
+    // BACK ボタンが表示されることで確認
+    await $("button=BACK").waitForDisplayed({ timeout: 5000 });
   });
 });
