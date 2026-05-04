@@ -31,7 +31,9 @@ describe("navigation", () => {
   it("AUTO ゲーム設定 から Auto-game Setting 画面に遷移する", async () => {
     await $("button=AUTO ゲーム設定").click();
     // Switch コンポーネントは button[role="switch"] で確認
-    await expect(await $('button[role="switch"]')).toBeDisplayed({ timeout: 5000 });
+    await expect(await $('button[role="switch"]')).toBeDisplayed({
+      timeout: 5000,
+    });
   });
 
   it("テロップ設定 → Home に遷移できる", async () => {
@@ -52,7 +54,9 @@ describe("navigation", () => {
 
   it("デバッグ画面に遷移できる", async () => {
     await $("button=デバッグ").click();
-    await expect(await $("h1=デバッグメニュー")).toBeDisplayed({ timeout: 5000 });
+    await expect(await $("h1=デバッグメニュー")).toBeDisplayed({
+      timeout: 5000,
+    });
   });
 
   it("GlobalNav から Game メニュー (Setting) に遷移できる", async () => {

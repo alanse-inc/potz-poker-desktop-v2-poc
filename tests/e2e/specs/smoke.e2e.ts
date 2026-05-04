@@ -60,9 +60,11 @@ describe("smoke", () => {
     // fetchSnapshot() の完了を待つ:
     //   1. まず「読込中...」ボタンが表示されるまで待機 (useEffect が setIsLoading(true) をコール)
     //   2. 「読込中...」が消えて「リフレッシュ」が再表示されるまで待機
-    await $("button=読込中...").waitForDisplayed({ timeout: 5_000 }).catch(() => {
-      // すでに読み込み完了している場合は無視
-    });
+    await $("button=読込中...")
+      .waitForDisplayed({ timeout: 5_000 })
+      .catch(() => {
+        // すでに読み込み完了している場合は無視
+      });
     await $("button=リフレッシュ").waitForDisplayed({ timeout: 30_000 });
     await runButton.click();
     // PASS+FAIL+RUN+WAIT のうち PASS+FAIL が 8 になるまで待つ（全ステップ結果確定）
@@ -74,7 +76,10 @@ describe("smoke", () => {
         const f = (await $$("span=FAIL")).length;
         return p + f === 8;
       },
-      { timeout: 90_000, timeoutMsg: "smoke: not all 8 steps completed (PASS+FAIL !== 8)" },
+      {
+        timeout: 90_000,
+        timeoutMsg: "smoke: not all 8 steps completed (PASS+FAIL !== 8)",
+      },
     );
     // 全ステップが PASS であることを確認
     const passCount = (await $$("span=PASS")).length;
@@ -86,8 +91,14 @@ describe("smoke", () => {
       for (const li of listItems) {
         const badge = await li.$("span=FAIL").catch(() => null);
         if (badge && (await badge.isExisting())) {
-          const name = await li.$("span.font-mono").getText().catch(() => "?");
-          const error = await li.$("span.text-red-400").getText().catch(() => "");
+          const name = await li
+            .$("span.font-mono")
+            .getText()
+            .catch(() => "?");
+          const error = await li
+            .$("span.text-red-400")
+            .getText()
+            .catch(() => "");
           failDetails.push(`${name}: ${error}`);
         }
       }
