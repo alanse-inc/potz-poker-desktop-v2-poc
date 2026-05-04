@@ -68,6 +68,43 @@ export type PersistedGameSettings = {
 };
 
 // ---------------------------------------------------------------------------
+// デフォルト設定生成
+// ---------------------------------------------------------------------------
+
+/**
+ * デフォルトのゲーム設定を生成する。
+ * 新規インストール時やデータリセット時に使用。
+ */
+export function createDefaultGameSettings(): PersistedGameSettings {
+  return {
+    currentMode: "manual",
+    manualMode: {
+      players: [],
+      settings: {
+        name: "",
+        miniChip: 0,
+        smallBlind: 0,
+        bigBlind: 0,
+        anteRule: "none",
+        blindExceptionRule: "dead_button",
+      },
+      btnPlayerId: null,
+    },
+    autoMode: {
+      players: [],
+      settings: {
+        name: "",
+      },
+      btnPlayerId: null,
+    },
+    telopSettings: {
+      telopId: "basic",
+      backgroundColor: "#00FF00",
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Result 型 (neverthrow を使わず標準パターンで定義)
 // ---------------------------------------------------------------------------
 
