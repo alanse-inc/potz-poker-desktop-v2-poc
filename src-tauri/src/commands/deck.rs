@@ -38,9 +38,9 @@ pub fn generate_id() -> String {
         .unwrap_or(0);
     let mut s = now as u64;
     let mut bytes = [0u8; 16];
-    for i in 0..16 {
+    for b in &mut bytes {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        bytes[i] = (s >> 56) as u8;
+        *b = (s >> 56) as u8;
     }
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;

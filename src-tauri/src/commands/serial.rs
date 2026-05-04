@@ -4,30 +4,43 @@
 //!   - desktop-app/src/main/hardware/rfid_card_receiver.ts
 //!   - desktop-app/src/main/hardware/convert_rfid_to_card.ts
 
-use crate::domain::card_distribution::determine_next_card_position;
 use crate::domain::rfid_mapping::RfidCardMapping;
 use crate::domain::card::Card;
-use crate::events::{CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, SERIAL_STATUS_UPDATED};
 use crate::state::AppState;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, State};
+
+#[cfg(not(test))]
+use crate::domain::card_distribution::determine_next_card_position;
+#[cfg(not(test))]
+use crate::events::{CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, SERIAL_STATUS_UPDATED};
+#[cfg(not(test))]
+use parking_lot::Mutex;
+#[cfg(not(test))]
 use std::collections::HashMap;
+#[cfg(not(test))]
 use std::sync::Arc;
+#[cfg(not(test))]
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg(not(test))]
+use tauri::{Emitter, Manager};
 
 // ---------------------------------------------------------------------------
 // 定数
 // ---------------------------------------------------------------------------
 
 /// ボーレート (115200 bps)
+#[cfg(not(test))]
 const BAUD_RATE: u32 = 115_200;
 /// 再接続間隔 (5秒)
+#[cfg(not(test))]
 const RECONNECT_INTERVAL_MS: u64 = 5_000;
 /// デバウンス間隔 (500ms)
+#[cfg(not(test))]
 const DEBOUNCE_INTERVAL_MS: u64 = 500;
 
 /// 優先するベンダー ID (FTDI / Arduino / Silicon Labs / CH340 / Prolific)
+#[cfg(not(test))]
 const VENDOR_ID_PATTERNS: &[&str] = &["0403", "2341", "10c4", "1a86", "067b"];
 
 // ---------------------------------------------------------------------------
@@ -95,6 +108,7 @@ pub struct SerialStatus {
 // シリアル接続状態 (スレッド間共有)
 // ---------------------------------------------------------------------------
 
+#[cfg(not(test))]
 #[derive(Debug, Default)]
 struct SerialState {
     connected: bool,
@@ -107,6 +121,7 @@ struct SerialState {
 
 /// USB シリアルポートを優先順位に従って検出する。
 /// ベンダー ID パターン → ポート名パターン の順。
+#[cfg(not(test))]
 fn find_rfid_port() -> Option<serialport::SerialPortInfo> {
     let ports = serialport::available_ports().ok()?;
 
@@ -226,7 +241,7 @@ async fn try_connect_and_listen(
     let app_clone = app.clone();
     let serial_state_clone = serial_state.clone();
     let port_name_clone = port_name.clone();
-    let mut debounce_map_inner: HashMap<String, Instant> = debounce_map.drain().collect();
+    let mut debounce_map_inner: HashMap<String, Instant> = std::mem::take(debounce_map);
 
     let result = tokio::task::spawn_blocking(move || {
         read_loop(app_clone, serial_state_clone, port, port_name_clone, &mut debounce_map_inner)

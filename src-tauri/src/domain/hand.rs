@@ -83,7 +83,7 @@ fn evaluate_five(cards: &[Card]) -> EvaluatedHand {
 
     let mut sorted: Vec<Card> = cards.to_vec();
     // 数値降順
-    sorted.sort_by(|a, b| b.value.numeric().cmp(&a.value.numeric()));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.value.numeric()));
 
     let is_flush = sorted.iter().all(|c| c.suit == sorted[0].suit);
     let values: Vec<u8> = sorted.iter().map(|c| c.value.numeric()).collect();
