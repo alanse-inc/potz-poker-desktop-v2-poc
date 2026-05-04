@@ -2,6 +2,10 @@ import { createMemoryRouter } from "react-router";
 import { MainLayout } from "../layouts/main_layout";
 import { AccountPage } from "../pages/account";
 import { AdminPage } from "../pages/admin";
+import { AutoGameAdvancedSetting } from "../pages/auto_game/advanced_setting";
+import { AutoGamePlaying } from "../pages/auto_game/playing";
+import { AutoGameSelectBtn } from "../pages/auto_game/select_btn";
+import { AutoGameSetting } from "../pages/auto_game/setting";
 import { CheckIn } from "../pages/check_in";
 import { Debug } from "../pages/debug";
 import { DeckHome } from "../pages/deck";
@@ -31,6 +35,13 @@ export const mainRouter = createMemoryRouter([
       { path: "/account", element: <AccountPage /> },
       { path: "/admin", element: <AdminPage /> },
       { path: "/check-in", element: <CheckIn /> },
+      { path: "/auto-game/setting", element: <AutoGameSetting /> },
+      { path: "/auto-game/select-btn", element: <AutoGameSelectBtn /> },
+      { path: "/auto-game/playing", element: <AutoGamePlaying /> },
+      {
+        path: "/auto-game/advanced-setting",
+        element: <AutoGameAdvancedSetting />,
+      },
       { path: "/game/setting", element: <GameSetting /> },
       { path: "/game/select-btn", element: <SelectBtn /> },
       { path: "/game/playing", element: <GamePlaying /> },

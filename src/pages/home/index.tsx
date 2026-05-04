@@ -26,6 +26,12 @@ export function Home() {
             onClick={() => navigate("/game/setting")}
           />
           <RoundButton
+            type="primary"
+            text="AUTO ゲーム設定"
+            size="large"
+            onClick={() => navigate("/auto-game/setting")}
+          />
+          <RoundButton
             type="black"
             text="テロップウィンドウを開く"
             size="large"
