@@ -65,9 +65,12 @@ describe("smoke", () => {
     });
     await $("button=リフレッシュ").waitForDisplayed({ timeout: 30_000 });
     await runButton.click();
-    await browser.waitUntil(async () => (await $$("span=PASS").length) === 8, {
-      timeout: 90_000,
-      timeoutMsg: "smoke test did not all pass",
-    });
+    // 「実行中...」が消えて「実行」に戻るまで待つ (= スモークテスト完了)
+    await $("button=実行").waitForDisplayed({ timeout: 90_000 });
+    // 全ステップが PASS であることを確認
+    const passCount = (await $$("span=PASS")).length;
+    const failCount = (await $$("span=FAIL")).length;
+    expect(passCount).toBe(8);
+    expect(failCount).toBe(0);
   });
 });
