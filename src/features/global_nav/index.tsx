@@ -1,7 +1,6 @@
 import { useLocation, useNavigate } from "react-router";
 import accountIcon from "./icons/account.svg?raw";
-// TODO: トーナメント管理機能の実装後に表示
-// import adminIcon from "./icons/admin.svg?raw";
+import adminIcon from "./icons/admin.svg?raw";
 import deckIcon from "./icons/deck.svg?raw";
 import gameIcon from "./icons/game.svg?raw";
 import sessionIcon from "./icons/session.svg?raw";
@@ -67,14 +66,12 @@ export function GlobalNav() {
           label="Setting"
           onClick={() => navigate("/settings/table-name?mode=first_game")}
         />
-        {/* TODO: トーナメント管理機能の実装後に表示
         <MenuItem
           active={active === "admin"}
           iconSvg={adminIcon}
           label="Admin"
           onClick={() => navigate("/admin")}
         />
-        */}
         <MenuItem
           active={active === "account"}
           iconSvg={accountIcon}
