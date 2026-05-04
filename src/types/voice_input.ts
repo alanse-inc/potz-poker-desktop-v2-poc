@@ -66,6 +66,7 @@ export interface VoicePokerCommand {
   sttTime?: number;
   llmTime?: number;
   modelId?: string;
+  streetAtCapture?: string;
 }
 
 export type VoiceInputStatus =

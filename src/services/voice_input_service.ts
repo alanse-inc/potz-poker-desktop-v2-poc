@@ -634,6 +634,10 @@ class VoiceInputService {
   // emit ヘルパー
   // ---------------------------------------------------------------------------
 
+  emitStatusPublic(status: VoiceInputStatus, message?: string): void {
+    this.emitStatus(status, message);
+  }
+
   private emitStatus(status: VoiceInputStatus, message?: string): void {
     this._status = status;
     const event: VoiceInputStatusEvent = {

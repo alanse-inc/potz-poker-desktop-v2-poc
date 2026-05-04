@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
 import { api } from "../../../api/client";
 import { useBoard } from "../../../contexts/board_context";
 import { PlayerEditModal } from "../../../features/modal/player_edit_modal";
+import {
+  type VoiceCommandLogEntry,
+  VoiceInputIndicator,
+} from "../../../features/voice_input_indicator";
+import { voiceInputService } from "../../../services/voice_input_service";
 import type { GameSettings, TexasHoldemBoard } from "../../../types";
 import type { ActionType } from "./components/action_buttons";
 import { AddPlayerModal } from "./components/add_player_modal";
 import { BetAmountModal } from "./components/bet_amount_modal";
 import { EditCommunityCardModal } from "./components/edit_community_card_modal";
 import { SelectExposeCardModal } from "./components/select_expose_card_modal";
+import { useVoiceCommandQueue } from "./hooks/use_voice_command_queue";
+import { useActionProps } from "./hooks/useActionProps";
 import { useCardPlacedHandler } from "./hooks/useCardPlacedHandler";
-import { type ActionConfirmType, type ActionProps, Page } from "./page";
+import { type ActionConfirmType, Page } from "./page";
 
 const ALL_DISABLED: ActionType[] = [
   "call",
@@ -71,6 +78,12 @@ export function GamePlaying() {
   const [isOpenAddPlayer, setIsOpenAddPlayer] = useState(false);
   const [isOpenExpose, setIsOpenExpose] = useState(false);
   const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
+  const [commandLog, setCommandLog] = useState<VoiceCommandLogEntry[]>([]);
+
+  const boardRef = useRef<TexasHoldemBoard | null>(board);
+  useEffect(() => {
+    boardRef.current = board;
+  }, [board]);
 
   // BET/RAISE 計算で使用するため永続化されたブラインド設定を取得
   useEffect(() => {
@@ -82,6 +95,10 @@ export function GamePlaying() {
       });
   }, []);
 
+  const handleCommandLogged = useCallback((entry: VoiceCommandLogEntry) => {
+    setCommandLog((prev) => [entry, ...prev].slice(0, 20));
+  }, []);
+
   const handleBackAction = useCallback(async () => {
     try {
       await api.board.backBoard();
@@ -90,6 +107,29 @@ export function GamePlaying() {
       reportError(e, "BACK に失敗しました");
     }
   }, [refresh]);
+
+  const handleEditGame = useCallback(async () => {
+    try {
+      await api.board.moveNextGame();
+      await refresh();
+    } catch (e) {
+      reportError(e, "ゲーム進行に失敗しました");
+    }
+  }, [refresh]);
+
+  const { enqueue } = useVoiceCommandQueue(
+    boardRef,
+    handleBackAction,
+    handleEditGame,
+    handleCommandLogged,
+  );
+
+  useEffect(() => {
+    if (!voiceInputService.enabled) return;
+    return voiceInputService.onCommand(enqueue);
+  }, [enqueue]);
+
+  const actionProps = useActionProps(board, handleCommandLogged, refresh);
 
   const handleNextGame = useCallback(() => {
     navigate("/game/next-game");
@@ -139,61 +179,6 @@ export function GamePlaying() {
       reportError(e, "ボードの更新に失敗しました");
     }
   }, [refresh]);
-
-  const actionProps: ActionProps = useMemo(
-    () => ({
-      isProcessing: false,
-      onCall: async () => {
-        try {
-          await api.action.call();
-          await refresh();
-        } catch (e) {
-          reportError(e, "CALL に失敗しました");
-        }
-      },
-      onCheck: async () => {
-        try {
-          await api.action.check();
-          await refresh();
-        } catch (e) {
-          reportError(e, "CHECK に失敗しました");
-        }
-      },
-      onFold: async () => {
-        try {
-          await api.action.fold();
-          await refresh();
-        } catch (e) {
-          reportError(e, "FOLD に失敗しました");
-        }
-      },
-      onBet: async (amount: number) => {
-        try {
-          await api.action.bet(amount);
-          await refresh();
-        } catch (e) {
-          reportError(e, "BET に失敗しました");
-        }
-      },
-      onRaise: async (amount: number) => {
-        try {
-          await api.action.raise(amount);
-          await refresh();
-        } catch (e) {
-          reportError(e, "RAISE に失敗しました");
-        }
-      },
-      onAllIn: async () => {
-        try {
-          await api.action.allin();
-          await refresh();
-        } catch (e) {
-          reportError(e, "ALL-IN に失敗しました");
-        }
-      },
-    }),
-    [refresh],
-  );
 
   const resetConfirmProps = useMemo(
     () => ({
@@ -309,6 +294,7 @@ export function GamePlaying() {
         onExpose={() => setIsOpenExpose(true)}
         isExposeDisabled={isExposeDisabled}
       />
+      <VoiceInputIndicator commandLog={commandLog} />
       {confirmType && me && me.stack > 0 && (
         <BetAmountModal
           type={confirmType}
