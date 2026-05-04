@@ -45,7 +45,12 @@ export type GameSettings = {
   minChip: number;
   bbAnte: boolean;
 };
-export type TelopState = { message: string; color: string };
+export type TelopState = {
+  message: string;
+  color: string;
+  /** テロップ表示モード */
+  mode?: "basic" | "classic" | "modern" | "broadcast";
+};
 export type HandRank =
   | "high_card"
   | "one_pair"
