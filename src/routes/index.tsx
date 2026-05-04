@@ -15,6 +15,9 @@ import { DeckRegister } from "../pages/deck/register";
 import { FirstGameAdvancedSetting } from "../pages/game/first_game/advanced_setting";
 import { FirstGameSelectBtn } from "../pages/game/first_game/select_btn";
 import { FirstGameSetting } from "../pages/game/first_game/setting";
+import { NextGameAdvancedSetting } from "../pages/game/next_game/advanced_setting";
+import { NextGameSelectBtn } from "../pages/game/next_game/select_btn";
+import { NextGameSetting } from "../pages/game/next_game/setting";
 import { GamePlaying } from "../pages/game/playing";
 import { SelectBtn } from "../pages/game/select_btn";
 import { GameSetting } from "../pages/game/setting";
@@ -46,6 +49,12 @@ export const mainRouter = createMemoryRouter([
       { path: "/game/select-btn", element: <SelectBtn /> },
       { path: "/game/playing", element: <GamePlaying /> },
       { path: "/game/next-game", element: <NextGame /> },
+      { path: "/game/next-game/setting", element: <NextGameSetting /> },
+      { path: "/game/next-game/select-btn", element: <NextGameSelectBtn /> },
+      {
+        path: "/game/next-game/advanced-setting",
+        element: <NextGameAdvancedSetting />,
+      },
       { path: "/game/first-game/setting", element: <FirstGameSetting /> },
       { path: "/game/first-game/select-btn", element: <FirstGameSelectBtn /> },
       {
