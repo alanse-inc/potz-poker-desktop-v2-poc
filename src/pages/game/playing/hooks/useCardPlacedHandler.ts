@@ -72,23 +72,29 @@ export function useCardPlacedHandler() {
         },
       );
 
+      // onCardPlaced 登録後にアンマウントされた場合は即解除してリーク防止
+      if (cancelled) {
+        unlistenCardPlaced();
+        return;
+      }
+
       // 未登録カードのイベントも購読
       const unlistenUnregistered =
         await api.notifications.onCardPlacedUnregistered(() => {
           toast.error("デッキに登録されていないカードです");
         });
 
-      const combinedUnlisten = () => {
+      // onCardPlacedUnregistered 登録後にアンマウントされた場合は両方解除
+      if (cancelled) {
+        unlistenCardPlaced();
+        unlistenUnregistered();
+        return;
+      }
+
+      unlisten = () => {
         unlistenCardPlaced();
         unlistenUnregistered();
       };
-
-      if (cancelled) {
-        // setup 完了前にアンマウントされた場合は即解除してリーク防止
-        combinedUnlisten();
-        return;
-      }
-      unlisten = combinedUnlisten;
     };
 
     setup().catch((err) => {

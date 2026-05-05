@@ -224,4 +224,41 @@ describe("useCardPlacedHandler", () => {
     });
     expect(result.current.eventHistory).toContain(lastEventJson);
   });
+
+  it("onCardPlaced 登録後 / onCardPlacedUnregistered 登録前にアンマウントしても unlistenCardPlaced が呼ばれる", async () => {
+    // onCardPlaced の unlisten spy
+    const unlistenCardPlacedSpy = vi.fn();
+    // onCardPlacedUnregistered は解決を保留にしてアンマウントのタイミングをシミュレート
+    let resolveUnregistered!: (fn: () => void) => void;
+    const unregisteredPromise = new Promise<() => void>((resolve) => {
+      resolveUnregistered = resolve;
+    });
+
+    vi.spyOn(api.notifications, "onCardPlaced").mockResolvedValue(
+      unlistenCardPlacedSpy,
+    );
+    vi.spyOn(api.notifications, "onCardPlacedUnregistered").mockImplementation(
+      (_cb) => unregisteredPromise,
+    );
+
+    const { unmount } = renderHook(() => useCardPlacedHandler());
+
+    // onCardPlaced が完了するまでマイクロタスクを消化
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // この時点で onCardPlacedUnregistered の await が保留中 → アンマウント
+    unmount();
+
+    // onCardPlacedUnregistered を解決（アンマウント後）
+    const unlistenUnregisteredSpy = vi.fn();
+    await act(async () => {
+      resolveUnregistered(unlistenUnregisteredSpy);
+      await Promise.resolve();
+    });
+
+    // onCardPlaced のリスナーは解除されていること
+    expect(unlistenCardPlacedSpy).toHaveBeenCalled();
+  });
 });
