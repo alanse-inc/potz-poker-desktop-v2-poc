@@ -179,4 +179,68 @@ describe("NextGame", () => {
 
     expect(screen.getByText("2 人参加中")).toBeInTheDocument();
   });
+
+  describe("computeNextDealerPosition (Rust と同じ (dealerPosition + 1) % n ロジック)", () => {
+    it("dealerPosition=0, 2人 → 次は position=1 の Bob にディーラーアイコンが付く", () => {
+      mockBoard = makeBoard({ dealerPosition: 0 });
+      // players=[{position:0, name:'Alice'}, {position:1, name:'Bob'}]
+      // (0+1)%2=1 → Bob が次のディーラー
+      renderNextGame();
+      // ディーラーアイコンが1つ表示される
+      const icons = screen.queryAllByAltText("ディーラーアイコン");
+      expect(icons).toHaveLength(1);
+    });
+
+    it("dealerPosition=1, 2人 → ラップアラウンドで position=0 の Alice にディーラーアイコンが付く", () => {
+      mockBoard = makeBoard({ dealerPosition: 1 });
+      // (1+1)%2=0 → Alice が次のディーラー
+      renderNextGame();
+      const icons = screen.queryAllByAltText("ディーラーアイコン");
+      expect(icons).toHaveLength(1);
+    });
+
+    it("dealerPosition=2, 3人 → ラップアラウンドで position=0 の Alice にディーラーアイコンが付く", () => {
+      mockBoard = makeBoard({
+        dealerPosition: 2,
+        sbPosition: 0,
+        bbPosition: 1,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 2,
+            name: "Carol",
+            stack: 9700,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+        ],
+      });
+      // (2+1)%3=0 → Alice が次のディーラー
+      renderNextGame();
+      const icons = screen.queryAllByAltText("ディーラーアイコン");
+      expect(icons).toHaveLength(1);
+    });
+  });
 });

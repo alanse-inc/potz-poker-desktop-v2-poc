@@ -28,18 +28,19 @@ function positionToSeat(position: number): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 {
   return ((position % 9) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 }
 
-/** 次の BTN 位置を計算する (dealerPosition + 1 → 次のアクティブプレイヤー) */
+/**
+ * 次の BTN 位置を計算する。
+ * Rust 側の `(dealer_position + 1) % players.len()` と同じロジック。
+ * remove_player は position を常に 0..n-1 に詰め直すため、
+ * dealerPosition は players 配列のインデックスと一致する。
+ */
 function computeNextDealerPosition(
   dealerPosition: number,
   players: { position: number }[],
 ): number | null {
-  if (players.length === 0) return null;
-
-  const positions = players.map((p) => p.position).sort((a, b) => a - b);
-  // dealerPosition より大きい最初のポジション
-  const next = positions.find((pos) => pos > dealerPosition);
-  // なければ最初のポジション（ラップアラウンド）
-  return next ?? positions[0];
+  const n = players.length;
+  if (n === 0) return null;
+  return (dealerPosition + 1) % n;
 }
 
 export function NextGame() {
