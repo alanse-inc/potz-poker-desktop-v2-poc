@@ -356,7 +356,7 @@ export function GamePlaying() {
         clickableLocateNumbers={clickableLocateNumbers}
         onEditCommunityCard={handleEditCommunityCard}
         onAddPlayer={() => setIsOpenAddPlayer(true)}
-        isAddPlayerDisabled={!isShowdown || board.players.length >= 10}
+        isAddPlayerDisabled={!isShowdown || board.players.length >= 9}
         onExpose={() => setIsOpenExpose(true)}
         isExposeDisabled={isExposeDisabled}
       />

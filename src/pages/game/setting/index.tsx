@@ -108,6 +108,15 @@ export function GameSetting() {
   const validateChip =
     (key: ChipSettingKey) =>
     (value: number): string | null => {
+      if (value <= 0) {
+        return "正の整数を入力してください";
+      }
+      if (key === "smallBlind" && value > bigBlind) {
+        return "SB は BB 以下である必要があります";
+      }
+      if (key === "bigBlind" && value < smallBlind) {
+        return "BB は SB 以上である必要があります";
+      }
       if (key === "minChip") {
         if (smallBlind % value !== 0 || bigBlind % value !== 0) {
           return "MINICHIP は SB と BB の公約数である必要があります";
