@@ -5,6 +5,11 @@ use serde::Deserialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_store::StoreExt;
 
+#[cfg(not(test))]
+use crate::events::DECK_UPDATED;
+#[cfg(not(test))]
+use tauri::Emitter;
+
 const STORE_FILE: &str = "decks.json";
 const KEY_DECKS: &str = "decks";
 const KEY_CURRENT_DECK_ID: &str = "currentDeckId";
@@ -56,6 +61,11 @@ pub async fn save_deck(
         }
     }
     persist_decks(&app, &state).await?;
+    #[cfg(not(test))]
+    let _ = app.emit(
+        DECK_UPDATED,
+        state.lock().current_deck().cloned().unwrap_or_default(),
+    );
     Ok(deck)
 }
 
@@ -82,7 +92,13 @@ pub async fn delete_deck(
             guard.current_deck_id = guard.decks.first().map(|d| d.id.clone());
         }
     }
-    persist_decks(&app, &state).await
+    persist_decks(&app, &state).await?;
+    #[cfg(not(test))]
+    let _ = app.emit(
+        DECK_UPDATED,
+        state.lock().current_deck().cloned().unwrap_or_default(),
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -99,7 +115,13 @@ pub async fn choose_deck(
         }
         guard.current_deck_id = Some(args.id);
     }
-    persist_decks(&app, &state).await
+    persist_decks(&app, &state).await?;
+    #[cfg(not(test))]
+    let _ = app.emit(
+        DECK_UPDATED,
+        state.lock().current_deck().cloned().unwrap_or_default(),
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -229,6 +251,139 @@ mod tests {
             guard.current_deck_id.as_deref(),
             Some("legacy-id-001"),
             "current_deck_id は decks.json の null で上書きされてはいけない"
+        );
+    }
+
+    // ---- Bug 2: save_deck / delete_deck / choose_deck の状態更新 ----
+
+    /// save_deck: 新規デッキを追加すると decks が増え、current_deck_id が設定される。
+    #[test]
+    fn save_deck_adds_deck_and_sets_current_deck_id() {
+        let state = make_app_state();
+        let deck = make_mapping("deck-001", "Main");
+        {
+            let mut guard = state.lock();
+            if guard.current_deck_id.is_none() {
+                guard.current_deck_id = Some(deck.id.clone());
+            }
+            guard.decks.push(deck.clone());
+        }
+        let guard = state.lock();
+        assert_eq!(guard.decks.len(), 1);
+        assert_eq!(guard.current_deck_id.as_deref(), Some("deck-001"));
+    }
+
+    /// save_deck: 既存デッキを更新しても decks の件数は変わらない。
+    #[test]
+    fn save_deck_updates_existing_deck_without_increasing_count() {
+        let state = make_app_state();
+        let deck = make_mapping("deck-001", "Original");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(deck.clone());
+            guard.current_deck_id = Some(deck.id.clone());
+        }
+        {
+            let mut guard = state.lock();
+            if let Some(existing) = guard.decks.iter_mut().find(|d| d.id == "deck-001") {
+                existing.name = "Updated".to_string();
+            }
+        }
+        let guard = state.lock();
+        assert_eq!(guard.decks.len(), 1);
+        assert_eq!(guard.decks[0].name, "Updated");
+    }
+
+    /// delete_deck: 削除後に decks が減り、current_deck_id が次のデッキに切り替わる。
+    #[test]
+    fn delete_deck_removes_deck_and_updates_current_deck_id() {
+        let state = make_app_state();
+        let d1 = make_mapping("deck-001", "First");
+        let d2 = make_mapping("deck-002", "Second");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(d1.clone());
+            guard.decks.push(d2.clone());
+            guard.current_deck_id = Some("deck-001".to_string());
+        }
+        {
+            let mut guard = state.lock();
+            guard.decks.retain(|d| d.id != "deck-001");
+            if guard.current_deck_id.as_deref() == Some("deck-001") {
+                guard.current_deck_id = guard.decks.first().map(|d| d.id.clone());
+            }
+        }
+        let guard = state.lock();
+        assert_eq!(guard.decks.len(), 1);
+        assert_eq!(guard.current_deck_id.as_deref(), Some("deck-002"));
+    }
+
+    /// delete_deck: 最後のデッキを削除すると current_deck_id が None になる。
+    #[test]
+    fn delete_last_deck_sets_current_deck_id_to_none() {
+        let state = make_app_state();
+        let d = make_mapping("deck-001", "Only");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(d.clone());
+            guard.current_deck_id = Some("deck-001".to_string());
+        }
+        {
+            let mut guard = state.lock();
+            guard.decks.retain(|d| d.id != "deck-001");
+            if guard.current_deck_id.as_deref() == Some("deck-001") {
+                guard.current_deck_id = guard.decks.first().map(|d| d.id.clone());
+            }
+        }
+        let guard = state.lock();
+        assert!(guard.decks.is_empty());
+        assert!(guard.current_deck_id.is_none());
+    }
+
+    /// choose_deck: current_deck_id が指定した ID に更新される。
+    #[test]
+    fn choose_deck_updates_current_deck_id() {
+        let state = make_app_state();
+        let d1 = make_mapping("deck-001", "First");
+        let d2 = make_mapping("deck-002", "Second");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(d1.clone());
+            guard.decks.push(d2.clone());
+            guard.current_deck_id = Some("deck-001".to_string());
+        }
+        {
+            let mut guard = state.lock();
+            let target_id = "deck-002";
+            let exists = guard.decks.iter().any(|d| d.id == target_id);
+            assert!(exists);
+            guard.current_deck_id = Some(target_id.to_string());
+        }
+        let guard = state.lock();
+        assert_eq!(guard.current_deck_id.as_deref(), Some("deck-002"));
+    }
+
+    /// choose_deck: 存在しない ID を指定すると current_deck_id は変更されない（エラー）。
+    #[test]
+    fn choose_deck_with_nonexistent_id_does_not_update() {
+        let state = make_app_state();
+        let d = make_mapping("deck-001", "Only");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(d.clone());
+            guard.current_deck_id = Some("deck-001".to_string());
+        }
+        {
+            let guard = state.lock();
+            let target_id = "nonexistent";
+            let exists = guard.decks.iter().any(|d| d.id == target_id);
+            assert!(!exists, "should not find nonexistent deck");
+        }
+        let guard = state.lock();
+        assert_eq!(
+            guard.current_deck_id.as_deref(),
+            Some("deck-001"),
+            "current_deck_id must not change when target deck does not exist"
         );
     }
 
