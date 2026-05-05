@@ -57,11 +57,11 @@ export function usePlayerLayout<T extends { id: string }>(
 
     if (movedFromRight.size > 0) {
       setPlayersMovingFromRight(movedFromRight);
-
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         setPlayersMovingFromRight(new Set());
       }, animationSettings.fadeInDuration +
         DOM_ANIMATION_TIMING.movementClearDelay);
+      return () => clearTimeout(timerId);
     }
 
     previousLeftPlayersRef.current = currentLeftPlayerIds;
