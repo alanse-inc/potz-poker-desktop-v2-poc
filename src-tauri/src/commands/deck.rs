@@ -164,12 +164,16 @@ pub fn load_decks_from_store(app: &AppHandle, state: &AppState) {
                 if mapping.name.is_empty() {
                     mapping.name = "default".to_string();
                 }
-                let mut guard = state.lock();
-                if guard.decks.iter().all(|d| d.id != mapping.id) {
-                    guard.current_deck_id = Some(mapping.id.clone());
-                    guard.decks.push(mapping);
+                {
+                    let mut guard = state.lock();
+                    if guard.decks.iter().all(|d| d.id != mapping.id) {
+                        guard.current_deck_id = Some(mapping.id.clone());
+                        guard.decks.push(mapping);
+                    }
                 }
-                tracing::info!("Migrated legacy rfid_mapping to decks");
+                legacy.delete(LEGACY_KEY);
+                let _ = legacy.save();
+                tracing::info!("Migrated legacy rfid_mapping to decks and cleared legacy key");
             }
         }
     }
@@ -418,5 +422,43 @@ mod tests {
             Some("store-id-002"),
             "decks.json に有効な ID がある場合は上書きされること"
         );
+    }
+
+    /// Bug 7: レガシー移行済みの場合、重複ガードが空の id でも機能することを検証する。
+    /// id が空のレガシー mapping は generate_id() で新しい UUID が割り当てられるため、
+    /// 移行後に legacy key を削除しないと再起動毎に重複する。
+    /// このテストは「移行後に decks が 1 件のみ」という invariant を検証する。
+    #[test]
+    fn legacy_migration_with_empty_id_does_not_duplicate() {
+        let state = make_app_state();
+
+        // id が空のレガシー mapping をシミュレート（generate_id() で UUID を付与）
+        let mut mapping = make_mapping("", "default");
+        if mapping.id.is_empty() {
+            mapping.id = "generated-uuid-001".to_string();
+        }
+        if mapping.name.is_empty() {
+            mapping.name = "default".to_string();
+        }
+
+        // 1 回目の移行
+        {
+            let mut guard = state.lock();
+            if guard.decks.iter().all(|d| d.id != mapping.id) {
+                guard.current_deck_id = Some(mapping.id.clone());
+                guard.decks.push(mapping.clone());
+            }
+        }
+        assert_eq!(state.lock().decks.len(), 1, "1 回目の移行後は 1 件");
+
+        // delete 後は同じ id ガードが機能する（移行済みなので再追加されない）
+        {
+            let mut guard = state.lock();
+            if guard.decks.iter().all(|d| d.id != mapping.id) {
+                guard.current_deck_id = Some(mapping.id.clone());
+                guard.decks.push(mapping.clone());
+            }
+        }
+        assert_eq!(state.lock().decks.len(), 1, "同じ id の移行は重複しない");
     }
 }
