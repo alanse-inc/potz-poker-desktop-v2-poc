@@ -287,6 +287,9 @@ impl TexasHoldemBoard {
                     self.players[i].has_acted = false;
                 }
             }
+            // last_raise_size をここで確定させる。advance_phase 後の末尾書き込みによる
+            // 二重更新を防ぐため、current_bet 変更が確定したタイミングで更新する。
+            self.last_raise_size = new_current_bet.saturating_sub(self.current_bet);
         }
         self.current_bet = new_current_bet;
 
@@ -894,7 +897,6 @@ pub fn board_bet(
             amount, min_chip
         )));
     }
-    let prev_bet = board.current_bet;
     board.apply_action(
         |p, current_bet| {
             if current_bet > 0 {
@@ -919,14 +921,6 @@ pub fn board_bet(
         },
         deck,
     )?;
-    let new_bet = board
-        .players
-        .iter()
-        .map(|p| p.bet_in_round)
-        .max()
-        .unwrap_or(0);
-    board.last_raise_size = new_bet.saturating_sub(prev_bet);
-    board.current_bet = new_bet;
     Ok(())
 }
 
@@ -1015,7 +1009,6 @@ pub fn board_raise(
             )));
         }
     }
-    let prev_bet = board.current_bet;
     board.apply_action(
         |p, current_bet| {
             if to <= current_bet {
@@ -1039,19 +1032,10 @@ pub fn board_raise(
         },
         deck,
     )?;
-    let new_bet = board
-        .players
-        .iter()
-        .map(|p| p.bet_in_round)
-        .max()
-        .unwrap_or(0);
-    board.last_raise_size = new_bet.saturating_sub(prev_bet);
-    board.current_bet = new_bet;
     Ok(())
 }
 
 pub fn board_allin(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<(), BoardError> {
-    let prev_bet = board.current_bet;
     board.apply_action(
         |p, _current_bet| {
             if p.stack == 0 {
@@ -1064,16 +1048,6 @@ pub fn board_allin(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result
         },
         deck,
     )?;
-    let new_bet = board
-        .players
-        .iter()
-        .map(|p| p.bet_in_round)
-        .max()
-        .unwrap_or(board.current_bet);
-    if new_bet > prev_bet {
-        board.last_raise_size = new_bet.saturating_sub(prev_bet);
-    }
-    board.current_bet = new_bet;
     Ok(())
 }
 
