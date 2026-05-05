@@ -219,12 +219,40 @@ pub fn update_player(
 ) -> Result<TexasHoldemBoard, String> {
     let result = {
         let mut inner = state.lock();
-        let board = inner
-            .board
-            .as_mut()
-            .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
-        domain_update_player(board, position, name, stack).map_err(|e| e.to_string())?;
-        board.clone()
+
+        // snapshot を history に保存
+        {
+            let board_snap = inner
+                .board
+                .as_ref()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?
+                .clone();
+            let deck_snap = inner.deck.clone();
+            let burn_count_snap = inner.burn_count;
+            let burn_card_snap = inner.burn_card;
+            inner
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if inner.history.len() > MAX_HISTORY {
+                let excess = inner.history.len() - MAX_HISTORY;
+                inner.history.drain(0..excess);
+            }
+        }
+
+        let update_result = {
+            let board = inner
+                .board
+                .as_mut()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+            domain_update_player(board, position, name, stack)
+                .map_err(|e| e.to_string())
+                .map(|_| board.clone())
+        };
+
+        if update_result.is_err() {
+            inner.history.pop(); // エラー時はスナップショットをロールバック
+        }
+        update_result?
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &result);
@@ -570,5 +598,152 @@ mod tests {
         }
         let stack = calculate_initial_stack(&board, 100);
         assert_eq!(stack, large_stack);
+    }
+
+    #[test]
+    fn update_player_pushes_snapshot_to_history() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+
+        let mut inner = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            settings,
+            ..Default::default()
+        };
+
+        assert_eq!(inner.history.len(), 0);
+
+        // update_player 相当のロジックを再現: snapshot push → 操作
+        let board_snap = inner.board.as_ref().unwrap().clone();
+        let deck_snap = inner.deck.clone();
+        let burn_count_snap = inner.burn_count;
+        let burn_card_snap = inner.burn_card;
+        inner
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if inner.history.len() > MAX_HISTORY {
+            let excess = inner.history.len() - MAX_HISTORY;
+            inner.history.drain(0..excess);
+        }
+
+        let update_result = {
+            let board_ref = inner.board.as_mut().unwrap();
+            domain_update_player(board_ref, 0, Some("Charlie".into()), Some(2000))
+                .map(|_| board_ref.clone())
+        };
+        if update_result.is_err() {
+            inner.history.pop();
+        }
+
+        assert!(update_result.is_ok());
+        assert_eq!(inner.history.len(), 1);
+        // history に push された snapshot は変更前の名前を持つ
+        let (snapped_board, _, _, _) = &inner.history[0];
+        assert_eq!(snapped_board.players[0].name, "Alice");
+        // 現在の board は変更後の値
+        assert_eq!(inner.board.as_ref().unwrap().players[0].name, "Charlie");
+        assert_eq!(inner.board.as_ref().unwrap().players[0].stack, 2000);
+    }
+
+    #[test]
+    fn update_player_error_does_not_grow_history() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+
+        let mut inner = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            settings,
+            ..Default::default()
+        };
+
+        let history_len_before = inner.history.len();
+
+        // snapshot push
+        let board_snap = inner.board.as_ref().unwrap().clone();
+        let deck_snap = inner.deck.clone();
+        let burn_count_snap = inner.burn_count;
+        let burn_card_snap = inner.burn_card;
+        inner
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if inner.history.len() > MAX_HISTORY {
+            let excess = inner.history.len() - MAX_HISTORY;
+            inner.history.drain(0..excess);
+        }
+
+        // 空の名前は InvalidAction エラー
+        let update_result = {
+            let board_ref = inner.board.as_mut().unwrap();
+            domain_update_player(board_ref, 0, Some("   ".into()), None).map(|_| board_ref.clone())
+        };
+        if update_result.is_err() {
+            inner.history.pop();
+        }
+
+        assert!(update_result.is_err());
+        assert_eq!(inner.history.len(), history_len_before);
+    }
+
+    #[test]
+    fn update_player_snapshot_can_be_restored_by_back_board() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+
+        let mut inner = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            settings,
+            ..Default::default()
+        };
+
+        // update_player 相当: snapshot push → 操作
+        let board_snap = inner.board.as_ref().unwrap().clone();
+        let deck_snap = inner.deck.clone();
+        let burn_count_snap = inner.burn_count;
+        let burn_card_snap = inner.burn_card;
+        inner
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+
+        {
+            let board_ref = inner.board.as_mut().unwrap();
+            domain_update_player(board_ref, 0, Some("Charlie".into()), Some(9999)).unwrap();
+        }
+        assert_eq!(inner.board.as_ref().unwrap().players[0].name, "Charlie");
+        assert_eq!(inner.board.as_ref().unwrap().players[0].stack, 9999);
+
+        // back_board 相当: history から復元
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = inner.history.pop().unwrap();
+        inner.board = Some(prev_board);
+        inner.deck = prev_deck;
+        inner.burn_count = prev_burn_count;
+        inner.burn_card = prev_burn_card;
+
+        // update_player 前の状態に戻っていること
+        assert_eq!(inner.board.as_ref().unwrap().players[0].name, "Alice");
+        assert!(inner.history.is_empty());
     }
 }
