@@ -102,7 +102,11 @@ function setupAudioContextMock(): void {
     disconnect: vi.fn(),
     onaudioprocess: null as ((e: AudioProcessingEvent) => void) | null,
   };
-  const mockGain = { connect: vi.fn(), gain: { value: 1.0 } };
+  const mockGain = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    gain: { value: 1.0 },
+  };
   const mockCompressor = {
     connect: vi.fn(),
     threshold: { value: 0 },

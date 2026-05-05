@@ -130,6 +130,7 @@ export class VoiceInputService {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private scriptProcessor: ScriptProcessorNode | null = null;
+  private silentGain: GainNode | null = null;
   private commandCallbacks: Set<CommandCallback> = new Set();
   private statusCallbacks: Set<StatusCallback> = new Set();
   private reconnectAttempts = 0;
@@ -446,10 +447,15 @@ export class VoiceInputService {
     );
     this.scriptProcessor = processor;
 
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
+    this.silentGain = silentGain;
+
     source.connect(gainNode);
     gainNode.connect(compressor);
     compressor.connect(processor);
-    processor.connect(audioContext.destination);
+    processor.connect(silentGain);
+    silentGain.connect(audioContext.destination);
 
     processor.onaudioprocess = (e: AudioProcessingEvent) => {
       const float32 = e.inputBuffer.getChannelData(0);
@@ -476,6 +482,10 @@ export class VoiceInputService {
       this.scriptProcessor.disconnect();
       this.scriptProcessor.onaudioprocess = null;
       this.scriptProcessor = null;
+    }
+    if (this.silentGain) {
+      this.silentGain.disconnect();
+      this.silentGain = null;
     }
     if (this.audioContext) {
       this.audioContext.close().catch((error: unknown) => {
