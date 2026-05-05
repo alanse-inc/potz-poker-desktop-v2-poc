@@ -9,6 +9,9 @@ import toast from "react-hot-toast";
 import { api } from "../../../../api/client";
 import type { CardPlacedPayload } from "../../../../types";
 
+/** 保持するイベント履歴の最大件数。古いイベントから順に破棄される（FIFO）。 */
+const MAX_EVENT_HISTORY = 200;
+
 /**
  * card_placed イベントを購読し、ボードに反映する。
  * 同一イベントの重複処理を eventHistory で防ぐ。
@@ -19,7 +22,9 @@ export function useCardPlacedHandler() {
   const eventHistoryRef = useRef<string[]>([]);
 
   const pushEventHistory = useCallback((eventJson: string) => {
-    eventHistoryRef.current = [...eventHistoryRef.current, eventJson];
+    const next = [...eventHistoryRef.current, eventJson];
+    eventHistoryRef.current =
+      next.length > MAX_EVENT_HISTORY ? next.slice(-MAX_EVENT_HISTORY) : next;
     setEventHistory(eventHistoryRef.current);
   }, []);
 
