@@ -13,6 +13,21 @@ import type { CardPlacedPayload } from "../../../../types";
 const MAX_EVENT_HISTORY = 200;
 
 /**
+ * CardPlacedPayload から意味的なキー文字列を生成する。
+ * JSON.stringify のプロパティ順依存を排除し、フィールド追加に対して安定させる。
+ */
+function payloadKey(payload: CardPlacedPayload): string {
+  const pos = payload.position;
+  const posKey =
+    pos.type === "playerHand"
+      ? `ph:${pos.seat}`
+      : pos.type === "communityCard"
+        ? `cc:${pos.slot}`
+        : "burn";
+  return `${payload.rfid}|${payload.card.suit}:${payload.card.value}|${posKey}`;
+}
+
+/**
  * card_placed イベントを購読し、ボードに反映する。
  * 同一イベントの重複処理を eventHistory で防ぐ。
  */
@@ -43,15 +58,15 @@ export function useCardPlacedHandler() {
         async (payload: CardPlacedPayload) => {
           if (processingRef.current) return;
 
-          const eventJson = JSON.stringify(payload);
+          const eventKey = payloadKey(payload);
 
           // 重複イベントはスキップ（ref経由で最新の履歴を参照）
-          if (eventHistoryRef.current.includes(eventJson)) {
+          if (eventHistoryRef.current.includes(eventKey)) {
             return;
           }
 
           processingRef.current = true;
-          pushEventHistory(eventJson);
+          pushEventHistory(eventKey);
 
           try {
             await api.rfid.applyCardPlaced(

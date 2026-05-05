@@ -209,20 +209,13 @@ describe("useCardPlacedHandler", () => {
     expect(result.current.eventHistory).toHaveLength(200);
 
     // 最も古いイベント（index=0）は破棄されていること
-    const firstEventJson = JSON.stringify({
-      rfid: "RFID0000000000",
-      card: { suit: "spade", value: "A" },
-      position: { type: "communityCard", slot: 0 },
-    });
-    expect(result.current.eventHistory).not.toContain(firstEventJson);
+    // 意味的キー形式: "rfid|suit:value|posKey"
+    const firstEventKey = "RFID0000000000|spade:A|cc:0";
+    expect(result.current.eventHistory).not.toContain(firstEventKey);
 
     // 最も新しいイベント（index=200）は残っていること
-    const lastEventJson = JSON.stringify({
-      rfid: "RFID0000000200",
-      card: { suit: "spade", value: "A" },
-      position: { type: "communityCard", slot: 0 },
-    });
-    expect(result.current.eventHistory).toContain(lastEventJson);
+    const lastEventKey = "RFID0000000200|spade:A|cc:0";
+    expect(result.current.eventHistory).toContain(lastEventKey);
   });
 
   it("onCardPlaced 登録後 / onCardPlacedUnregistered 登録前にアンマウントしても unlistenCardPlaced が呼ばれる", async () => {
