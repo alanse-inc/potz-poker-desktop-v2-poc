@@ -265,14 +265,15 @@ async fn try_connect_and_listen(
     let port_name_clone = port_name.clone();
     let mut debounce_map_inner: HashMap<String, Instant> = std::mem::take(debounce_map);
 
-    let result = tokio::task::spawn_blocking(move || {
-        read_loop(app_clone, serial_state_clone, port, port_name_clone, &mut debounce_map_inner)
+    let (result, restored_map) = tokio::task::spawn_blocking(move || {
+        let loop_result = read_loop(app_clone, serial_state_clone, port, port_name_clone, &mut debounce_map_inner);
+        (loop_result, debounce_map_inner)
     })
     .await
     .map_err(|e| format!("Serial task panicked: {}", e))?;
 
-    // debounce_map を復元（drain したので空のままでよい）
-    let _ = debounce_map_inner;
+    // 再接続後もデバウンス状態を維持するために書き戻す
+    *debounce_map = restored_map;
 
     result
 }
