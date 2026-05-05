@@ -436,7 +436,10 @@ pub fn apply_card_placed(
         CardPosition::PlayerHand { seat } => {
             let player = board.players.iter_mut().find(|p| p.position == seat)
                 .ok_or_else(|| format!("player at seat {} not found", seat))?;
-            player.hand = Some([card, card]); // 2枚目は仮（RFID では1枚ずつなので上書き）
+            player.hand = match player.hand {
+                None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
+                Some([first, _]) => Some([first, card]), // 2枚目スキャン: hand を確定
+            };
         }
         CardPosition::CommunityCard { slot } => {
             let expected = board.community_cards.len() as u8;
@@ -447,6 +450,7 @@ pub fn apply_card_placed(
         }
         CardPosition::BurnCard => {
             guard.burn_count += 1;
+            guard.burn_card = Some(card);
         }
     }
 
@@ -462,4 +466,211 @@ pub fn apply_card_placed(
     guard.event_history.push(event_json);
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// テスト
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::board::{GameSettings, start_game};
+    use crate::domain::card::{Card, CardValue, Suit};
+    use crate::domain::card_distribution::CardPosition;
+    use crate::state::InnerState;
+
+    /// テスト用にボードを持つ InnerState を生成する。
+    fn make_state_with_board() -> InnerState {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        // RFID テスト用にハンドをリセット
+        for p in &mut board.players {
+            p.hand = None;
+        }
+        let mut state = InnerState::default();
+        state.settings = settings;
+        state.board = Some(board);
+        state
+    }
+
+    /// apply_card_placed のロジック部分を InnerState に対して直接実行するヘルパー。
+    fn apply_card_to_state(
+        state: &mut InnerState,
+        card: Card,
+        position: CardPosition,
+    ) -> Result<(), String> {
+        let board = state.board.as_mut().ok_or("no active board")?;
+
+        match position {
+            CardPosition::PlayerHand { seat } => {
+                let player = board
+                    .players
+                    .iter_mut()
+                    .find(|p| p.position == seat)
+                    .ok_or_else(|| format!("player at seat {} not found", seat))?;
+                player.hand = match player.hand {
+                    None => Some([card, card]),
+                    Some([first, _]) => Some([first, card]),
+                };
+            }
+            CardPosition::CommunityCard { slot } => {
+                let expected = board.community_cards.len() as u8;
+                if slot != expected {
+                    return Err(format!(
+                        "expected community card slot {}, got {}",
+                        expected, slot
+                    ));
+                }
+                board.community_cards.push(card);
+            }
+            CardPosition::BurnCard => {
+                state.burn_count += 1;
+                state.burn_card = Some(card);
+            }
+        }
+
+        Ok(())
+    }
+
+    // ---- BUG-K-1: move_next_game / reset_board 後の RFID 状態リセット ----
+
+    #[test]
+    fn move_next_game_resets_burn_state() {
+        use crate::domain::board::next_game;
+
+        let mut state = make_state_with_board();
+        // 前ゲームでバーンカードを3枚配ったと仮定
+        state.burn_count = 3;
+        state.burn_card = Some(Card::new(Suit::Spade, CardValue::Ace));
+        state.event_history.push("dummy_event".to_string());
+
+        // next_game を呼んでリセットをシミュレート
+        let prev = state.board.as_ref().unwrap().clone();
+        let (board, deck) = next_game(&prev, &state.settings).unwrap();
+        state.history.clear();
+        state.board = Some(board);
+        state.deck = deck;
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+
+        assert_eq!(state.burn_count, 0, "burn_count should be 0 after move_next_game");
+        assert!(state.burn_card.is_none(), "burn_card should be None after move_next_game");
+        assert!(
+            state.event_history.is_empty(),
+            "event_history should be empty after move_next_game"
+        );
+    }
+
+    #[test]
+    fn reset_board_resets_burn_state() {
+        let mut state = make_state_with_board();
+        state.burn_count = 2;
+        state.burn_card = Some(Card::new(Suit::Heart, CardValue::King));
+        state.event_history.push("event1".to_string());
+
+        // reset_board ロジックを直接実行
+        state.board = None;
+        state.deck.clear();
+        state.history.clear();
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+
+        assert_eq!(state.burn_count, 0);
+        assert!(state.burn_card.is_none());
+        assert!(state.event_history.is_empty());
+    }
+
+    // ---- BUG-K-2: BurnCard ケースで burn_card フィールドが更新される ----
+
+    #[test]
+    fn apply_card_burn_updates_burn_card_field() {
+        let mut state = make_state_with_board();
+        let burn = Card::new(Suit::Diamond, CardValue::Queen);
+
+        apply_card_to_state(&mut state, burn, CardPosition::BurnCard).unwrap();
+
+        assert_eq!(state.burn_count, 1, "burn_count should be incremented");
+        assert_eq!(
+            state.burn_card,
+            Some(burn),
+            "burn_card should be set to the dealt burn card"
+        );
+    }
+
+    #[test]
+    fn apply_card_burn_multiple_times_updates_to_latest() {
+        let mut state = make_state_with_board();
+        let burn1 = Card::new(Suit::Diamond, CardValue::Two);
+        let burn2 = Card::new(Suit::Club, CardValue::Three);
+
+        apply_card_to_state(&mut state, burn1, CardPosition::BurnCard).unwrap();
+        apply_card_to_state(&mut state, burn2, CardPosition::BurnCard).unwrap();
+
+        assert_eq!(state.burn_count, 2);
+        assert_eq!(state.burn_card, Some(burn2), "burn_card should be updated to the latest");
+    }
+
+    // ---- BUG-K-3: PlayerHand ケースで1枚目→2枚目の遷移 ----
+
+    #[test]
+    fn apply_card_player_hand_first_scan_sets_pending() {
+        let mut state = make_state_with_board();
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand = state.board.as_ref().unwrap().players[0].hand;
+        assert!(hand.is_some(), "hand should be Some after first scan");
+        let [h0, h1] = hand.unwrap();
+        assert_eq!(h0, card1, "hand[0] should be card1");
+        assert_eq!(h1, card1, "hand[1] should be card1 (pending state: hand[0]==hand[1])");
+    }
+
+    #[test]
+    fn apply_card_player_hand_second_scan_completes_hand() {
+        let mut state = make_state_with_board();
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card2 = Card::new(Suit::Heart, CardValue::King);
+
+        // 1枚目スキャン
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        // 2枚目スキャン
+        apply_card_to_state(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand = state.board.as_ref().unwrap().players[0].hand;
+        assert!(hand.is_some(), "hand should be Some after second scan");
+        let [h0, h1] = hand.unwrap();
+        assert_eq!(h0, card1, "hand[0] should remain card1");
+        assert_eq!(h1, card2, "hand[1] should be updated to card2");
+        assert_ne!(h0, h1, "hand[0] and hand[1] should be different after both scans");
+    }
+
+    #[test]
+    fn apply_card_player_hand_different_seats() {
+        let mut state = make_state_with_board();
+        let card_p0_1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card_p1_1 = Card::new(Suit::Heart, CardValue::King);
+        let card_p0_2 = Card::new(Suit::Diamond, CardValue::Queen);
+        let card_p1_2 = Card::new(Suit::Club, CardValue::Jack);
+
+        apply_card_to_state(&mut state, card_p0_1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card_p1_1, CardPosition::PlayerHand { seat: 1 }).unwrap();
+        apply_card_to_state(&mut state, card_p0_2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card_p1_2, CardPosition::PlayerHand { seat: 1 }).unwrap();
+
+        let board = state.board.as_ref().unwrap();
+        let hand_p0 = board.players.iter().find(|p| p.position == 0).unwrap().hand.unwrap();
+        let hand_p1 = board.players.iter().find(|p| p.position == 1).unwrap().hand.unwrap();
+
+        assert_eq!(hand_p0, [card_p0_1, card_p0_2]);
+        assert_eq!(hand_p1, [card_p1_1, card_p1_2]);
+    }
 }

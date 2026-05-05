@@ -47,6 +47,9 @@ pub fn start_game(
     inner.history.clear();
     inner.board = Some(board.clone());
     inner.deck = deck;
+    inner.burn_count = 0;
+    inner.burn_card = None;
+    inner.event_history.clear();
 
     let _ = app.emit(BOARD_UPDATED, &board);
     Ok(board)
@@ -70,6 +73,9 @@ pub fn move_next_game(
     inner.history.clear();
     inner.board = Some(board.clone());
     inner.deck = deck;
+    inner.burn_count = 0;
+    inner.burn_card = None;
+    inner.event_history.clear();
 
     let _ = app.emit(BOARD_UPDATED, &board);
     Ok(board)
@@ -81,6 +87,9 @@ pub fn reset_board(_app: AppHandle, state: State<'_, AppState>) -> Result<(), St
     inner.board = None;
     inner.deck.clear();
     inner.history.clear();
+    inner.burn_count = 0;
+    inner.burn_card = None;
+    inner.event_history.clear();
     Ok(())
 }
 
