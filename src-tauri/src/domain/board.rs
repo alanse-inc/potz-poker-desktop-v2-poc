@@ -1240,6 +1240,11 @@ pub fn board_expose(
             "expose_card is already used".into(),
         ));
     }
+    if used.contains(&(burn_card.suit, burn_card.value)) {
+        return Err(BoardError::InvalidAction(
+            "バーンカードが既に使用されています".into(),
+        ));
+    }
     // バーンカードを expose_card と差し替え（コミュニティへ追加）
     board.community_cards.push(expose_card);
     Ok(burn_card)
@@ -4659,6 +4664,46 @@ mod tests {
         let msg = result.unwrap_err().to_string();
         assert!(
             msg.contains("コール対象のベットがありません"),
+            "エラーメッセージが想定外: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn board_expose_invalid_burn_returns_error() {
+        let (mut board, _deck) = make_board();
+        let used_card = board.players[0].hand.unwrap()[0];
+        use super::super::card::{Card, CardValue, Suit};
+        let all_used: Vec<(Suit, CardValue)> = board
+            .players
+            .iter()
+            .flat_map(|p| {
+                p.hand
+                    .iter()
+                    .flat_map(|h| h.iter().map(|c| (c.suit, c.value)))
+            })
+            .collect();
+        let candidate = Card {
+            suit: Suit::Spade,
+            value: CardValue::Jack,
+        };
+        let expose_card = if !all_used.contains(&(candidate.suit, candidate.value)) {
+            candidate
+        } else {
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Queen,
+            }
+        };
+        let burn_card = used_card;
+        let result = board_expose(&mut board, expose_card, burn_card);
+        assert!(
+            result.is_err(),
+            "使用済みカードを burn_card に渡したときエラーを返すべき"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("バーンカードが既に使用されています"),
             "エラーメッセージが想定外: {}",
             msg
         );

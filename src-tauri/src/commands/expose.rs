@@ -69,7 +69,6 @@ pub fn expose(app: AppHandle, expose_card: Card, state: State<AppState>) -> Resu
 #[cfg(test)]
 mod tests {
     use crate::domain::board::{board_expose, build_remaining_deck, start_game, GameSettings};
-    use crate::domain::card::{Card, CardValue, Suit};
     use crate::state::InnerState;
 
     fn make_state_with_board() -> InnerState {
@@ -93,18 +92,12 @@ mod tests {
     #[test]
     fn expose_removes_burn_and_expose_card_from_deck() {
         let mut state = make_state_with_board();
-        let burn_card = Card::new(Suit::Diamond, CardValue::Two);
-        // deck に burn_card を確実に含める
-        if !state.deck.contains(&burn_card) {
-            state.deck.push(burn_card);
-        }
-        // expose_card は deck の先頭（プレイヤーのハンドに含まれていないことが保証される）
-        // burn_card と異なるカードを deck から選ぶ
-        let expose_card = state
+        // deck から未使用カードを選ぶ（プレイヤーの hand に含まれない保証）
+        let burn_card = *state.deck.first().expect("deck must have cards");
+        let expose_card = *state
             .deck
             .iter()
             .find(|&&c| c != burn_card)
-            .copied()
             .expect("deck should have a card different from burn_card");
         let deck_len_before = state.deck.len();
         state.burn_card = Some(burn_card);
@@ -131,15 +124,11 @@ mod tests {
     #[test]
     fn expose_removes_burn_card_from_deck() {
         let mut state = make_state_with_board();
-        let burn_card = Card::new(Suit::Diamond, CardValue::Two);
-        // deck に burn_card を確実に含める
-        if !state.deck.contains(&burn_card) {
-            state.deck.push(burn_card);
-        }
+        // deck から未使用カードを選ぶ（プレイヤーの hand に含まれない保証）
+        let burn_card = *state.deck.first().expect("deck must have cards");
         let deck_len_before = state.deck.len();
         state.burn_card = Some(burn_card);
 
-        // deck の末尾から burn_card と異なるカードを expose_card として選ぶ
         let expose_card = state
             .deck
             .iter()
@@ -173,10 +162,8 @@ mod tests {
         use crate::state::MAX_HISTORY;
 
         let mut state = make_state_with_board();
-        let burn_card = Card::new(Suit::Diamond, CardValue::Two);
-        if !state.deck.contains(&burn_card) {
-            state.deck.push(burn_card);
-        }
+        // deck から未使用カードを選ぶ（プレイヤーの hand に含まれない保証）
+        let burn_card = *state.deck.first().expect("deck must have cards");
         state.burn_card = Some(burn_card);
 
         let expose_card = state
