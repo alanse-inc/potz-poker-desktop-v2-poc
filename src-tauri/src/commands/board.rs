@@ -1,11 +1,12 @@
 //! ボード操作に関する Tauri commands。
 
+use crate::commands::settings::{sanitize_settings, validate_settings};
 use crate::domain::board::{
     add_player as domain_add_player, build_remaining_deck,
     evaluate_player_hand as domain_evaluate_player_hand, next_game,
     remove_player as domain_remove_player, set_community_card as domain_set_community_card,
-    start_game as domain_start_game, update_player as domain_update_player, GameSettings,
-    TexasHoldemBoard, TexasHoldemInitialBoard,
+    start_game as domain_start_game, update_player as domain_update_player, TexasHoldemBoard,
+    TexasHoldemInitialBoard,
 };
 use crate::domain::card::Card;
 use crate::domain::hand::EvaluatedHand;
@@ -36,12 +37,8 @@ pub fn start_game(
     player_names: Vec<String>,
     dealer_position: u8,
 ) -> Result<TexasHoldemBoard, String> {
-    let settings = GameSettings {
-        small_blind,
-        big_blind,
-        min_chip,
-        bb_ante,
-    };
+    let settings = sanitize_settings(small_blind, big_blind, min_chip, bb_ante);
+    validate_settings(&settings)?;
 
     let board = domain_start_game(settings.clone(), player_names, dealer_position)
         .map_err(|e| e.to_string())?;

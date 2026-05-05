@@ -203,7 +203,7 @@ mod tests {
     }
 }
 
-fn validate_settings(settings: &GameSettings) -> Result<(), String> {
+pub(crate) fn validate_settings(settings: &GameSettings) -> Result<(), String> {
     if settings.small_blind < 1 {
         return Err("invalid settings: small_blind must be >= 1".to_string());
     }
