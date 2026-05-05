@@ -532,32 +532,23 @@ pub fn apply_card_placed(
 
     let mut guard = state.lock();
 
-    // 状態変更前に history snapshot を保存する
-    {
-        let board_snap = guard.board.as_ref().ok_or("no active board")?.clone();
-        let deck_snap = guard.deck.clone();
-        let burn_count_snap = guard.burn_count;
-        let burn_card_snap = guard.burn_card;
-        guard
-            .history
-            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
-        if guard.history.len() > MAX_HISTORY {
-            let excess = guard.history.len() - MAX_HISTORY;
-            guard.history.drain(0..excess);
-        }
-    }
+    // board の存在確認（PlayerHand 以外のケースで history push 前に早期リターンするため）
+    guard.board.as_ref().ok_or("no active board")?;
 
     match position {
         CardPosition::PlayerHand { seat } => {
-            let found = {
+            // PlayerHand は confirmed への遷移（2枚目スキャン）のときのみ history push する。
+            // pending への遷移（1枚目スキャン）や無視ケースでは push しない。
+            // これにより back_board で pending 状態に戻ることを防ぐ。
+            let transition = {
                 let board = match guard.board.as_mut() {
                     Some(b) => b,
                     None => {
-                        guard.history.pop();
                         return Err("no active board".to_string());
                     }
                 };
                 if let Some(player) = board.players.iter_mut().find(|p| p.position == seat) {
+                    let prev_hand = player.hand;
                     player.hand = match player.hand {
                         None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
                         Some([first, second]) if first != second => {
@@ -579,26 +570,52 @@ pub fn apply_card_placed(
                         }
                         Some([first, _]) => Some([first, card]), // 2枚目スキャン: hand を確定
                     };
-                    true
+                    // pending → confirmed への遷移かどうかを返す
+                    let became_confirmed = matches!(prev_hand, Some([f, s]) if f == s)
+                        && matches!(player.hand, Some([f, s]) if f != s);
+                    Some(became_confirmed)
                 } else {
-                    false
+                    None
                 }
                 // board の borrow はここで終了
             };
-            if !found {
-                guard.history.pop();
-                return Err(format!("player at seat {} not found", seat));
+            match transition {
+                None => {
+                    return Err(format!("player at seat {} not found", seat));
+                }
+                Some(true) => {
+                    // confirmed への遷移: pending 状態のスナップショットを history に push する
+                    let mut snap = guard.board.as_ref().unwrap().clone();
+                    if let Some(player) = snap.players.iter_mut().find(|p| p.position == seat) {
+                        player.hand = Some([card, card]);
+                    }
+                    let deck_snap = guard.deck.clone();
+                    let burn_count_snap = guard.burn_count;
+                    let burn_card_snap = guard.burn_card;
+                    guard
+                        .history
+                        .push((snap, deck_snap, burn_count_snap, burn_card_snap));
+                    if guard.history.len() > MAX_HISTORY {
+                        let excess = guard.history.len() - MAX_HISTORY;
+                        guard.history.drain(0..excess);
+                    }
+                }
+                Some(false) => {}
             }
             guard
                 .deck
                 .retain(|c| c.suit != card.suit || c.value != card.value);
         }
         CardPosition::CommunityCard { slot } => {
+            let board_snap = guard.board.as_ref().unwrap().clone();
+            let deck_snap = guard.deck.clone();
+            let burn_count_snap = guard.burn_count;
+            let burn_card_snap = guard.burn_card;
+
             let slot_result = {
                 let board = match guard.board.as_mut() {
                     Some(b) => b,
                     None => {
-                        guard.history.pop();
                         return Err("no active board".to_string());
                     }
                 };
@@ -614,20 +631,37 @@ pub fn apply_card_placed(
                 }
                 // board の borrow はここで終了
             };
-            if let Err(e) = slot_result {
-                guard.history.pop();
-                return Err(e);
+            slot_result?;
+            guard
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if guard.history.len() > MAX_HISTORY {
+                let excess = guard.history.len() - MAX_HISTORY;
+                guard.history.drain(0..excess);
             }
             guard
                 .deck
                 .retain(|c| c.suit != card.suit || c.value != card.value);
         }
         CardPosition::BurnCard => {
+            let board_snap = guard.board.as_ref().unwrap().clone();
+            let deck_snap = guard.deck.clone();
+            let burn_count_snap = guard.burn_count;
+            let burn_card_snap = guard.burn_card;
+
             guard.burn_count += 1;
             guard.burn_card = Some(card);
             guard
                 .deck
                 .retain(|c| c.suit != card.suit || c.value != card.value);
+
+            guard
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if guard.history.len() > MAX_HISTORY {
+                let excess = guard.history.len() - MAX_HISTORY;
+                guard.history.drain(0..excess);
+            }
         }
     }
 
@@ -1276,54 +1310,68 @@ mod tests {
     ) -> Result<(), String> {
         use crate::state::MAX_HISTORY;
 
-        let board_snap = state.board.as_ref().ok_or("no active board")?.clone();
-        let deck_snap = state.deck.clone();
-        let burn_count_snap = state.burn_count;
-        let burn_card_snap = state.burn_card;
-        state
-            .history
-            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
-        if state.history.len() > MAX_HISTORY {
-            let excess = state.history.len() - MAX_HISTORY;
-            state.history.drain(0..excess);
-        }
+        state.board.as_ref().ok_or("no active board")?;
 
         match position {
             CardPosition::PlayerHand { seat } => {
-                let found = {
+                let transition = {
                     let board = match state.board.as_mut() {
                         Some(b) => b,
                         None => {
-                            state.history.pop();
                             return Err("no active board".to_string());
                         }
                     };
                     if let Some(player) = board.players.iter_mut().find(|p| p.position == seat) {
+                        let prev_hand = player.hand;
                         player.hand = match player.hand {
                             None => Some([card, card]),
                             Some([first, second]) if first != second => Some([first, second]),
                             Some([first, _]) if first == card => Some([first, first]),
                             Some([first, _]) => Some([first, card]),
                         };
-                        true
+                        let became_confirmed = matches!(prev_hand, Some([f, s]) if f == s)
+                            && matches!(player.hand, Some([f, s]) if f != s);
+                        Some(became_confirmed)
                     } else {
-                        false
+                        None
                     }
                 };
-                if !found {
-                    state.history.pop();
-                    return Err(format!("player at seat {} not found", seat));
+                match transition {
+                    None => {
+                        return Err(format!("player at seat {} not found", seat));
+                    }
+                    Some(true) => {
+                        let mut snap = state.board.as_ref().unwrap().clone();
+                        if let Some(player) = snap.players.iter_mut().find(|p| p.position == seat) {
+                            player.hand = Some([card, card]);
+                        }
+                        let deck_snap = state.deck.clone();
+                        let burn_count_snap = state.burn_count;
+                        let burn_card_snap = state.burn_card;
+                        state
+                            .history
+                            .push((snap, deck_snap, burn_count_snap, burn_card_snap));
+                        if state.history.len() > MAX_HISTORY {
+                            let excess = state.history.len() - MAX_HISTORY;
+                            state.history.drain(0..excess);
+                        }
+                    }
+                    Some(false) => {}
                 }
                 state
                     .deck
                     .retain(|c| c.suit != card.suit || c.value != card.value);
             }
             CardPosition::CommunityCard { slot } => {
+                let board_snap = state.board.as_ref().unwrap().clone();
+                let deck_snap = state.deck.clone();
+                let burn_count_snap = state.burn_count;
+                let burn_card_snap = state.burn_card;
+
                 let slot_result = {
                     let board = match state.board.as_mut() {
                         Some(b) => b,
                         None => {
-                            state.history.pop();
                             return Err("no active board".to_string());
                         }
                     };
@@ -1338,20 +1386,37 @@ mod tests {
                         Ok(())
                     }
                 };
-                if let Err(e) = slot_result {
-                    state.history.pop();
-                    return Err(e);
+                slot_result?;
+                state
+                    .history
+                    .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+                if state.history.len() > MAX_HISTORY {
+                    let excess = state.history.len() - MAX_HISTORY;
+                    state.history.drain(0..excess);
                 }
                 state
                     .deck
                     .retain(|c| c.suit != card.suit || c.value != card.value);
             }
             CardPosition::BurnCard => {
+                let board_snap = state.board.as_ref().unwrap().clone();
+                let deck_snap = state.deck.clone();
+                let burn_count_snap = state.burn_count;
+                let burn_card_snap = state.burn_card;
+
                 state.burn_count += 1;
                 state.burn_card = Some(card);
                 state
                     .deck
                     .retain(|c| c.suit != card.suit || c.value != card.value);
+
+                state
+                    .history
+                    .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+                if state.history.len() > MAX_HISTORY {
+                    let excess = state.history.len() - MAX_HISTORY;
+                    state.history.drain(0..excess);
+                }
             }
         }
         Ok(())
@@ -1569,6 +1634,108 @@ mod tests {
         assert!(
             map.contains_key("fresh_rfid"),
             "fresh entry should be retained"
+        );
+    }
+
+    // ---- Bug 3: pending への遷移では history push しない ----
+
+    /// 1枚目スキャン（None → pending）では history に push しない。
+    #[test]
+    fn apply_card_placed_pending_does_not_push_history() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        assert_eq!(state.history.len(), 0);
+        let card = Card::new(Suit::Spade, CardValue::Ace);
+
+        apply_card_with_history(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        // 1枚目スキャン（pending 遷移）では history push しない
+        assert_eq!(
+            state.history.len(),
+            0,
+            "first scan (pending) must not push to history"
+        );
+        let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(hand, [card, card], "hand should be in pending state");
+    }
+
+    /// 2枚目スキャン（pending → confirmed）では history に push する。
+    #[test]
+    fn apply_card_placed_confirmed_pushes_history() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card2 = Card::new(Suit::Heart, CardValue::King);
+
+        // 1枚目スキャン: history push なし
+        apply_card_with_history(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        assert_eq!(state.history.len(), 0, "first scan should not push history");
+
+        // 2枚目スキャン: confirmed への遷移で history push
+        apply_card_with_history(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        assert_eq!(
+            state.history.len(),
+            1,
+            "second scan (confirmed) must push to history"
+        );
+
+        // history に積まれたスナップショットは pending 状態 (hand[0] == hand[1])
+        let (snapped_board, _, _, _) = &state.history[0];
+        let snapped_hand = snapped_board
+            .players
+            .iter()
+            .find(|p| p.position == 0)
+            .unwrap()
+            .hand
+            .unwrap();
+        assert_eq!(
+            snapped_hand[0], snapped_hand[1],
+            "snapshot should reflect pending state (hand[0] == hand[1])"
+        );
+    }
+
+    /// back_board で pending 状態に戻らないこと（Bug 3 の修正確認）。
+    #[test]
+    fn apply_card_placed_back_board_does_not_restore_pending() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card2 = Card::new(Suit::Heart, CardValue::King);
+
+        // 1枚目スキャン（history push なし）
+        apply_card_with_history(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        // 2枚目スキャン（history push あり）
+        apply_card_with_history(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        assert_eq!(state.history.len(), 1);
+
+        // back_board 相当
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = state.history.pop().unwrap();
+        state.board = Some(prev_board);
+        state.deck = prev_deck;
+        state.burn_count = prev_burn_count;
+        state.burn_card = prev_burn_card;
+
+        // 復元後は pending 状態（hand[0] == hand[1] == card1）になるが、confirmed 状態には戻らない
+        // ここでの期待: back_board 後に pending 状態になる（confirmed に戻らない）
+        let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(
+            hand[0], hand[1],
+            "back_board should restore to pending state, not confirmed"
+        );
+        assert_ne!(
+            hand,
+            [card1, card2],
+            "back_board must not restore confirmed state"
         );
     }
 
