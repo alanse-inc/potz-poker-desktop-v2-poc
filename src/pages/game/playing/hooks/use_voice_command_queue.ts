@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import { api } from "../../../../api/client";
 import {
@@ -60,6 +60,7 @@ export function useVoiceCommandQueue(
 ) {
   const queueRef = useRef<VoicePokerCommand[]>([]);
   const isProcessingRef = useRef(false);
+  const activeIntervalsRef = useRef<ReturnType<typeof setInterval>[]>([]);
 
   const waitForBoardUpdate = useCallback(
     (prevBoard: TexasHoldemBoard): Promise<boolean> => {
@@ -76,13 +77,19 @@ export function useVoiceCommandQueue(
               current.phase !== prevPhase)
           ) {
             clearInterval(interval);
+            activeIntervalsRef.current = activeIntervalsRef.current.filter(
+              (id) => id !== interval,
+            );
             resolve(true);
-          }
-          if (elapsed >= 2000) {
+          } else if (elapsed >= 2000) {
             clearInterval(interval);
+            activeIntervalsRef.current = activeIntervalsRef.current.filter(
+              (id) => id !== interval,
+            );
             resolve(false);
           }
         }, 100);
+        activeIntervalsRef.current.push(interval);
       });
     },
     [boardRef],
@@ -97,13 +104,19 @@ export function useVoiceCommandQueue(
           const current = boardRef.current;
           if (current && isActionableBoard(current)) {
             clearInterval(interval);
+            activeIntervalsRef.current = activeIntervalsRef.current.filter(
+              (id) => id !== interval,
+            );
             resolve(current);
-          }
-          if (elapsed >= ACTIONABLE_WAIT_TIMEOUT_MS) {
+          } else if (elapsed >= ACTIONABLE_WAIT_TIMEOUT_MS) {
             clearInterval(interval);
+            activeIntervalsRef.current = activeIntervalsRef.current.filter(
+              (id) => id !== interval,
+            );
             resolve(null);
           }
         }, ACTIONABLE_POLL_INTERVAL_MS);
+        activeIntervalsRef.current.push(interval);
       });
     }, [boardRef]);
 
@@ -628,6 +641,15 @@ export function useVoiceCommandQueue(
     },
     [boardRef, processNext],
   );
+
+  useEffect(() => {
+    return () => {
+      for (const id of activeIntervalsRef.current) {
+        clearInterval(id);
+      }
+      activeIntervalsRef.current = [];
+    };
+  }, []);
 
   return { enqueue };
 }

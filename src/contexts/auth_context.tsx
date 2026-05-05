@@ -280,7 +280,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const intervalId = setInterval(
       async () => {
-        console.log("[Auth] Periodic token refresh...");
         await refresh();
       },
       30 * 60 * 1000,
