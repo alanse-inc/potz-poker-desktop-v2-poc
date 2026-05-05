@@ -6,7 +6,7 @@
 
 use crate::domain::card::Card;
 use crate::domain::rfid_mapping::RfidCardMapping;
-use crate::state::AppState;
+use crate::state::{AppState, MAX_HISTORY};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -520,50 +520,102 @@ pub fn apply_card_placed(
 
     let mut guard = state.lock();
 
-    let board = guard.board.as_mut().ok_or("no active board")?;
+    // 状態変更前に history snapshot を保存する
+    {
+        let board_snap = guard.board.as_ref().ok_or("no active board")?.clone();
+        let deck_snap = guard.deck.clone();
+        let burn_count_snap = guard.burn_count;
+        let burn_card_snap = guard.burn_card;
+        guard
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if guard.history.len() > MAX_HISTORY {
+            let excess = guard.history.len() - MAX_HISTORY;
+            guard.history.drain(0..excess);
+        }
+    }
 
     match position {
         CardPosition::PlayerHand { seat } => {
-            let player = board
-                .players
-                .iter_mut()
-                .find(|p| p.position == seat)
-                .ok_or_else(|| format!("player at seat {} not found", seat))?;
-            player.hand = match player.hand {
-                None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
-                Some([first, second]) if first != second => {
-                    // confirmed 状態（hand[0] != hand[1]）では追加スキャンを無視
-                    tracing::warn!(
-                        "hand already confirmed at seat {}, ignoring extra scan",
-                        seat
-                    );
-                    Some([first, second])
+            let found = {
+                let board = match guard.board.as_mut() {
+                    Some(b) => b,
+                    None => {
+                        guard.history.pop();
+                        return Err("no active board".to_string());
+                    }
+                };
+                if let Some(player) = board.players.iter_mut().find(|p| p.position == seat) {
+                    player.hand = match player.hand {
+                        None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
+                        Some([first, second]) if first != second => {
+                            // confirmed 状態（hand[0] != hand[1]）では追加スキャンを無視
+                            tracing::warn!(
+                                "hand already confirmed at seat {}, ignoring extra scan",
+                                seat
+                            );
+                            Some([first, second])
+                        }
+                        Some([first, _]) if first == card => {
+                            // pending 状態で同一カードの再スキャンは無視（hand は変更しない）
+                            tracing::warn!(
+                                "duplicate RFID scan for same card {:?} at seat {}, ignoring",
+                                card,
+                                seat
+                            );
+                            Some([first, first])
+                        }
+                        Some([first, _]) => Some([first, card]), // 2枚目スキャン: hand を確定
+                    };
+                    true
+                } else {
+                    false
                 }
-                Some([first, _]) if first == card => {
-                    // pending 状態で同一カードの再スキャンは無視（hand は変更しない）
-                    tracing::warn!(
-                        "duplicate RFID scan for same card {:?} at seat {}, ignoring",
-                        card,
-                        seat
-                    );
-                    Some([first, first])
-                }
-                Some([first, _]) => Some([first, card]), // 2枚目スキャン: hand を確定
+                // board の borrow はここで終了
             };
+            if !found {
+                guard.history.pop();
+                return Err(format!("player at seat {} not found", seat));
+            }
+            guard
+                .deck
+                .retain(|c| c.suit != card.suit || c.value != card.value);
         }
         CardPosition::CommunityCard { slot } => {
-            let expected = board.community_cards.len() as u8;
-            if slot != expected {
-                return Err(format!(
-                    "expected community card slot {}, got {}",
-                    expected, slot
-                ));
+            let slot_result = {
+                let board = match guard.board.as_mut() {
+                    Some(b) => b,
+                    None => {
+                        guard.history.pop();
+                        return Err("no active board".to_string());
+                    }
+                };
+                let expected = board.community_cards.len() as u8;
+                if slot != expected {
+                    Err(format!(
+                        "expected community card slot {}, got {}",
+                        expected, slot
+                    ))
+                } else {
+                    board.community_cards.push(card);
+                    Ok(())
+                }
+                // board の borrow はここで終了
+            };
+            if let Err(e) = slot_result {
+                guard.history.pop();
+                return Err(e);
             }
-            board.community_cards.push(card);
+            guard
+                .deck
+                .retain(|c| c.suit != card.suit || c.value != card.value);
         }
         CardPosition::BurnCard => {
             guard.burn_count += 1;
             guard.burn_card = Some(card);
+            guard
+                .deck
+                .retain(|c| c.suit != card.suit || c.value != card.value);
         }
     }
 
@@ -1199,6 +1251,281 @@ mod tests {
             hand,
             [card1, card2],
             "confirmed hand must not change when first card is rescanned"
+        );
+    }
+
+    // ---- Bug 1 fix: apply_card_placed が history snapshot を push する ----
+
+    /// apply_card_placed 相当のロジック（history push + deck retain 付き）を InnerState で直接実行するヘルパー。
+    fn apply_card_with_history(
+        state: &mut InnerState,
+        card: Card,
+        position: CardPosition,
+    ) -> Result<(), String> {
+        use crate::state::MAX_HISTORY;
+
+        let board_snap = state.board.as_ref().ok_or("no active board")?.clone();
+        let deck_snap = state.deck.clone();
+        let burn_count_snap = state.burn_count;
+        let burn_card_snap = state.burn_card;
+        state
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if state.history.len() > MAX_HISTORY {
+            let excess = state.history.len() - MAX_HISTORY;
+            state.history.drain(0..excess);
+        }
+
+        match position {
+            CardPosition::PlayerHand { seat } => {
+                let found = {
+                    let board = match state.board.as_mut() {
+                        Some(b) => b,
+                        None => {
+                            state.history.pop();
+                            return Err("no active board".to_string());
+                        }
+                    };
+                    if let Some(player) = board.players.iter_mut().find(|p| p.position == seat) {
+                        player.hand = match player.hand {
+                            None => Some([card, card]),
+                            Some([first, second]) if first != second => Some([first, second]),
+                            Some([first, _]) if first == card => Some([first, first]),
+                            Some([first, _]) => Some([first, card]),
+                        };
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if !found {
+                    state.history.pop();
+                    return Err(format!("player at seat {} not found", seat));
+                }
+                state
+                    .deck
+                    .retain(|c| c.suit != card.suit || c.value != card.value);
+            }
+            CardPosition::CommunityCard { slot } => {
+                let slot_result = {
+                    let board = match state.board.as_mut() {
+                        Some(b) => b,
+                        None => {
+                            state.history.pop();
+                            return Err("no active board".to_string());
+                        }
+                    };
+                    let expected = board.community_cards.len() as u8;
+                    if slot != expected {
+                        Err(format!(
+                            "expected community card slot {}, got {}",
+                            expected, slot
+                        ))
+                    } else {
+                        board.community_cards.push(card);
+                        Ok(())
+                    }
+                };
+                if let Err(e) = slot_result {
+                    state.history.pop();
+                    return Err(e);
+                }
+                state
+                    .deck
+                    .retain(|c| c.suit != card.suit || c.value != card.value);
+            }
+            CardPosition::BurnCard => {
+                state.burn_count += 1;
+                state.burn_card = Some(card);
+                state
+                    .deck
+                    .retain(|c| c.suit != card.suit || c.value != card.value);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn apply_card_placed_pushes_history_snapshot_on_community_card() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        let board_snap = state.board.as_ref().unwrap().clone();
+        state.deck = build_remaining_deck(&board_snap);
+
+        assert_eq!(state.history.len(), 0);
+        let card = Card::new(Suit::Spade, CardValue::Ace);
+        // deck にカードを含めるため build_remaining_deck で生成済み
+
+        apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot: 0 }).unwrap();
+
+        assert_eq!(
+            state.history.len(),
+            1,
+            "history should have 1 snapshot after apply_card_placed"
+        );
+        let (snapped_board, _, _, _) = &state.history[0];
+        assert_eq!(
+            snapped_board.community_cards.len(),
+            0,
+            "snapshot should reflect board before card was placed"
+        );
+        assert_eq!(
+            state.board.as_ref().unwrap().community_cards.len(),
+            1,
+            "board should have 1 community card after placement"
+        );
+    }
+
+    #[test]
+    fn apply_card_placed_pushes_history_snapshot_on_burn_card() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        assert_eq!(state.history.len(), 0);
+        let card = Card::new(Suit::Heart, CardValue::Two);
+
+        apply_card_with_history(&mut state, card, CardPosition::BurnCard).unwrap();
+
+        assert_eq!(state.history.len(), 1);
+        let (_, _, snapped_burn_count, snapped_burn_card) = &state.history[0];
+        assert_eq!(*snapped_burn_count, 0, "snapshot burn_count should be 0");
+        assert!(
+            snapped_burn_card.is_none(),
+            "snapshot burn_card should be None"
+        );
+        assert_eq!(state.burn_count, 1, "burn_count should be 1 after BurnCard");
+        assert_eq!(state.burn_card, Some(card));
+    }
+
+    #[test]
+    fn apply_card_placed_error_rolls_back_history() {
+        let mut state = make_state_with_board();
+
+        let card = Card::new(Suit::Club, CardValue::Three);
+        // slot 1 を指定するが community_cards は空なので slot 0 が期待されエラーになる
+        let result =
+            apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot: 1 });
+
+        assert!(result.is_err(), "should return error for wrong slot");
+        assert_eq!(
+            state.history.len(),
+            0,
+            "history should be empty after error rollback"
+        );
+    }
+
+    #[test]
+    fn apply_card_placed_back_board_restores_before_placement() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+        let deck_len_before = state.deck.len();
+
+        let card = Card::new(Suit::Diamond, CardValue::King);
+        apply_card_with_history(&mut state, card, CardPosition::BurnCard).unwrap();
+
+        assert_eq!(state.burn_count, 1);
+        // deck から1枚減っていること
+        assert_eq!(
+            state.deck.len(),
+            deck_len_before - 1,
+            "deck should have one fewer card after BurnCard"
+        );
+
+        // back_board 相当
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = state.history.pop().unwrap();
+        state.board = Some(prev_board);
+        state.deck = prev_deck;
+        state.burn_count = prev_burn_count;
+        state.burn_card = prev_burn_card;
+
+        assert_eq!(state.burn_count, 0, "burn_count restored to 0");
+        assert!(state.burn_card.is_none(), "burn_card restored to None");
+        assert_eq!(
+            state.deck.len(),
+            deck_len_before,
+            "deck restored to original length"
+        );
+    }
+
+    // ---- Bug 2 fix: apply_card_placed が deck からカードを削除する ----
+
+    #[test]
+    fn apply_card_placed_removes_card_from_deck_on_community_card() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+        let deck_len_before = state.deck.len();
+
+        let card = state.deck[0];
+        apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot: 0 }).unwrap();
+
+        assert_eq!(
+            state.deck.len(),
+            deck_len_before - 1,
+            "deck should have one fewer card after CommunityCard placement"
+        );
+        assert!(
+            !state
+                .deck
+                .iter()
+                .any(|c| c.suit == card.suit && c.value == card.value),
+            "placed card should not remain in deck"
+        );
+    }
+
+    #[test]
+    fn apply_card_placed_removes_card_from_deck_on_burn_card() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+        let deck_len_before = state.deck.len();
+
+        let card = state.deck[0];
+        apply_card_with_history(&mut state, card, CardPosition::BurnCard).unwrap();
+
+        assert_eq!(
+            state.deck.len(),
+            deck_len_before - 1,
+            "deck should have one fewer card after BurnCard"
+        );
+        assert!(
+            !state
+                .deck
+                .iter()
+                .any(|c| c.suit == card.suit && c.value == card.value),
+            "burn card should not remain in deck"
+        );
+    }
+
+    #[test]
+    fn apply_card_placed_removes_card_from_deck_on_player_hand() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+        let deck_len_before = state.deck.len();
+
+        let card = state.deck[0];
+        apply_card_with_history(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        assert_eq!(
+            state.deck.len(),
+            deck_len_before - 1,
+            "deck should have one fewer card after PlayerHand placement"
+        );
+        assert!(
+            !state
+                .deck
+                .iter()
+                .any(|c| c.suit == card.suit && c.value == card.value),
+            "player hand card should not remain in deck"
         );
     }
 }
