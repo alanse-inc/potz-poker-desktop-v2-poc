@@ -21,7 +21,7 @@ pub fn sanitize_settings(sb: u32, bb: u32, min_chip: u32, bb_ante: bool) -> Game
     let bb = if bb < 1 {
         200
     } else if bb <= sb {
-        sb * 2
+        sb.saturating_mul(2)
     } else {
         bb
     };
@@ -157,6 +157,15 @@ mod tests {
         let s = sanitize_settings(100, 100, 50, false);
         assert_eq!(s.small_blind, 100);
         assert_eq!(s.big_blind, 200); // sb * 2
+    }
+
+    #[test]
+    fn sanitize_settings_sb_near_u32_max_does_not_overflow() {
+        // sb > u32::MAX / 2 のとき saturating_mul で u32::MAX に飽和する
+        let sb = u32::MAX / 2 + 1;
+        let s = sanitize_settings(sb, 1, 50, false); // bb < sb なので sb.saturating_mul(2) が使われる
+        assert_eq!(s.small_blind, sb);
+        assert_eq!(s.big_blind, u32::MAX); // saturating result
     }
 }
 
