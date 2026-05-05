@@ -4,7 +4,13 @@ import { createRoot } from "react-dom/client";
 import { api } from "./api/client";
 import { AutoBoardProvider } from "./contexts/auto_board_context";
 import { TelopPage } from "./pages/telop";
+import { initializeSentry, isSentryEnabled, Sentry } from "./services/sentry";
 import type { TelopState } from "./types";
+
+initializeSentry();
+
+// biome-ignore lint/suspicious/noExplicitAny: React 19 Sentry ErrorBoundary type compatibility issue
+const ErrorBoundary = Sentry.ErrorBoundary as any;
 
 /**
  * テロップウィンドウのエントリーポイント
@@ -72,6 +78,13 @@ function TelopApp() {
 const rootElement = document.getElementById("root") as HTMLElement;
 createRoot(rootElement).render(
   <StrictMode>
-    <TelopApp />
+    <ErrorBoundary
+      fallback={() => (
+        <div>予期しないエラーが発生しました。アプリを再起動してください。</div>
+      )}
+      showDialog={isSentryEnabled}
+    >
+      <TelopApp />
+    </ErrorBoundary>
   </StrictMode>,
 );
