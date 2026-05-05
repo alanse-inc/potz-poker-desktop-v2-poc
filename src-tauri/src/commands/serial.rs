@@ -216,6 +216,7 @@ async fn run_serial_listener(app: AppHandle) {
                     let mut inner = app_state.lock();
                     inner.serial_connected = false;
                     inner.serial_port_name = None;
+                    inner.register_mode = false;
                 }
                 true
             } else {
