@@ -4,8 +4,8 @@
 //!   - desktop-app/src/main/hardware/rfid_card_receiver.ts
 //!   - desktop-app/src/main/hardware/convert_rfid_to_card.ts
 
-use crate::domain::rfid_mapping::RfidCardMapping;
 use crate::domain::card::Card;
+use crate::domain::rfid_mapping::RfidCardMapping;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -13,7 +13,10 @@ use tauri::{AppHandle, State};
 #[cfg(not(test))]
 use crate::domain::card_distribution::determine_next_card_position;
 #[cfg(not(test))]
-use crate::events::{BOARD_UPDATED, CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, DECK_UPDATED, SERIAL_STATUS_UPDATED};
+use crate::events::{
+    BOARD_UPDATED, CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, DECK_UPDATED,
+    SERIAL_STATUS_UPDATED,
+};
 #[cfg(not(test))]
 use parking_lot::Mutex;
 #[cfg(not(test))]
@@ -187,10 +190,17 @@ async fn run_serial_listener(app: AppHandle) {
         match try_connect_and_listen(&app, &serial_state, &mut debounce_map).await {
             Ok(()) => {
                 // 正常終了（切断）: 5s 後に再試行
-                tracing::info!("Serial port disconnected. Reconnecting in {}ms...", RECONNECT_INTERVAL_MS);
+                tracing::info!(
+                    "Serial port disconnected. Reconnecting in {}ms...",
+                    RECONNECT_INTERVAL_MS
+                );
             }
             Err(e) => {
-                tracing::warn!("Serial connection failed: {}. Retrying in {}ms...", e, RECONNECT_INTERVAL_MS);
+                tracing::warn!(
+                    "Serial connection failed: {}. Retrying in {}ms...",
+                    e,
+                    RECONNECT_INTERVAL_MS
+                );
             }
         }
 
@@ -214,10 +224,13 @@ async fn run_serial_listener(app: AppHandle) {
             // ss はここで drop される
         };
         if should_emit_disconnected {
-            let _ = app.emit(SERIAL_STATUS_UPDATED, SerialStatusPayload {
-                connected: false,
-                port_name: None,
-            });
+            let _ = app.emit(
+                SERIAL_STATUS_UPDATED,
+                SerialStatusPayload {
+                    connected: false,
+                    port_name: None,
+                },
+            );
         }
 
         tokio::time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MS)).await;
@@ -253,10 +266,13 @@ async fn try_connect_and_listen(
         inner.serial_connected = true;
         inner.serial_port_name = Some(port_name.clone());
     }
-    let _ = app.emit(SERIAL_STATUS_UPDATED, SerialStatusPayload {
-        connected: true,
-        port_name: Some(port_name.clone()),
-    });
+    let _ = app.emit(
+        SERIAL_STATUS_UPDATED,
+        SerialStatusPayload {
+            connected: true,
+            port_name: Some(port_name.clone()),
+        },
+    );
     tracing::info!("Serial port connected: {}", port_name);
 
     // 受信ループ (blocking → spawn_blocking)
@@ -266,7 +282,13 @@ async fn try_connect_and_listen(
     let mut debounce_map_inner: HashMap<String, Instant> = std::mem::take(debounce_map);
 
     let (result, restored_map) = tokio::task::spawn_blocking(move || {
-        let loop_result = read_loop(app_clone, serial_state_clone, port, port_name_clone, &mut debounce_map_inner);
+        let loop_result = read_loop(
+            app_clone,
+            serial_state_clone,
+            port,
+            port_name_clone,
+            &mut debounce_map_inner,
+        );
         (loop_result, debounce_map_inner)
     })
     .await
@@ -342,7 +364,11 @@ fn process_rfid(app: &AppHandle, rfid: String) {
     enum RfidEvent {
         Register,
         Unregistered,
-        Placed { card: crate::domain::card::Card, board: crate::domain::board::TexasHoldemBoard, burn_count: u8 },
+        Placed {
+            card: crate::domain::card::Card,
+            board: crate::domain::board::TexasHoldemBoard,
+            burn_count: u8,
+        },
         NoBoard,
     }
 
@@ -356,19 +382,17 @@ fn process_rfid(app: &AppHandle, rfid: String) {
             let card_opt = guard.current_deck().and_then(|d| d.lookup(&rfid));
             match card_opt {
                 None => RfidEvent::Unregistered,
-                Some(card) => {
-                    match &guard.board {
-                        Some(b) => RfidEvent::Placed {
-                            card,
-                            board: b.clone(),
-                            burn_count: guard.burn_count,
-                        },
-                        None => {
-                            tracing::warn!("Card placed but no board active. rfid={}", rfid);
-                            RfidEvent::NoBoard
-                        }
+                Some(card) => match &guard.board {
+                    Some(b) => RfidEvent::Placed {
+                        card,
+                        board: b.clone(),
+                        burn_count: guard.burn_count,
+                    },
+                    None => {
+                        tracing::warn!("Card placed but no board active. rfid={}", rfid);
+                        RfidEvent::NoBoard
                     }
-                }
+                },
             }
         }
         // guard はここで drop される（lock 解放）
@@ -380,18 +404,30 @@ fn process_rfid(app: &AppHandle, rfid: String) {
             let _ = app.emit(CARD_PLACED_REGISTER, CardPlacedRegisterPayload { rfid });
         }
         RfidEvent::Unregistered => {
-            let _ = app.emit(CARD_PLACED_UNREGISTERED, CardPlacedUnregisteredPayload { rfid });
+            let _ = app.emit(
+                CARD_PLACED_UNREGISTERED,
+                CardPlacedUnregisteredPayload { rfid },
+            );
         }
-        RfidEvent::Placed { card, board, burn_count } => {
-            match determine_next_card_position(&board, burn_count) {
-                Ok(position) => {
-                    let _ = app.emit(CARD_PLACED, CardPlacedPayload { rfid, card, position });
-                }
-                Err(e) => {
-                    tracing::warn!("Cannot determine card position: {}", e);
-                }
+        RfidEvent::Placed {
+            card,
+            board,
+            burn_count,
+        } => match determine_next_card_position(&board, burn_count) {
+            Ok(position) => {
+                let _ = app.emit(
+                    CARD_PLACED,
+                    CardPlacedPayload {
+                        rfid,
+                        card,
+                        position,
+                    },
+                );
             }
-        }
+            Err(e) => {
+                tracing::warn!("Cannot determine card position: {}", e);
+            }
+        },
         RfidEvent::NoBoard => {}
     }
 }
@@ -484,13 +520,20 @@ pub fn apply_card_placed(
 
     match position {
         CardPosition::PlayerHand { seat } => {
-            let player = board.players.iter_mut().find(|p| p.position == seat)
+            let player = board
+                .players
+                .iter_mut()
+                .find(|p| p.position == seat)
                 .ok_or_else(|| format!("player at seat {} not found", seat))?;
             player.hand = match player.hand {
                 None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
                 Some([first, _]) if first == card => {
                     // 同一カードの再スキャンは無視（hand は変更しない）
-                    tracing::warn!("duplicate RFID scan for same card {:?} at seat {}, ignoring", card, seat);
+                    tracing::warn!(
+                        "duplicate RFID scan for same card {:?} at seat {}, ignoring",
+                        card,
+                        seat
+                    );
                     Some([first, first])
                 }
                 Some([first, _]) => Some([first, card]), // 2枚目スキャン: hand を確定
@@ -499,7 +542,10 @@ pub fn apply_card_placed(
         CardPosition::CommunityCard { slot } => {
             let expected = board.community_cards.len() as u8;
             if slot != expected {
-                return Err(format!("expected community card slot {}, got {}", expected, slot));
+                return Err(format!(
+                    "expected community card slot {}, got {}",
+                    expected, slot
+                ));
             }
             board.community_cards.push(card);
         }
@@ -517,10 +563,11 @@ pub fn apply_card_placed(
             Some(p) => p,
             None => return Ok(()),
         },
-    }).unwrap_or_default();
-    guard.event_history.push(event_json);
+    })
+    .unwrap_or_default();
+    guard.event_history.push_back(event_json);
     if guard.event_history.len() > MAX_EVENT_HISTORY {
-        guard.event_history.remove(0);
+        guard.event_history.pop_front();
     }
 
     // board のスナップショットを取得してから lock を解放する
@@ -549,7 +596,7 @@ pub fn apply_card_placed(
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::board::{GameSettings, start_game};
+    use crate::domain::board::{start_game, GameSettings};
     use crate::domain::card::{Card, CardValue, Suit};
     use crate::domain::card_distribution::CardPosition;
     use crate::state::InnerState;
@@ -625,7 +672,7 @@ mod tests {
         // 前ゲームでバーンカードを3枚配ったと仮定
         state.burn_count = 3;
         state.burn_card = Some(Card::new(Suit::Spade, CardValue::Ace));
-        state.event_history.push("dummy_event".to_string());
+        state.event_history.push_back("dummy_event".to_string());
 
         // next_game を呼んでリセットをシミュレート
         let prev = state.board.as_ref().unwrap().clone();
@@ -637,8 +684,14 @@ mod tests {
         state.burn_card = None;
         state.event_history.clear();
 
-        assert_eq!(state.burn_count, 0, "burn_count should be 0 after move_next_game");
-        assert!(state.burn_card.is_none(), "burn_card should be None after move_next_game");
+        assert_eq!(
+            state.burn_count, 0,
+            "burn_count should be 0 after move_next_game"
+        );
+        assert!(
+            state.burn_card.is_none(),
+            "burn_card should be None after move_next_game"
+        );
         assert!(
             state.event_history.is_empty(),
             "event_history should be empty after move_next_game"
@@ -650,7 +703,7 @@ mod tests {
         let mut state = make_state_with_board();
         state.burn_count = 2;
         state.burn_card = Some(Card::new(Suit::Heart, CardValue::King));
-        state.event_history.push("event1".to_string());
+        state.event_history.push_back("event1".to_string());
 
         // reset_board ロジックを直接実行
         state.board = None;
@@ -692,7 +745,11 @@ mod tests {
         apply_card_to_state(&mut state, burn2, CardPosition::BurnCard).unwrap();
 
         assert_eq!(state.burn_count, 2);
-        assert_eq!(state.burn_card, Some(burn2), "burn_card should be updated to the latest");
+        assert_eq!(
+            state.burn_card,
+            Some(burn2),
+            "burn_card should be updated to the latest"
+        );
     }
 
     // ---- BUG-K-3: PlayerHand ケースで1枚目→2枚目の遷移 ----
@@ -708,7 +765,10 @@ mod tests {
         assert!(hand.is_some(), "hand should be Some after first scan");
         let [h0, h1] = hand.unwrap();
         assert_eq!(h0, card1, "hand[0] should be card1");
-        assert_eq!(h1, card1, "hand[1] should be card1 (pending state: hand[0]==hand[1])");
+        assert_eq!(
+            h1, card1,
+            "hand[1] should be card1 (pending state: hand[0]==hand[1])"
+        );
     }
 
     #[test]
@@ -727,7 +787,10 @@ mod tests {
         let [h0, h1] = hand.unwrap();
         assert_eq!(h0, card1, "hand[0] should remain card1");
         assert_eq!(h1, card2, "hand[1] should be updated to card2");
-        assert_ne!(h0, h1, "hand[0] and hand[1] should be different after both scans");
+        assert_ne!(
+            h0, h1,
+            "hand[0] and hand[1] should be different after both scans"
+        );
     }
 
     #[test]
@@ -744,8 +807,20 @@ mod tests {
         apply_card_to_state(&mut state, card_p1_2, CardPosition::PlayerHand { seat: 1 }).unwrap();
 
         let board = state.board.as_ref().unwrap();
-        let hand_p0 = board.players.iter().find(|p| p.position == 0).unwrap().hand.unwrap();
-        let hand_p1 = board.players.iter().find(|p| p.position == 1).unwrap().hand.unwrap();
+        let hand_p0 = board
+            .players
+            .iter()
+            .find(|p| p.position == 0)
+            .unwrap()
+            .hand
+            .unwrap();
+        let hand_p1 = board
+            .players
+            .iter()
+            .find(|p| p.position == 1)
+            .unwrap()
+            .hand
+            .unwrap();
 
         assert_eq!(hand_p0, [card_p0_1, card_p0_2]);
         assert_eq!(hand_p1, [card_p1_1, card_p1_2]);
@@ -764,12 +839,14 @@ mod tests {
         let deck_snap = build_remaining_deck(&board_snap);
         let burn_count_snap = state.burn_count;
         let burn_card_snap = state.burn_card;
-        state.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        state
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
 
         // RFID スキャンでバーンカードが配られたと仮定
         let burn = Card::new(Suit::Diamond, CardValue::Two);
         apply_card_to_state(&mut state, burn, CardPosition::BurnCard).unwrap();
-        state.event_history.push("burn_event".to_string());
+        state.event_history.push_back("burn_event".to_string());
 
         assert_eq!(state.burn_count, 1);
         assert!(state.burn_card.is_some());
@@ -783,8 +860,14 @@ mod tests {
         state.burn_card = prev_burn_card;
         state.event_history.clear();
 
-        assert_eq!(state.burn_count, 0, "burn_count should be 0 after back_board");
-        assert!(state.burn_card.is_none(), "burn_card should be None after back_board");
+        assert_eq!(
+            state.burn_count, 0,
+            "burn_count should be 0 after back_board"
+        );
+        assert!(
+            state.burn_card.is_none(),
+            "burn_card should be None after back_board"
+        );
         assert!(
             state.event_history.is_empty(),
             "event_history should be empty after back_board"
@@ -802,7 +885,9 @@ mod tests {
         let deck_snap = build_remaining_deck(&board_snap);
         let burn_count_snap = state.burn_count;
         let burn_card_snap = state.burn_card;
-        state.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        state
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
 
         // 複数回バーンカードを配布
         let burn1 = Card::new(Suit::Club, CardValue::Three);
@@ -811,8 +896,8 @@ mod tests {
         apply_card_to_state(&mut state, burn1, CardPosition::BurnCard).unwrap();
         apply_card_to_state(&mut state, burn2, CardPosition::BurnCard).unwrap();
         apply_card_to_state(&mut state, burn3, CardPosition::BurnCard).unwrap();
-        state.event_history.push("event1".to_string());
-        state.event_history.push("event2".to_string());
+        state.event_history.push_back("event1".to_string());
+        state.event_history.push_back("event2".to_string());
 
         assert_eq!(state.burn_count, 3);
         assert_eq!(state.burn_card, Some(burn3));
@@ -830,8 +915,14 @@ mod tests {
             state.burn_count, 0,
             "burn_count should be reset to 0 after back_board regardless of previous value"
         );
-        assert!(state.burn_card.is_none(), "burn_card should be None after back_board");
-        assert!(state.event_history.is_empty(), "event_history should be empty after back_board");
+        assert!(
+            state.burn_card.is_none(),
+            "burn_card should be None after back_board"
+        );
+        assert!(
+            state.event_history.is_empty(),
+            "event_history should be empty after back_board"
+        );
     }
 
     // ---- BUG-M-1: apply_card_placed 後にボード状態が正しく更新される ----
@@ -846,7 +937,10 @@ mod tests {
         apply_card_to_state(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
 
         let hand = state.board.as_ref().unwrap().players[0].hand;
-        assert!(hand.is_some(), "board should be updated after apply_card_placed");
+        assert!(
+            hand.is_some(),
+            "board should be updated after apply_card_placed"
+        );
         let [h0, h1] = hand.unwrap();
         assert_eq!(h0, card);
         assert_eq!(h1, card, "first scan: hand[0] == hand[1] (pending)");
@@ -886,8 +980,14 @@ mod tests {
     #[test]
     fn get_serial_status_default_returns_disconnected() {
         let state = InnerState::default();
-        assert!(!state.serial_connected, "default serial_connected should be false");
-        assert!(state.serial_port_name.is_none(), "default serial_port_name should be None");
+        assert!(
+            !state.serial_connected,
+            "default serial_connected should be false"
+        );
+        assert!(
+            state.serial_port_name.is_none(),
+            "default serial_port_name should be None"
+        );
     }
 
     /// InnerState の serial_connected を true にセットしたとき、
@@ -928,9 +1028,9 @@ mod tests {
         let mut state = make_state_with_board();
 
         for i in 0..250_usize {
-            state.event_history.push(format!("event_{}", i));
+            state.event_history.push_back(format!("event_{}", i));
             if state.event_history.len() > super::MAX_EVENT_HISTORY {
-                state.event_history.remove(0);
+                state.event_history.pop_front();
             }
         }
 
@@ -988,7 +1088,11 @@ mod tests {
         // 1枚目スキャン
         apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
         let hand_after_first = state.board.as_ref().unwrap().players[0].hand;
-        assert_eq!(hand_after_first, Some([card1, card1]), "first scan: pending state");
+        assert_eq!(
+            hand_after_first,
+            Some([card1, card1]),
+            "first scan: pending state"
+        );
 
         // 同一カードを再スキャン → hand は変化しないはず
         apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
@@ -1013,7 +1117,10 @@ mod tests {
         let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
         assert_eq!(hand[0], card1);
         assert_eq!(hand[1], card2);
-        assert_ne!(hand[0], hand[1], "confirmed hand must have two distinct cards");
+        assert_ne!(
+            hand[0], hand[1],
+            "confirmed hand must have two distinct cards"
+        );
     }
 
     /// 同一カードを3回スキャンしても hand は pending のままで重複確定しない。
@@ -1028,6 +1135,9 @@ mod tests {
 
         let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
         assert_eq!(hand[0], card);
-        assert_eq!(hand[1], card, "hand[1] should still be the same card (pending state)");
+        assert_eq!(
+            hand[1], card,
+            "hand[1] should still be the same card (pending state)"
+        );
     }
 }

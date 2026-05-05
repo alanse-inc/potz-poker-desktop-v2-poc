@@ -5,11 +5,11 @@ use crate::domain::card::Card;
 use crate::domain::rfid_mapping::RfidCardMapping;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 /// history Vec に保持するスナップショット数の上限。
 /// push 後にこの値を超えた場合は古いエントリを先入れ先出しで削除する。
 pub const MAX_HISTORY: usize = 50;
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -40,7 +40,7 @@ pub struct InnerState {
     /// 直近のバーンカード（Expose 機能で使用）。
     pub burn_card: Option<Card>,
     /// 受信イベント履歴（重複検知用）。
-    pub event_history: Vec<String>,
+    pub event_history: VecDeque<String>,
     /// RFID 登録モードフラグ。
     pub register_mode: bool,
     /// シリアルポート接続状態。
@@ -98,7 +98,7 @@ impl Default for InnerState {
             current_deck_id: None,
             burn_count: 0,
             burn_card: None,
-            event_history: Vec::new(),
+            event_history: VecDeque::new(),
             register_mode: false,
             serial_connected: false,
             serial_port_name: None,
