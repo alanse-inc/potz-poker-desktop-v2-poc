@@ -966,6 +966,19 @@ pub fn board_check(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result
 }
 
 pub fn board_fold(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+    // all-in プレイヤーはアクション不可のためフォールドを禁止する。
+    // フォールドを許可するとサイドポット計算で eligible_for_pot が空になり
+    // チップが誤って配分される可能性がある。
+    {
+        let p_idx = board
+            .current_player_idx()
+            .ok_or_else(|| BoardError::InvalidAction("current player not found".into()))?;
+        if board.players[p_idx].is_all_in {
+            return Err(BoardError::InvalidAction(
+                "all-in player cannot fold".into(),
+            ));
+        }
+    }
     board.apply_action(
         |p, _current_bet| {
             p.has_folded = true;
@@ -3927,5 +3940,41 @@ mod tests {
             result.is_err(),
             "locate_number=0 in Flop phase should be rejected"
         );
+    }
+
+    // ================================================================
+    // Bug 6: board_fold で all-in プレイヤーのフォールドを禁止
+    // ================================================================
+
+    /// all-in プレイヤーに対して board_fold を呼ぶとエラーになる。
+    #[test]
+    fn board_fold_rejects_allin_player() {
+        let (mut board, mut deck) = make_board();
+        // UTG=0 を all-in にする
+        board_allin(&mut board, &mut deck).unwrap();
+        // all-in 後は current_turn が SB=1 に移る。ここで current_turn を UTG=0 に戻す
+        board.current_turn = 0; // all-in プレイヤー
+        let result = board_fold(&mut board, &mut deck);
+        assert!(
+            result.is_err(),
+            "folding an all-in player should return Err"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("all-in player cannot fold"),
+            "error message should mention all-in, got: {}",
+            msg
+        );
+    }
+
+    /// 通常プレイヤー（not all-in）に対して board_fold は成功する。
+    #[test]
+    fn board_fold_allows_non_allin_player() {
+        let (mut board, mut deck) = make_board();
+        // UTG=0 は all-in でないので fold できる
+        assert!(!board.players[0].is_all_in);
+        let result = board_fold(&mut board, &mut deck);
+        assert!(result.is_ok(), "non-allin player should be able to fold");
+        assert!(board.players[0].has_folded);
     }
 }
