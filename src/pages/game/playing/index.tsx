@@ -76,7 +76,7 @@ export function GamePlaying() {
   const { getAccessToken } = useAuth();
 
   // RFID カード配置イベントを処理
-  useCardPlacedHandler();
+  const { clearEventHistory } = useCardPlacedHandler();
   const [isOpenResetConfirm, setIsOpenResetConfirm] = useState(false);
   const [confirmType, setConfirmType] = useState<ActionConfirmType | null>(
     null,
@@ -112,11 +112,12 @@ export function GamePlaying() {
   const handleBackAction = useCallback(async () => {
     try {
       await api.board.backBoard();
+      clearEventHistory();
       await refresh();
     } catch (e) {
       reportError(e, "BACK に失敗しました");
     }
-  }, [refresh]);
+  }, [refresh, clearEventHistory]);
 
   const handleEditGame = useCallback(async () => {
     try {
