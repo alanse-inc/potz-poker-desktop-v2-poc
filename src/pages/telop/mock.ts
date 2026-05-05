@@ -17,6 +17,7 @@ const MOCK_PLAYERS: Player[] = [
     hasFolded: false,
     isAllIn: false,
     hasActed: true,
+    totalInvested: 100000,
   },
   {
     position: 1,
@@ -30,6 +31,7 @@ const MOCK_PLAYERS: Player[] = [
     hasFolded: false,
     isAllIn: false,
     hasActed: true,
+    totalInvested: 50000,
   },
   {
     position: 2,
@@ -43,6 +45,7 @@ const MOCK_PLAYERS: Player[] = [
     hasFolded: false,
     isAllIn: false,
     hasActed: false,
+    totalInvested: 25000,
   },
   {
     position: 3,
@@ -56,6 +59,7 @@ const MOCK_PLAYERS: Player[] = [
     hasFolded: false,
     isAllIn: false,
     hasActed: true,
+    totalInvested: 10000,
   },
   {
     position: 4,
@@ -69,6 +73,7 @@ const MOCK_PLAYERS: Player[] = [
     hasFolded: true,
     isAllIn: false,
     hasActed: true,
+    totalInvested: 5000,
   },
   {
     position: 5,
@@ -82,6 +87,7 @@ const MOCK_PLAYERS: Player[] = [
     hasFolded: false,
     isAllIn: false,
     hasActed: false,
+    totalInvested: 0,
   },
 ];
 

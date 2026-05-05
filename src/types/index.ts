@@ -24,6 +24,7 @@ export type Player = {
   hasFolded: boolean;
   isAllIn: boolean;
   hasActed: boolean;
+  totalInvested: number;
 };
 export type Pot = { amount: number };
 export type TexasHoldemBoard = {
