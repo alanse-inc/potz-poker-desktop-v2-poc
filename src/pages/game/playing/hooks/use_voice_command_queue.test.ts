@@ -759,6 +759,138 @@ describe("useVoiceCommandQueue", () => {
     });
   });
 
+  describe("unmount 後の onBack / onFold 抑制 (Bug 3 / Bug 8)", () => {
+    it("autoBackUntilSeat: unmount 後に onBack が呼ばれない", async () => {
+      const board = buildMockBoard({ currentTurn: 0 });
+      const boardRef = { current: board };
+
+      const { result, unmount } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // back コマンドにseatNumberを指定してautoBackUntilSeatを発動
+      // onBack 実行直後にアンマウントし、2 回目の呼び出しを防ぐことを確認する
+      let callCount = 0;
+      mockOnBack.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          // 1 回目の onBack 後にアンマウント
+          unmount();
+        }
+      });
+
+      // targetSeat=1（currentTurn=0 なので即 onBack が走る）
+      result.current.enqueue(buildCommand({ action: "back", seatNumber: 1 }));
+
+      await vi.runAllTimersAsync();
+
+      // アンマウント後にループが継続して onBack が再度呼ばれていないこと
+      expect(mockOnBack).toHaveBeenCalledTimes(1);
+    });
+
+    it("autoFoldUntilSeat: unmount 後に api.action.fold が呼ばれない", async () => {
+      // currentTurn=0、targetSeat=1 で自動 fold が走るボード
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 200,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 100,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+        ],
+      });
+      const boardRef = { current: board };
+
+      const { result, unmount } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // fold 実行直後にアンマウント
+      let foldCount = 0;
+      vi.mocked(api.action.fold).mockImplementation(async () => {
+        foldCount++;
+        unmount();
+        return buildMockBoard();
+      });
+
+      // seatNumber=1 を指定して autoFoldUntilSeat を起動
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 1 }));
+
+      await vi.runAllTimersAsync();
+
+      // アンマウント後にループが継続して fold が再度呼ばれていないこと
+      expect(foldCount).toBe(1);
+    });
+
+    it("autoCheckAround: unmount 後に api.action.check が呼ばれない", async () => {
+      const board = buildMockBoard({
+        currentBet: 0,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+        ],
+      });
+      const boardRef = { current: board };
+
+      const { result, unmount } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // check 実行直後にアンマウント
+      let checkCount = 0;
+      vi.mocked(api.action.check).mockImplementation(async () => {
+        checkCount++;
+        unmount();
+        // ボードを更新してwaitForBoardUpdateを成功させる
+        const newBoard = buildMockBoard({ handNumber: 2, currentBet: 0 });
+        boardRef.current = newBoard;
+        return newBoard;
+      });
+
+      result.current.enqueue(buildCommand({ action: "check-around" }));
+
+      await vi.runAllTimersAsync();
+
+      // アンマウント後に check が再度呼ばれていないこと
+      expect(checkCount).toBe(1);
+    });
+  });
+
   describe("enqueue での check-around streetAtCapture 記録", () => {
     it("check-around コマンドにboardのフェーズがstreetAtCaptureとして記録される", async () => {
       const board = buildMockBoard({

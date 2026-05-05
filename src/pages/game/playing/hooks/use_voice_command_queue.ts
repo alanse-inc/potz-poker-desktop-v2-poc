@@ -229,6 +229,7 @@ export function useVoiceCommandQueue(
       let iterations = 0;
 
       while (iterations < MAX_AUTO_SKIP_ITERATIONS) {
+        if (unmountedRef.current) return;
         const currentBoard = boardRef.current;
         if (!currentBoard) return;
 
@@ -246,7 +247,9 @@ export function useVoiceCommandQueue(
           return;
         }
 
+        if (unmountedRef.current) return;
         await onBack();
+        if (unmountedRef.current) return;
         const updated = await waitForBoardUpdate(currentBoard);
         if (!updated) {
           trackClientSideError(
@@ -256,6 +259,7 @@ export function useVoiceCommandQueue(
           return;
         }
         await sleep(POST_ACTION_SETTLE_MS);
+        if (unmountedRef.current) return;
         iterations++;
       }
 
@@ -272,6 +276,7 @@ export function useVoiceCommandQueue(
       let iterations = 0;
 
       while (iterations < MAX_AUTO_SKIP_ITERATIONS) {
+        if (unmountedRef.current) return null;
         const latestBoard = await waitForActionableBoard();
         if (!latestBoard) {
           trackClientSideError(
@@ -313,6 +318,7 @@ export function useVoiceCommandQueue(
           return null;
         }
 
+        if (unmountedRef.current) return null;
         if (!canCheck(latestBoard)) {
           try {
             await api.action.fold();
@@ -328,6 +334,7 @@ export function useVoiceCommandQueue(
             return null;
           }
         }
+        if (unmountedRef.current) return null;
 
         const updated = await waitForBoardUpdate(latestBoard);
         if (!updated) {
@@ -338,6 +345,7 @@ export function useVoiceCommandQueue(
           return null;
         }
         await sleep(POST_ACTION_SETTLE_MS);
+        if (unmountedRef.current) return null;
         iterations++;
       }
 
@@ -353,6 +361,7 @@ export function useVoiceCommandQueue(
     let iterations = 0;
 
     while (iterations < MAX_AUTO_SKIP_ITERATIONS) {
+      if (unmountedRef.current) return;
       const latestBoard = await waitForActionableBoard();
       if (!latestBoard) {
         trackClientSideError(
@@ -404,6 +413,7 @@ export function useVoiceCommandQueue(
         return;
       }
 
+      if (unmountedRef.current) return;
       try {
         await api.action.check();
       } catch (e) {
@@ -411,6 +421,7 @@ export function useVoiceCommandQueue(
         toast.error("チェックアラウンドの実行に失敗しました");
         return;
       }
+      if (unmountedRef.current) return;
 
       onActionExecuted?.({
         action: "check",
@@ -428,6 +439,7 @@ export function useVoiceCommandQueue(
         return;
       }
       await sleep(POST_ACTION_SETTLE_MS);
+      if (unmountedRef.current) return;
       iterations++;
     }
 
