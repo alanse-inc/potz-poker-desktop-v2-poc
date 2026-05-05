@@ -527,8 +527,16 @@ pub fn apply_card_placed(
                 .ok_or_else(|| format!("player at seat {} not found", seat))?;
             player.hand = match player.hand {
                 None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
+                Some([first, second]) if first != second => {
+                    // confirmed 状態（hand[0] != hand[1]）では追加スキャンを無視
+                    tracing::warn!(
+                        "hand already confirmed at seat {}, ignoring extra scan",
+                        seat
+                    );
+                    Some([first, second])
+                }
                 Some([first, _]) if first == card => {
-                    // 同一カードの再スキャンは無視（hand は変更しない）
+                    // pending 状態で同一カードの再スキャンは無視（hand は変更しない）
                     tracing::warn!(
                         "duplicate RFID scan for same card {:?} at seat {}, ignoring",
                         card,
@@ -639,6 +647,7 @@ mod tests {
                     .ok_or_else(|| format!("player at seat {} not found", seat))?;
                 player.hand = match player.hand {
                     None => Some([card, card]),
+                    Some([first, second]) if first != second => Some([first, second]), // confirmed 状態では無視
                     Some([first, _]) if first == card => Some([first, first]), // 同一カード再スキャンは無視
                     Some([first, _]) => Some([first, card]),
                 };
@@ -1138,6 +1147,55 @@ mod tests {
         assert_eq!(
             hand[1], card,
             "hand[1] should still be the same card (pending state)"
+        );
+    }
+
+    // ---- Bug 1: confirmed hand への上書き防止 ----
+
+    /// confirmed 状態（hand[0] != hand[1]）で別カードをスキャンしても hand は変化しない。
+    #[test]
+    fn confirmed_hand_is_not_overwritten_by_extra_scan() {
+        let mut state = make_state_with_board();
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card2 = Card::new(Suit::Heart, CardValue::King);
+        let card3 = Card::new(Suit::Diamond, CardValue::Queen);
+
+        // 1枚目・2枚目スキャンで hand を confirmed 状態にする
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand_confirmed = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(hand_confirmed, [card1, card2], "hand should be confirmed");
+
+        // 3枚目スキャン（別カード）は無視されるべき
+        apply_card_to_state(&mut state, card3, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand_after_extra = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(
+            hand_after_extra,
+            [card1, card2],
+            "confirmed hand must not be overwritten by extra scan"
+        );
+    }
+
+    /// confirmed 状態で同一の card1 を再スキャンしても hand は変化しない。
+    #[test]
+    fn confirmed_hand_is_not_overwritten_by_rescan_of_first_card() {
+        let mut state = make_state_with_board();
+        let card1 = Card::new(Suit::Club, CardValue::Ten);
+        let card2 = Card::new(Suit::Diamond, CardValue::Five);
+
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        // card1 を再スキャン（confirmed 後）
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(
+            hand,
+            [card1, card2],
+            "confirmed hand must not change when first card is rescanned"
         );
     }
 }
