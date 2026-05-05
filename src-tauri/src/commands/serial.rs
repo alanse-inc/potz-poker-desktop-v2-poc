@@ -301,8 +301,12 @@ async fn try_connect_and_listen(
     .await
     .map_err(|e| format!("Serial task panicked: {}", e))?;
 
-    // 再接続後もデバウンス状態を維持するために書き戻す
-    *debounce_map = restored_map;
+    // デバウンス間隔を超過したエントリは無効なので削除してから書き戻す
+    let mut cleaned = restored_map;
+    cleaned.retain(|_, instant| {
+        instant.elapsed() < std::time::Duration::from_millis(DEBOUNCE_INTERVAL_MS)
+    });
+    *debounce_map = cleaned;
 
     result
 }
@@ -1535,5 +1539,55 @@ mod tests {
                 .any(|c| c.suit == card.suit && c.value == card.value),
             "player hand card should not remain in deck"
         );
+    }
+
+    // ---- Bug 7: debounce_map の再接続後クリーンアップ ----
+
+    /// DEBOUNCE_INTERVAL_MS 以上経過した Instant は retain で除去されること。
+    #[test]
+    fn debounce_map_cleanup_removes_expired_entries() {
+        use std::collections::HashMap;
+        use std::time::{Duration, Instant};
+
+        let interval_ms: u64 = 500;
+        let mut map: HashMap<String, Instant> = HashMap::new();
+
+        // 600ms 前の Instant (期限切れ)
+        let expired = Instant::now() - Duration::from_millis(600);
+        // 100ms 前の Instant (まだ有効)
+        let fresh = Instant::now() - Duration::from_millis(100);
+
+        map.insert("expired_rfid".to_string(), expired);
+        map.insert("fresh_rfid".to_string(), fresh);
+
+        map.retain(|_, instant| instant.elapsed() < Duration::from_millis(interval_ms));
+
+        assert!(
+            !map.contains_key("expired_rfid"),
+            "expired entry should be removed"
+        );
+        assert!(
+            map.contains_key("fresh_rfid"),
+            "fresh entry should be retained"
+        );
+    }
+
+    /// DEBOUNCE_INTERVAL_MS 以内のすべてのエントリが retain で保持されること。
+    #[test]
+    fn debounce_map_cleanup_retains_fresh_entries() {
+        use std::collections::HashMap;
+        use std::time::{Duration, Instant};
+
+        let interval_ms: u64 = 500;
+        let mut map: HashMap<String, Instant> = HashMap::new();
+
+        let fresh1 = Instant::now() - Duration::from_millis(50);
+        let fresh2 = Instant::now() - Duration::from_millis(200);
+        map.insert("rfid_a".to_string(), fresh1);
+        map.insert("rfid_b".to_string(), fresh2);
+
+        map.retain(|_, instant| instant.elapsed() < Duration::from_millis(interval_ms));
+
+        assert_eq!(map.len(), 2, "all fresh entries should be retained");
     }
 }
