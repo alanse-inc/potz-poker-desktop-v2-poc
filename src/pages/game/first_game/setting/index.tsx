@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { api } from "../../../../api/client";
 import { ChipInputModal } from "../../../../features/modal/chip_input_modal";
 import { useAutoScale } from "../../../../hooks/useAutoScale";
@@ -13,6 +13,15 @@ import { GameSettingButtons } from "./components/game_setting_buttons";
 
 type Player = { name: string; stack: number; isDealer: boolean };
 
+// BTN 選択画面 (FirstGameSelectBtn) から戻る際に navigate({ state }) で渡される構造。
+type IncomingLocationState = {
+  smallBlind: number;
+  bigBlind: number;
+  minChip: number;
+  bbAnte: boolean;
+  players: (Player | null)[];
+};
+
 const CHIP_LABELS: Record<ChipSettingKey, string> = {
   smallBlind: "SB",
   bigBlind: "BB",
@@ -21,15 +30,21 @@ const CHIP_LABELS: Record<ChipSettingKey, string> = {
 
 export function FirstGameSetting() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // BTN 選択画面から戻ってきた直後は state に players / 設定が積まれているのでそれを初期値にする。
+  // 直リンクや RESET 後など state が無いケースは null。
+  const incomingState = location.state as IncomingLocationState | null;
   const { containerRef, contentRef } = useAutoScale(950, 400, 1.6, 0.7);
 
-  const [smallBlind, setSmallBlind] = useState(100);
-  const [bigBlind, setBigBlind] = useState(200);
-  const [minChip, setMinChip] = useState(100);
-  const [bbAnte, setBbAnte] = useState(false);
+  const [smallBlind, setSmallBlind] = useState(
+    incomingState?.smallBlind ?? 100,
+  );
+  const [bigBlind, setBigBlind] = useState(incomingState?.bigBlind ?? 200);
+  const [minChip, setMinChip] = useState(incomingState?.minChip ?? 100);
+  const [bbAnte, setBbAnte] = useState(incomingState?.bbAnte ?? false);
 
   const [players, setPlayers] = useState<(Player | null)[]>(
-    Array(9).fill(null),
+    incomingState?.players ?? Array(9).fill(null),
   );
 
   const [selectedChipKey, setSelectedChipKey] = useState<ChipSettingKey | null>(
@@ -37,15 +52,17 @@ export function FirstGameSetting() {
   );
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
 
-  // マウント時に永続化設定を読み込む
+  // マウント時に永続化設定を読み込む。BTN 選択画面から state を持って戻ってきた場合は
+  // その値を保持するため永続化設定の上書きをスキップする。
   useEffect(() => {
+    if (incomingState) return;
     api.gameSettings.load().then((s) => {
       setSmallBlind(s.smallBlind);
       setBigBlind(s.bigBlind);
       setMinChip(s.minChip);
       setBbAnte(s.bbAnte);
     });
-  }, []);
+  }, [incomingState]);
 
   const saveSettings = (patch: {
     smallBlind?: number;
