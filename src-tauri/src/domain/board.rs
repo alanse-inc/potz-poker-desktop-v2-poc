@@ -968,6 +968,11 @@ pub fn add_player(
     if trimmed.is_empty() {
         return Err(BoardError::InvalidAction("name must not be empty".into()));
     }
+    if board.players.iter().any(|p| p.name == trimmed) {
+        return Err(BoardError::InvalidAction(
+            "duplicate player names are not allowed".into(),
+        ));
+    }
     let position = board.players.len() as u8;
     board.players.push(Player {
         position,
@@ -4546,6 +4551,32 @@ mod tests {
                 value
             );
         }
+    }
+
+    #[test]
+    fn add_player_rejects_duplicate_name() {
+        let (mut board, _deck) = make_board();
+        board.phase = Phase::Showdown;
+        // board には "Alice", "Bob", "Carol" が既に存在する
+        let existing_name = board.players[0].name.clone();
+        let r = add_player(&mut board, existing_name, 500);
+        assert!(r.is_err());
+        let err_msg = format!("{:?}", r.unwrap_err());
+        assert!(
+            err_msg.contains("duplicate player names are not allowed"),
+            "unexpected error: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn add_player_accepts_unique_name() {
+        let (mut board, _deck) = make_board();
+        board.phase = Phase::Showdown;
+        let initial_len = board.players.len();
+        add_player(&mut board, "UniquePlayer".into(), 500).unwrap();
+        assert_eq!(board.players.len(), initial_len + 1);
+        assert_eq!(board.players[initial_len].name, "UniquePlayer");
     }
 
     /// next_game が返すデッキも再シャッフルせずプレイヤーのハンドを除いた残デッキであること。
