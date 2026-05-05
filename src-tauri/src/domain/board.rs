@@ -3,6 +3,7 @@
 use super::card::{full_deck, Card, CardValue, Suit};
 use super::hand::{compare_evaluated, evaluate_hand, EvaluatedHand};
 use crate::error::BoardError;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -388,7 +389,7 @@ impl TexasHoldemBoard {
             let level_amount = threshold - prev_threshold;
             // このレベルに参加しているプレイヤー数（prev_threshold より多く投入したプレイヤー）
             let contributors = total_invested.iter().filter(|&&ti| ti > prev_threshold).count() as u32;
-            let pot_amount = level_amount * contributors;
+            let pot_amount = level_amount.saturating_mul(contributors);
 
             // このポットの勝者候補: total_invested >= threshold かつ has_folded でない
             let eligible_for_pot: Vec<usize> = (0..self.players.len())
@@ -477,25 +478,12 @@ impl TexasHoldemBoard {
     }
 }
 
-/// デッキをシャッフルして返す（疑似乱数：LCG）。
-fn shuffled_deck(seed: u64) -> Vec<Card> {
+/// デッキを任意の RNG でシャッフルして返す。
+/// テストでは `rand::rngs::StdRng::seed_from_u64(n)` を渡すことで決定論的にできる。
+pub fn shuffle_deck_with_rng<R: rand::Rng>(rng: &mut R) -> Vec<Card> {
     let mut deck = full_deck();
-    let n = deck.len();
-    let mut s = seed;
-    for i in (1..n).rev() {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        let j = (s >> 33) as usize % (i + 1);
-        deck.swap(i, j);
-    }
+    deck.shuffle(rng);
     deck
-}
-
-/// タイムスタンプもどきの seed を生成する。
-fn seed_from_hand_number(hand_number: u32) -> u64 {
-    // deterministic-ish: 実際は std::time が使えるが依存追加なしで対応
-    let base: u64 = 0xDEAD_BEEF_CAFE_BABE;
-    base.wrapping_mul(hand_number as u64 + 1)
-        .wrapping_add(0x1234_5678_9ABC_DEF0)
 }
 
 /// ゲームを開始してボードを返す。hand_number=1 で開始する。
@@ -517,7 +505,9 @@ pub fn start_game(
         ));
     }
 
-    let initial_stack = settings.small_blind * 100;
+    let initial_stack = settings.small_blind.checked_mul(100).ok_or_else(|| {
+        BoardError::InvalidAction("small_blind * 100 overflows u32".into())
+    })?;
     let stacks: Vec<u32> = vec![initial_stack; n];
 
     let sb_pos = if n == 2 { dealer } else { (dealer + 1) % n as u8 };
@@ -607,6 +597,20 @@ fn start_game_with_stacks(
         players[bb_idx].is_all_in = true;
     }
 
+    // bb_ante: BB プレイヤーから big_blind 相当をアンティとして追加徴収する。
+    // アンティはラウンドベットではないため bet_in_round には含めず、ポットに直接加算する。
+    let ante_amount = if settings.bb_ante {
+        let ante = settings.big_blind.min(players[bb_idx].stack);
+        players[bb_idx].stack -= ante;
+        players[bb_idx].total_invested += ante;
+        if players[bb_idx].stack == 0 {
+            players[bb_idx].is_all_in = true;
+        }
+        ante
+    } else {
+        0
+    };
+
     let current_bet = bb_amount;
 
     let utg_pos = if n <= 2 {
@@ -615,7 +619,7 @@ fn start_game_with_stacks(
         (bb_pos + 1) % n as u8
     };
 
-    let mut deck = shuffled_deck(seed_from_hand_number(hand_number));
+    let mut deck = shuffle_deck_with_rng(&mut rand::thread_rng());
 
     for p in &mut players {
         let c1 = deck.pop().ok_or_else(|| BoardError::InvalidAction("deck exhausted".into()))?;
@@ -633,7 +637,7 @@ fn start_game_with_stacks(
         last_raise_size: current_bet,
         players,
         community_cards: Vec::new(),
-        pots: vec![Pot { amount: 0 }],
+        pots: vec![Pot { amount: ante_amount }],
         phase: Phase::PreFlop,
         winners: Vec::new(),
     })
@@ -648,7 +652,7 @@ pub fn build_remaining_deck(board: &TexasHoldemBoard) -> Vec<Card> {
         .chain(board.community_cards.iter().map(|c| (c.suit, c.value)))
         .collect();
 
-    let mut deck = shuffled_deck(seed_from_hand_number(board.hand_number));
+    let mut deck = shuffle_deck_with_rng(&mut rand::thread_rng());
     deck.retain(|c| !used.contains(&(c.suit, c.value)));
     deck
 }
@@ -1294,11 +1298,36 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ---- seed / shuffle テスト ----
+    // ---- shuffle テスト ----
 
-    /// 異なる hand_number で start_game を呼んだ際にシャッフル結果が異なることを検証する。
+    /// shuffle_deck_with_rng が 52 枚全て返し重複がないことを検証する。
     #[test]
-    fn different_hand_numbers_produce_different_shuffles() {
+    fn shuffle_deck_with_rng_returns_full_deck() {
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        let mut rng = StdRng::seed_from_u64(42);
+        let deck = shuffle_deck_with_rng(&mut rng);
+        assert_eq!(deck.len(), 52);
+        // 重複なし
+        let mut seen = std::collections::HashSet::new();
+        for c in &deck {
+            assert!(seen.insert((c.suit, c.value)), "duplicate card in shuffled deck");
+        }
+    }
+
+    /// 異なるシードで shuffle_deck_with_rng を呼んだ際にシャッフル結果が異なることを検証する。
+    #[test]
+    fn different_seeds_produce_different_shuffles() {
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        let deck1 = shuffle_deck_with_rng(&mut StdRng::seed_from_u64(1));
+        let deck2 = shuffle_deck_with_rng(&mut StdRng::seed_from_u64(2));
+        assert_ne!(deck1, deck2, "different seeds should produce different shuffles");
+    }
+
+    /// start_game でゲームが開始できること（手札が配られること）を確認する。
+    #[test]
+    fn start_game_deals_hands() {
         let settings = GameSettings {
             small_blind: 10,
             big_blind: 20,
@@ -1306,50 +1335,9 @@ mod tests {
             bb_ante: false,
         };
         let names = vec!["Alice".into(), "Bob".into()];
-
-        // hand_number=1 での start_game（内部委譲）
-        let board1 = start_game(settings.clone(), names.clone(), 0).unwrap();
-        assert_eq!(board1.hand_number, 1);
-
-        // hand_number=2 での start_game_with_stacks（next_game 経由）
-        let (board2, _) = next_game(&board1, &settings).unwrap();
-        assert_eq!(board2.hand_number, 2);
-
-        // hand_number が異なるので、配られた手札が異なるはず
-        let hand1_p0 = board1.players[0].hand.unwrap();
-        let hand2_p0 = board2.players[0].hand.unwrap();
-        assert_ne!(
-            hand1_p0, hand2_p0,
-            "hand_number=1 と hand_number=2 で同じ手札が配られた（seed が固定されている可能性）"
-        );
-    }
-
-    /// start_game の seed が hand_number=1 と対応していることを確認する。
-    /// つまり start_game と、hand_number=1 を明示的に渡した start_game_with_stacks が同じ結果を返す。
-    #[test]
-    fn start_game_uses_hand_number_1_seed() {
-        let settings = GameSettings {
-            small_blind: 10,
-            big_blind: 20,
-            min_chip: 10,
-            bb_ante: false,
-        };
-        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
-
-        let board_via_start = start_game(settings.clone(), names.clone(), 0).unwrap();
-        let stacks = vec![settings.small_blind * 100; 3];
-        let board_via_with_stacks =
-            start_game_with_stacks(settings.clone(), names.clone(), stacks, 1, 0, 1, 2).unwrap();
-
-        // 同じ hand_number=1 で同じシャッフル結果になるはず
-        assert_eq!(
-            board_via_start.players[0].hand,
-            board_via_with_stacks.players[0].hand,
-        );
-        assert_eq!(
-            board_via_start.players[1].hand,
-            board_via_with_stacks.players[1].hand,
-        );
+        let board = start_game(settings, names, 0).unwrap();
+        assert_eq!(board.hand_number, 1);
+        assert!(board.players.iter().all(|p| p.hand.is_some()), "all players should have hands");
     }
 
     // ---- resolve_showdown フォールバック（BUG-O）テスト ----
@@ -2233,5 +2221,125 @@ mod tests {
             u8::MAX,
             "current_turn should be u8::MAX when all players are all-in"
         );
+    }
+
+    // ================================================================
+    // Bug 1: bb_ante フラグ適用
+    // ================================================================
+
+    /// bb_ante=true で開始した場合、BB の stack が big_blind 分追加で減り、ポットに入ること。
+    #[test]
+    fn bb_ante_deducts_from_bb_and_adds_to_pot() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: true,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        // dealer=0 → SB=1, BB=2
+        let board = start_game(settings.clone(), names, 0).unwrap();
+
+        // BB は big_blind(100) のブラインドと big_blind(100) のアンティ = 合計 200 を失う
+        let initial_stack = settings.small_blind * 100; // 50 * 100 = 5000
+        let bb = &board.players[2]; // BB = position 2
+        assert_eq!(bb.stack, initial_stack - settings.big_blind - settings.big_blind,
+            "BB stack should be reduced by blind + ante");
+        assert_eq!(bb.total_invested, settings.big_blind + settings.big_blind,
+            "BB total_invested should include blind + ante");
+
+        // ポットにアンティが反映されている（ブラインドは bet_in_round にあるので advance_phase で加算）
+        assert_eq!(board.total_pot(), settings.big_blind,
+            "pot should contain the ante amount at game start");
+
+        // SB は変わらず
+        let sb = &board.players[1];
+        assert_eq!(sb.stack, initial_stack - settings.small_blind);
+        assert_eq!(sb.bet_in_round, settings.small_blind);
+    }
+
+    /// bb_ante=false で開始した場合、ポットは 0 のまま（従来通り）。
+    #[test]
+    fn bb_ante_false_pot_is_zero_at_start() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let board = start_game(settings, names, 0).unwrap();
+        assert_eq!(board.total_pot(), 0, "pot should be 0 when bb_ante is false");
+    }
+
+    /// bb_ante=true で全員オールインした後もチップ保全されること。
+    #[test]
+    fn bb_ante_total_chips_preserved() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: true,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let initial_stack = settings.small_blind * 100; // 5000
+        let total_before: u32 = initial_stack * 3;
+
+        let board = start_game(settings, names, 0).unwrap();
+        let mut board = board;
+        let mut deck = build_remaining_deck(&board);
+
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+
+        let total_after: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total_after, total_before, "total chips must be preserved with bb_ante");
+    }
+
+    // ================================================================
+    // Bug 2: u32 乗算オーバーフロー
+    // ================================================================
+
+    /// small_blind が非常に大きい場合、start_game が overflow エラーを返すこと。
+    #[test]
+    fn start_game_overflow_returns_error() {
+        let settings = GameSettings {
+            small_blind: u32::MAX / 50, // * 100 でオーバーフロー
+            big_blind: u32::MAX / 50 * 2,
+            min_chip: 1,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_err(), "overflow should return Err");
+    }
+
+    /// small_blind が境界値（42949672）では成功すること（4294967200 < u32::MAX）。
+    #[test]
+    fn start_game_boundary_near_overflow_succeeds() {
+        let settings = GameSettings {
+            small_blind: 42949672, // 42949672 * 100 = 4294967200 < u32::MAX(4294967295)
+            big_blind: 85899344,
+            min_chip: 1,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_ok(), "42949672 * 100 = 4294967200 does not overflow u32");
+    }
+
+    /// small_blind=42949 (42949 * 100 = 4294900 < u32::MAX) は成功する。
+    #[test]
+    fn start_game_large_but_valid_small_blind_succeeds() {
+        let settings = GameSettings {
+            small_blind: 42949,
+            big_blind: 85898,
+            min_chip: 1,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_ok(), "42949 * 100 = 4294900 should not overflow u32");
     }
 }
