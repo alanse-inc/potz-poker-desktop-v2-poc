@@ -481,6 +481,42 @@ describe("logout()", () => {
 
     expect(mockAuth0Client.logout).toHaveBeenCalledWith({ openUrl: false });
   });
+
+  test("logout 時に auto_mode_board が localStorage から削除される", async () => {
+    // 前ユーザーのゲーム状態を localStorage にセットしておく
+    localStorage.setItem("auto_mode_board", JSON.stringify({ players: [] }));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isInitializing).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(localStorage.getItem("auto_mode_board")).toBeNull();
+  });
+
+  test("logout 時に auto_mode_board が存在しなくてもエラーにならない", async () => {
+    // localStorage に auto_mode_board がない状態でも logout が正常に動作する
+    localStorage.removeItem("auto_mode_board");
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isInitializing).toBe(false);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.logout();
+      }),
+    ).resolves.not.toThrow();
+
+    expect(result.current.isSignedIn).toBe(false);
+  });
 });
 
 describe("useAuth を AuthProvider 外で使う", () => {

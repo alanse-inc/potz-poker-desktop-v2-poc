@@ -187,6 +187,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // noop
     }
+    // ユーザー固有のゲーム状態を明示的に削除する（別アカウントでログインしても前ユーザーのデータが残らないようにする）
+    localStorage.removeItem("auto_mode_board");
     Sentry.setUser(null);
     resetMixpanel();
     setSession({ isAuthenticated: false });

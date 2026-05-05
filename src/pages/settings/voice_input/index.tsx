@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
 import {
@@ -59,10 +59,17 @@ export function VoiceInputSettings() {
   );
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [isMicTestRunning, setIsMicTestRunning] = useState(false);
+  const isMicTestRunningRef = useRef(isMicTestRunning);
   const [commandLog, setCommandLog] = useState<VoicePokerCommand[]>([]);
 
   const apiKeyMissing = !DEEPGRAM_API_KEY;
 
+  // ref を常に最新値に同期する
+  useEffect(() => {
+    isMicTestRunningRef.current = isMicTestRunning;
+  }, [isMicTestRunning]);
+
+  // サブスクリプションはマウント時のみ登録し、再登録を防ぐ
   useEffect(() => {
     voiceInputService
       .getAudioDevices()
@@ -85,12 +92,12 @@ export function VoiceInputSettings() {
     return () => {
       unsubStatus();
       unsubCommand();
-      if (isMicTestRunning) {
+      // ref で最新値を参照することでクロージャキャプチャ問題を回避する
+      if (isMicTestRunningRef.current) {
         voiceInputService.stop();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicTestRunning]);
+  }, []);
 
   const handleToggle = useCallback(() => {
     setIsEnabled((prev) => !prev);
