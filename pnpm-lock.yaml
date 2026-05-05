@@ -35,9 +35,6 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2.10.1
         version: 2.10.1
-      '@types/react-rnd':
-        specifier: ^8.0.0
-        version: 8.0.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       dayjs:
         specifier: ^1.11.20
         version: 1.11.20
@@ -1215,10 +1212,6 @@ packages:
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
     peerDependencies:
       '@types/react': ^19.2.0
-
-  '@types/react-rnd@8.0.0':
-    resolution: {integrity: sha512-k/exWCXCY3CDqyJUJeny2SgsfWslWh6XU32/S0YJH6p4E8q2FK89WAPzdG0AECA2k95UC75YKErDRQ/IyvDz6g==}
-    deprecated: This is a stub types definition. react-rnd provides its own type definitions, so you do not need this installed.
 
   '@types/react@19.2.14':
     resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
@@ -4402,13 +4395,6 @@ snapshots:
   '@types/react-dom@19.2.3(@types/react@19.2.14)':
     dependencies:
       '@types/react': 19.2.14
-
-  '@types/react-rnd@8.0.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
-    dependencies:
-      react-rnd: 10.5.3(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-    transitivePeerDependencies:
-      - react
-      - react-dom
 
   '@types/react@19.2.14':
     dependencies:

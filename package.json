@@ -31,7 +31,6 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.1.0",
     "@tauri-apps/plugin-updater": "^2.10.1",
-    "@types/react-rnd": "^8.0.0",
     "dayjs": "^1.11.20",
     "html5-qrcode": "^2.3.8",
     "immer": "^11.1.4",
