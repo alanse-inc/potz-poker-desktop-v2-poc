@@ -78,7 +78,14 @@ fn sort_by_clockwise_distance(players: &[&Player], start_seat: u8, total: u8) ->
     seats
 }
 
+/// hand が確定済み（2枚スキャン完了）かどうかを判定する。
+/// pending 状態 (hand[0] == hand[1]) は1枚目スキャン済みだが未確定とみなす。
+fn is_hand_confirmed(hand: &[crate::domain::card::Card; 2]) -> bool {
+    hand[0] != hand[1]
+}
+
 /// 全プレイヤーに初期カード（2枚）が配られているか確認。
+/// pending 状態 (hand[0] == hand[1]) は未配布として扱う。
 fn are_all_players_dealt(board: &TexasHoldemBoard) -> bool {
     let receivable: Vec<&Player> = board
         .players
@@ -88,7 +95,9 @@ fn are_all_players_dealt(board: &TexasHoldemBoard) -> bool {
     if receivable.is_empty() {
         return true;
     }
-    receivable.iter().all(|p| p.hand.is_some())
+    receivable
+        .iter()
+        .all(|p| p.hand.as_ref().is_some_and(is_hand_confirmed))
 }
 
 /// バーンカードが必要かどうかを判定。
@@ -169,27 +178,21 @@ fn determine_next_player_card_position(
 
         let heads_up_order = [bb_player, other_player];
 
-        // 1枚目
         for p in &heads_up_order {
-            if p.hand.is_none() {
+            let undealt = p.hand.as_ref().map_or(true, |h| !is_hand_confirmed(h));
+            if undealt {
                 return Ok(CardPosition::PlayerHand { seat: p.position });
             }
         }
-        // 2枚目（今の実装では hand は Option<[Card;2]> で一度に渡されるが、
-        // RFID モードでは1枚ずつ渡される想定に合わせて hand が None のケースで判定）
-        // v2 の Player.hand は Option<[Card;2]> のため「1枚のみ」という状態を表現できない。
-        // ここでは hand が Some であれば2枚とも配布済みとみなす。
-        // プレイヤーハンドカードの2枚配布は別途手動操作で行う想定のためこのロジックは
-        // 「最初に hand が None のプレイヤーに配る」として扱う。
     } else {
         // 3人以上
         let start_seat = find_dealing_start_seat(board, &receivable);
         let sorted_seats = sort_by_clockwise_distance(&receivable, start_seat, total);
 
-        // hand が None の最初のプレイヤー
         for seat in &sorted_seats {
             if let Some(p) = board.players.iter().find(|p| p.position == *seat) {
-                if p.hand.is_none() {
+                let undealt = p.hand.as_ref().map_or(true, |h| !is_hand_confirmed(h));
+                if undealt {
                     return Ok(CardPosition::PlayerHand { seat: p.position });
                 }
             }
@@ -414,6 +417,58 @@ mod tests {
     }
 
     // ---- ONE BIG パターン ----
+
+    // ---- pending hand (Bug 2 fix) ----
+
+    #[test]
+    fn are_all_players_dealt_with_pending_returns_false() {
+        use crate::domain::card::{Card, CardValue, Suit};
+        let mut board = make_board_3p();
+        let card = Card::new(Suit::Spade, CardValue::Ace);
+        // 全員を pending 状態（hand[0] == hand[1]）にする
+        for p in &mut board.players {
+            p.hand = Some([card, card]);
+        }
+        // pending は未配布扱い → 次のカードはプレイヤーへ
+        let pos = determine_next_card_position(&board, 0).unwrap();
+        assert!(
+            matches!(pos, CardPosition::PlayerHand { .. }),
+            "pending hand should not count as dealt: got {:?}",
+            pos
+        );
+    }
+
+    #[test]
+    fn are_all_players_dealt_with_one_pending_returns_false() {
+        use crate::domain::card::{Card, CardValue, Suit};
+        let mut board = make_board_3p();
+        let ace = Card::new(Suit::Spade, CardValue::Ace);
+        let king = Card::new(Suit::Heart, CardValue::King);
+        // player[0], player[2] は confirmed
+        board.players[0].hand = Some([ace, king]);
+        board.players[2].hand = Some([ace, king]);
+        // player[1] は pending
+        board.players[1].hand = Some([ace, ace]);
+        let pos = determine_next_card_position(&board, 0).unwrap();
+        assert!(
+            matches!(pos, CardPosition::PlayerHand { .. }),
+            "one pending player should not count as all dealt: got {:?}",
+            pos
+        );
+    }
+
+    #[test]
+    fn are_all_players_dealt_all_confirmed_goes_to_burn() {
+        use crate::domain::card::{Card, CardValue, Suit};
+        let mut board = make_board_3p();
+        let ace = Card::new(Suit::Spade, CardValue::Ace);
+        let king = Card::new(Suit::Heart, CardValue::King);
+        for p in &mut board.players {
+            p.hand = Some([ace, king]);
+        }
+        let pos = determine_next_card_position(&board, 0).unwrap();
+        assert_eq!(pos, CardPosition::BurnCard);
+    }
 
     #[test]
     fn one_big_starts_from_bb() {
