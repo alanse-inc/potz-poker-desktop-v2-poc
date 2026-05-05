@@ -14,8 +14,11 @@ export function ColorPicker({ value, onChange, label }: Props) {
   // 外部からのvalue変更に追従する
   useEffect(() => {
     setTextValue(value);
-    setCurrentValidColor(value);
-    setIsValidColor(true);
+    const isValid = validateColor(value);
+    if (isValid) {
+      setCurrentValidColor(value);
+    }
+    setIsValidColor(isValid);
   }, [value]);
 
   const validateColor = (color: string): boolean => {
