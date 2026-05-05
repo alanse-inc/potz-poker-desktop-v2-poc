@@ -34,6 +34,7 @@ function payloadKey(payload: CardPlacedPayload): string {
 export function useCardPlacedHandler() {
   const [eventHistory, setEventHistory] = useState<string[]>([]);
   const processingRef = useRef(false);
+  const pendingQueueRef = useRef<CardPlacedPayload[]>([]);
   const eventHistoryRef = useRef<string[]>([]);
 
   const pushEventHistory = useCallback((eventJson: string) => {
@@ -54,9 +55,38 @@ export function useCardPlacedHandler() {
     let unlisten: (() => void) | undefined;
 
     const setup = async () => {
+      const processNext = async (): Promise<void> => {
+        while (pendingQueueRef.current.length > 0) {
+          const next = pendingQueueRef.current.shift();
+          if (!next) break;
+
+          const eventKey = payloadKey(next);
+
+          if (eventHistoryRef.current.includes(eventKey)) {
+            continue;
+          }
+
+          pushEventHistory(eventKey);
+
+          try {
+            await api.rfid.applyCardPlaced(next.rfid, next.card, next.position);
+            toast.success("カードを読み込みました");
+          } catch (e) {
+            popEventHistory();
+            const message =
+              e instanceof Error ? e.message : "カード配置に失敗しました";
+            toast.error(message);
+          }
+        }
+        processingRef.current = false;
+      };
+
       const unlistenCardPlaced = await api.notifications.onCardPlaced(
         async (payload: CardPlacedPayload) => {
-          if (processingRef.current) return;
+          if (processingRef.current) {
+            pendingQueueRef.current.push(payload);
+            return;
+          }
 
           const eventKey = payloadKey(payload);
 
@@ -82,7 +112,7 @@ export function useCardPlacedHandler() {
               e instanceof Error ? e.message : "カード配置に失敗しました";
             toast.error(message);
           } finally {
-            processingRef.current = false;
+            await processNext();
           }
         },
       );
@@ -134,6 +164,7 @@ export function useCardPlacedHandler() {
 
     return () => {
       cancelled = true;
+      pendingQueueRef.current = [];
       unlisten?.();
     };
   }, []);

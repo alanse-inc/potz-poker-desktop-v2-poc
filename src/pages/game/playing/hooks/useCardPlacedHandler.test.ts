@@ -239,6 +239,47 @@ describe("useCardPlacedHandler", () => {
     expect(result.current.eventHistory).toContain(lastEventKey);
   });
 
+  it("処理中に到着した次のイベントがドロップされず逐次処理される", async () => {
+    let resolveFirst!: () => void;
+    const firstCallPromise = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let applyCallCount = 0;
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(async () => {
+      applyCallCount += 1;
+      if (applyCallCount === 1) {
+        await firstCallPromise;
+      }
+    });
+
+    const { result } = renderHook(() => useCardPlacedHandler());
+
+    const payload1 = {
+      rfid: "RFID00000000001",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+    const payload2 = {
+      rfid: "RFID00000000002",
+      card: { suit: "heart" as const, value: "K" as const },
+      position: { type: "communityCard" as const, slot: 1 },
+    };
+
+    // 1件目の処理を開始し、処理中に2件目をキューへ積んで1件目を完了させる
+    await act(async () => {
+      const firstDone = onCardPlacedCb?.(payload1);
+      // 2件目は処理中にキューへ積まれる（await しないので processingRef.current === true のまま）
+      void onCardPlacedCb?.(payload2);
+      // 1件目を完了させ、finallyでキューを処理させる
+      resolveFirst();
+      await firstDone;
+    });
+
+    // 両方が処理されること
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(2);
+    expect(result.current.eventHistory).toHaveLength(2);
+  });
+
   it("onCardPlaced 登録後 / onCardPlacedUnregistered 登録前にアンマウントしても unlistenCardPlaced が呼ばれる", async () => {
     // onCardPlaced の unlisten spy
     const unlistenCardPlacedSpy = vi.fn();
