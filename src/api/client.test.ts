@@ -74,6 +74,16 @@ describe("api.action", () => {
     await api.action.allin();
     expect(invoke).toHaveBeenCalledWith("allin");
   });
+
+  it("bet(1.5) truncates to integer and calls invoke('bet', { amount: 1 })", async () => {
+    await api.action.bet(1.5);
+    expect(invoke).toHaveBeenCalledWith("bet", { amount: 1 });
+  });
+
+  it("raise(2.9) truncates to integer and calls invoke('raise', { amount: 2 })", async () => {
+    await api.action.raise(2.9);
+    expect(invoke).toHaveBeenCalledWith("raise", { amount: 2 });
+  });
 });
 
 describe("api.gameSettings", () => {

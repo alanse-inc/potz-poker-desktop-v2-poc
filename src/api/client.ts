@@ -47,11 +47,11 @@ export const api = {
       invoke<TexasHoldemBoard>("remove_player", { position }),
   },
   action: {
-    bet: (amount: number) => invoke<TexasHoldemBoard>("bet", { amount }),
+    bet: (amount: number) => invoke<TexasHoldemBoard>("bet", { amount: Math.trunc(amount) }),
     call: () => invoke<TexasHoldemBoard>("call"),
     check: () => invoke<TexasHoldemBoard>("check"),
     fold: () => invoke<TexasHoldemBoard>("fold"),
-    raise: (amount: number) => invoke<TexasHoldemBoard>("raise", { amount }),
+    raise: (amount: number) => invoke<TexasHoldemBoard>("raise", { amount: Math.trunc(amount) }),
     allin: () => invoke<TexasHoldemBoard>("allin"),
     expose: (exposeCard: Card) => invoke<Card>("expose", { exposeCard }),
   },

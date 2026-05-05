@@ -88,14 +88,18 @@ pub fn move_next_game(
 }
 
 #[tauri::command]
-pub fn reset_board(_app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let mut inner = state.lock();
-    inner.board = None;
-    inner.deck.clear();
-    inner.history.clear();
-    inner.burn_count = 0;
-    inner.burn_card = None;
-    inner.event_history.clear();
+pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut inner = state.lock();
+        inner.board = None;
+        inner.deck.clear();
+        inner.history.clear();
+        inner.burn_count = 0;
+        inner.burn_card = None;
+        inner.event_history.clear();
+    } // lock を解放してから emit
+
+    let _ = app.emit(BOARD_UPDATED, Option::<TexasHoldemBoard>::None);
     Ok(())
 }
 
@@ -206,6 +210,15 @@ pub fn update_player(
     Ok(result)
 }
 
+fn calculate_initial_stack(board: &TexasHoldemBoard, fallback_big_blind: u32) -> u32 {
+    if board.players.is_empty() {
+        fallback_big_blind * 100
+    } else {
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        total / board.players.len() as u32
+    }
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub fn add_player(
     app: AppHandle,
@@ -214,11 +227,12 @@ pub fn add_player(
 ) -> Result<TexasHoldemBoard, String> {
     let result = {
         let mut inner = state.lock();
-        let initial_stack = inner.settings.small_blind * 100;
+        let fallback_big_blind = inner.settings.big_blind;
         let board = inner
             .board
             .as_mut()
             .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+        let initial_stack = calculate_initial_stack(board, fallback_big_blind);
         domain_add_player(board, name, initial_stack).map_err(|e| e.to_string())?;
         board.clone()
     }; // lock を解放してから emit
@@ -245,4 +259,47 @@ pub fn remove_player(
 
     let _ = app.emit(BOARD_UPDATED, &result);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::board::{start_game, GameSettings};
+
+    #[test]
+    fn calculate_initial_stack_uses_average_when_players_exist() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+        board.phase = crate::domain::board::Phase::Showdown;
+
+        board.players[0].stack = 3000;
+        board.players[1].stack = 1000;
+        // average = (3000 + 1000) / 2 = 2000
+        let stack = calculate_initial_stack(&board, 100);
+        assert_eq!(stack, 2000);
+    }
+
+    #[test]
+    fn calculate_initial_stack_uses_fallback_when_no_players() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+        board.phase = crate::domain::board::Phase::Showdown;
+        board.players.clear();
+
+        // fallback: big_blind * 100 = 100 * 100 = 10000
+        let stack = calculate_initial_stack(&board, 100);
+        assert_eq!(stack, 10000);
+    }
 }

@@ -304,8 +304,8 @@ impl TexasHoldemBoard {
                 return;
             }
 
-            eprintln!(
-                "[WARN] resolve_showdown: all active players have hand=None; \
+            tracing::warn!(
+                "resolve_showdown: all active players have hand=None; \
                  distributing pot equally among {} non-folded player(s)",
                 eligible.len()
             );
@@ -617,8 +617,8 @@ fn start_game_with_stacks(
     let mut deck = shuffled_deck(seed_from_hand_number(hand_number));
 
     for p in &mut players {
-        let c1 = deck.pop().unwrap();
-        let c2 = deck.pop().unwrap();
+        let c1 = deck.pop().ok_or_else(|| BoardError::InvalidAction("deck exhausted".into()))?;
+        let c2 = deck.pop().ok_or_else(|| BoardError::InvalidAction("deck exhausted".into()))?;
         p.hand = Some([c1, c2]);
     }
 
