@@ -34,7 +34,7 @@ pub fn evaluate_hand(cards: &[Card]) -> EvaluatedHand {
         return evaluate_five(cards);
     }
 
-    // 7 枚以下なら C(n,5) の全組み合わせを試す。
+    // 5 枚以上なら C(n,5) の全組み合わせを試す。
     let n = cards.len();
     let mut best: Option<EvaluatedHand> = None;
     for i in 0..n {
