@@ -117,7 +117,7 @@ async function savePersistedSettings(
 // VoiceInputService クラス
 // ---------------------------------------------------------------------------
 
-class VoiceInputService {
+export class VoiceInputService {
   private _status: VoiceInputStatus = "stopped";
   private _enabled = false;
   private _deviceId: string | undefined = undefined;
@@ -134,6 +134,7 @@ class VoiceInputService {
   private reconnectAttempts = 0;
   private intentionallyStopped = false;
   private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingAudio: ArrayBuffer[] = [];
   private startPromise: Promise<void> | null = null;
   private speechStartTime: number | null = null;
@@ -395,7 +396,8 @@ class VoiceInputService {
       const isAbnormalClose = event.code !== 1000;
       if (isAbnormalClose && this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         this.reconnectAttempts++;
-        setTimeout(() => {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
           if (!this.intentionallyStopped) {
             this.connectWebSocket(apiKey, stream);
           }
@@ -597,6 +599,10 @@ class VoiceInputService {
   // ---------------------------------------------------------------------------
 
   private cleanup(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.stopKeepAlive();
     this.cleanupAudioProcessor();
 
