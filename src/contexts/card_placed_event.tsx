@@ -58,6 +58,7 @@ export const CardPlacedEventProvider = ({
 
   useEffect(() => {
     // Tauri イベント経由のカード配置イベントをリッスン
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
 
     api.notifications
@@ -65,6 +66,10 @@ export const CardPlacedEventProvider = ({
         setPlacedEvent(payload);
       })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlisten = fn;
       })
       .catch(() => {
@@ -72,6 +77,7 @@ export const CardPlacedEventProvider = ({
       });
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, []);

@@ -43,6 +43,7 @@ export const InitialBoardProvider = ({ children }: { children: ReactNode }) => {
       });
 
     // Tauri イベント経由で初期ボード更新を受け取る
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
 
     api.notifications
@@ -50,11 +51,16 @@ export const InitialBoardProvider = ({ children }: { children: ReactNode }) => {
         setInitialBoard(updatedBoard);
       })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlisten = fn;
       })
       .catch(() => {});
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, []);

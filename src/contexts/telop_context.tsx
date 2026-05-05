@@ -109,6 +109,7 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
     void initializeTelopSettings();
 
     // Tauri イベント経由のリアルタイム更新を購読
+    let cancelled = false;
     let unlistenTelopId: (() => void) | null = null;
     let unlistenBackgroundColor: (() => void) | null = null;
     let unlistenCurrentScreen: (() => void) | null = null;
@@ -120,6 +121,10 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
         }
       })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlistenTelopId = fn;
       })
       .catch(() => {});
@@ -129,6 +134,10 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
         setBackgroundColorState(updatedColor);
       })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlistenBackgroundColor = fn;
       })
       .catch(() => {});
@@ -138,11 +147,16 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
         setCurrentScreenState(updatedScreen);
       })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlistenCurrentScreen = fn;
       })
       .catch(() => {});
 
     return () => {
+      cancelled = true;
       unlistenTelopId?.();
       unlistenBackgroundColor?.();
       unlistenCurrentScreen?.();

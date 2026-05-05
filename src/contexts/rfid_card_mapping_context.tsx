@@ -58,11 +58,16 @@ export const RFIDCardMappingProvider = ({
     void loadCurrentMapping();
 
     // Tauri の deck_updated イベントを購読してリアルタイム更新に対応
+    let cancelled = false;
     let unlistenFn: (() => void) | null = null;
     listen<RfidCardMapping>("deck_updated", (event) => {
       setRfidCardMapping(event.payload);
     })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlistenFn = fn;
       })
       .catch((error) => {
@@ -73,6 +78,7 @@ export const RFIDCardMappingProvider = ({
       });
 
     return () => {
+      cancelled = true;
       unlistenFn?.();
     };
   }, []);

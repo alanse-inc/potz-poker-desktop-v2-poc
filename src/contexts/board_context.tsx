@@ -36,6 +36,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh();
 
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
 
     api.notifications
@@ -44,6 +45,10 @@ export function BoardProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlisten = fn;
       })
       .catch(() => {
@@ -51,6 +56,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       });
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, [refresh]);
