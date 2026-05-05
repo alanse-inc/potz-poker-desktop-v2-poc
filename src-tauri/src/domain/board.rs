@@ -3373,8 +3373,7 @@ mod tests {
         let stacks = vec![400u32, 200, 200];
         let total_before: u32 = stacks.iter().sum();
 
-        let mut board =
-            start_game_with_stacks(settings, names, stacks, 1, 0, 1, 2).unwrap();
+        let mut board = start_game_with_stacks(settings, names, stacks, 1, 0, 1, 2).unwrap();
         let mut deck = build_remaining_deck(&board);
 
         // 全員 all-in: UTG→SB→BB の順でアクション
@@ -3504,7 +3503,7 @@ mod tests {
         assert_eq!(board.phase, Phase::Showdown);
         let winner = &board.players[0]; // p0 = Winner
         let loser = &board.players[1]; // p1 = Loser
-        // p0 が pot 100 + undistributed 10 = 110 を受け取るべき
+                                       // p0 が pot 100 + undistributed 10 = 110 を受け取るべき
         assert_eq!(
             winner.stack, 110,
             "winner should receive distributed 100 + undistributed 10"
