@@ -3333,6 +3333,39 @@ mod tests {
         );
     }
 
+    /// bb_ante=true でサイドポットが発生する場合、ante 分が二重カウントされないこと。
+    ///
+    /// シナリオ: dealer=0, SB=1 (200 stack), BB=2 (200 stack), UTG=0 (400 stack)
+    /// sb=50, bb=100, ante=100 → BB.total_invested=200, BB is all-in
+    /// 全員 all-in → Showdown でチップ総量が保全されること。
+    #[test]
+    fn bb_ante_sidepot_no_double_count() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: true,
+        };
+        let names = vec!["UTG".into(), "SB".into(), "BB".into()];
+        let stacks = vec![400u32, 200, 200];
+        let total_before: u32 = stacks.iter().sum();
+
+        let mut board =
+            start_game_with_stacks(settings, names, stacks, 1, 0, 1, 2).unwrap();
+        let mut deck = build_remaining_deck(&board);
+
+        // 全員 all-in: UTG→SB→BB の順でアクション
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+        // BB は already all-in なので次は Showdown へ
+
+        let total_after: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(
+            total_after, total_before,
+            "total chips must be preserved with bb_ante and sidepot"
+        );
+    }
+
     // ================================================================
     // Bug 2: u32 乗算オーバーフロー
     // ================================================================
