@@ -124,6 +124,46 @@ describe("assignPositions", () => {
     // btnIndex が -1 → 変更なし
     expect(result.map((p) => p.position)).toEqual([null, null]);
   });
+
+  it("9人の場合 co が含まれ utg_plus_3 が含まれない", () => {
+    const players = Array.from({ length: 9 }, (_, i) =>
+      makePlayer({ id: `p${i + 1}`, seat: i + 1 }),
+    );
+    const result = assignPositions(players, "p1");
+    const positions = result.map((p) => p.position);
+    expect(positions).toContain("co");
+    expect(positions).not.toContain("utg_plus_3");
+  });
+
+  it("8人の場合 hj まで割り当てられ co は含まれない", () => {
+    const players = Array.from({ length: 8 }, (_, i) =>
+      makePlayer({ id: `p${i + 1}`, seat: i + 1 }),
+    );
+    const result = assignPositions(players, "p1");
+    const positions = result.map((p) => p.position);
+    expect(positions).toContain("hj");
+    expect(positions).not.toContain("co");
+  });
+
+  it("9人の場合ポジション順が正しい", () => {
+    const players = Array.from({ length: 9 }, (_, i) =>
+      makePlayer({ id: `p${i + 1}`, seat: i + 1 }),
+    );
+    // p1 が BTN
+    const result = assignPositions(players, "p1");
+    const positions = result.map((p) => p.position);
+    expect(positions).toEqual([
+      "btn",
+      "sb",
+      "bb",
+      "utg",
+      "utg_plus_1",
+      "utg_plus_2",
+      "mp",
+      "hj",
+      "co",
+    ]);
+  });
 });
 
 describe("determineNextButtonPlayerId", () => {

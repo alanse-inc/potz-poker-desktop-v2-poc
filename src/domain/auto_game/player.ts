@@ -18,7 +18,6 @@ const POSITION_ORDER: TexasHoldemPosition[] = [
   "utg",
   "utg_plus_1",
   "utg_plus_2",
-  "utg_plus_3",
   "mp",
   "hj",
   "co",
