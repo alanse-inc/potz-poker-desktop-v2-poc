@@ -33,6 +33,8 @@ export type TexasHoldemBoard = {
   bbPosition: number;
   currentTurn: number;
   currentBet: number;
+  /** 直近のレイズ幅。最低再レイズ額の計算に使用。ラウンドリセット時は 0。 */
+  lastRaiseSize: number;
   players: Player[];
   communityCards: Card[];
   pots: Pot[];

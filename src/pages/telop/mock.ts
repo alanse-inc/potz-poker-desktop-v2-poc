@@ -92,6 +92,7 @@ export const MOCK_BOARD: TexasHoldemBoard = {
   bbPosition: 2,
   currentTurn: 2,
   currentBet: 100000,
+  lastRaiseSize: 100000,
   players: MOCK_PLAYERS,
   communityCards: [
     { suit: "spade", value: "K" },

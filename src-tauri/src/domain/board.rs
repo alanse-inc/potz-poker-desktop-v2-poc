@@ -64,6 +64,8 @@ pub struct TexasHoldemBoard {
     pub bb_position: u8,
     pub current_turn: u8,
     pub current_bet: u32,
+    /// 直近のレイズ幅（最低再レイズ額の計算に使用）。ラウンドリセット時は 0 に戻る。
+    pub last_raise_size: u32,
     pub players: Vec<Player>,
     pub community_cards: Vec<Card>,
     pots: Vec<Pot>,
@@ -145,6 +147,7 @@ impl TexasHoldemBoard {
             p.has_acted = false;
         }
         self.current_bet = 0;
+        self.last_raise_size = 0;
 
         self.phase = match self.phase {
             Phase::PreFlop => Phase::Flop,
@@ -466,6 +469,7 @@ fn start_game_with_stacks(
         bb_position: bb_pos,
         current_turn: utg_pos,
         current_bet,
+        last_raise_size: current_bet,
         players,
         community_cards: Vec::new(),
         pots: vec![Pot { amount: 0 }],
@@ -650,7 +654,9 @@ pub fn board_bet(board: &mut TexasHoldemBoard, amount: u32, deck: &mut Vec<Card>
         },
         deck,
     )?;
-    board.current_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(0);
+    let new_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(0);
+    board.last_raise_size = new_bet.saturating_sub(board.current_bet);
+    board.current_bet = new_bet;
     Ok(())
 }
 
@@ -700,6 +706,7 @@ pub fn board_fold(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<
 }
 
 pub fn board_raise(board: &mut TexasHoldemBoard, to: u32, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+    let prev_bet = board.current_bet;
     board.apply_action(
         |p, current_bet| {
             if to <= current_bet {
@@ -719,11 +726,14 @@ pub fn board_raise(board: &mut TexasHoldemBoard, to: u32, deck: &mut Vec<Card>) 
         },
         deck,
     )?;
-    board.current_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(0);
+    let new_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(0);
+    board.last_raise_size = new_bet.saturating_sub(prev_bet);
+    board.current_bet = new_bet;
     Ok(())
 }
 
 pub fn board_allin(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+    let prev_bet = board.current_bet;
     board.apply_action(
         |p, _current_bet| {
             if p.stack == 0 {
@@ -736,7 +746,11 @@ pub fn board_allin(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result
         },
         deck,
     )?;
-    board.current_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(board.current_bet);
+    let new_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(board.current_bet);
+    if new_bet > prev_bet {
+        board.last_raise_size = new_bet.saturating_sub(prev_bet);
+    }
+    board.current_bet = new_bet;
     Ok(())
 }
 

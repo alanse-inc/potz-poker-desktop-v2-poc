@@ -277,8 +277,10 @@ export function GamePlaying() {
 
   const minRaise = useMemo(() => {
     if (!board) return 0;
-    // 最低レイズ額 = currentBet + bigBlind（標準的なポーカーの最低レイズ額）
-    return board.currentBet + bigBlindAmount;
+    // 最低レイズ額 = currentBet + max(lastRaiseSize, bigBlind)
+    // lastRaiseSize: 直近のレイズ幅（Rust 側が管理）。未レイズ時は BB 相当。
+    const raiseSize = Math.max(board.lastRaiseSize, bigBlindAmount);
+    return board.currentBet + raiseSize;
   }, [board, bigBlindAmount]);
 
   const minBet = useMemo(() => {
