@@ -568,13 +568,12 @@ pub fn apply_card_placed(
     }
 
     // イベント履歴に記録
+    // Note: 関数冒頭の `ok_or("no active board")?` により board は必ず Some。
+    // match の各アームが board を None にすることもないため、ここで board が None になることはない。
     let event_json = serde_json::to_string(&CardPlacedPayload {
         rfid,
         card,
-        position: match guard.board.as_ref().map(|_| position.clone()) {
-            Some(p) => p,
-            None => return Ok(()),
-        },
+        position: position.clone(),
     })
     .unwrap_or_default();
     guard.event_history.push_back(event_json);
