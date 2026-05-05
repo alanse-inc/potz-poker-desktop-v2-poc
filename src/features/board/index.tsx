@@ -3,7 +3,7 @@ import React from "react";
 import { getOtherItemStyle, getSeatPosition } from "../../constants/positions";
 import { ChipIconWithValue } from "../chip/chip_icon_with_value";
 
-const seatIndices = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+const seatIndices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
 export type SeatContent = {
   playerCard: ReactNode;
@@ -22,6 +22,7 @@ export type BoardProps = {
     7: SeatContent;
     8: SeatContent;
     9: SeatContent;
+    10: SeatContent;
   };
   centerContent?: ReactNode;
 };
@@ -39,6 +40,7 @@ export function Board({ seats, centerContent }: BoardProps) {
       {/* 各シートの表示 */}
       {seatIndices.map((seatIndex) => {
         const seat = seats[seatIndex];
+        if (!seat) return null;
 
         return (
           <React.Fragment key={`seat-${seatIndex}`}>

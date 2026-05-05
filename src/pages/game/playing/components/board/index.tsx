@@ -17,10 +17,10 @@ type Props = {
   onEditCommunityCard: (locateNumber: number) => void;
 };
 
-// position は 0-indexed (0..n-1)。9人席 (1..9) に対応付ける。
-// setting/select_btn と同じマッピング (position 0 → seat 1, ..., position 8 → seat 9)
+// position は 0-indexed (0..n-1)。10人席 (1..10) に対応付ける。
+// position 0 → seat 1, ..., position 9 → seat 10
 function positionToSeat(position: number): number {
-  return (position % 9) + 1;
+  return position + 1;
 }
 
 export function PlayingBoard({
@@ -41,6 +41,7 @@ export function PlayingBoard({
     7: { playerCard: undefined },
     8: { playerCard: undefined },
     9: { playerCard: undefined },
+    10: { playerCard: undefined },
   };
 
   const seats = produce(initialSeats, (draftSeats) => {
@@ -81,7 +82,8 @@ export function PlayingBoard({
         | 6
         | 7
         | 8
-        | 9;
+        | 9
+        | 10;
       draftSeats[seat] = seatContent;
     }
   });

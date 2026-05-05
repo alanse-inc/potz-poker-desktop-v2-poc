@@ -32,6 +32,7 @@ const EMPTY_SEATS: BoardProps["seats"] = {
   7: { playerCard: undefined },
   8: { playerCard: undefined },
   9: { playerCard: undefined },
+  10: { playerCard: undefined },
 };
 
 export function FirstGameSelectBtn() {
@@ -81,7 +82,7 @@ export function FirstGameSelectBtn() {
     for (let i = 0; i < players.length; i++) {
       const player = players[i];
       if (!player) continue;
-      const seat = (i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+      const seat = (i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
       const isSelected = selectedIndex === i;
       const seatContent: SeatContent = {
         playerCard: (

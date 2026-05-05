@@ -26,6 +26,7 @@ const EMPTY_SEATS: BoardProps["seats"] = {
   7: { playerCard: undefined },
   8: { playerCard: undefined },
   9: { playerCard: undefined },
+  10: { playerCard: undefined },
 };
 
 export function NextGameSelectBtn() {

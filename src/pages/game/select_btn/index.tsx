@@ -25,8 +25,10 @@ type LocationState = {
   playerSeats: { seatIndex: number; name: string }[];
 };
 
-function positionToSeat(position: number): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 {
-  return ((position % 9) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+function positionToSeat(
+  position: number,
+): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 {
+  return (position + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 }
 
 const EMPTY_SEATS: BoardProps["seats"] = {
@@ -39,6 +41,7 @@ const EMPTY_SEATS: BoardProps["seats"] = {
   7: { playerCard: undefined },
   8: { playerCard: undefined },
   9: { playerCard: undefined },
+  10: { playerCard: undefined },
 };
 
 export function SelectBtn() {

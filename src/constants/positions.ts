@@ -21,6 +21,7 @@ export const OTHER_ITEM_POSITIONS: { [key: number]: ItemPosition } = {
   7: { right: 8, top: 32 }, // 右
   8: { right: 8, top: 68 }, // 右
   9: { right: 30, top: 90 }, // 右下
+  10: { left: 50, top: 108 }, // 下中央
 };
 
 export const SEAT_POSITIONS: { [key: number]: SeatPosition } = {
@@ -33,6 +34,7 @@ export const SEAT_POSITIONS: { [key: number]: SeatPosition } = {
   7: { left: 114, top: 30 }, // 右中
   8: { left: 114, top: 65 }, // 右中下
   9: { left: 92, top: 100 }, // 右下
+  10: { left: 50, top: 115 }, // 下中央
 };
 
 export function getOtherItemStyle(seatIndex: number): CSSProperties {
