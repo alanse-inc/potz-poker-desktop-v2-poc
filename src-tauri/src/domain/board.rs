@@ -612,9 +612,19 @@ pub fn next_game(
     // スタックが 0 のプレイヤーをスキップして SB/BB を決定する。
     let (new_sb, new_bb) = if n == 2 {
         // ヘッズアップ: dealer=SB, 相手=BB
-        let sb = new_dealer;
-        let bb = (new_dealer + 1) % n as u8;
-        (sb, bb)
+        // どちらかがスタック 0 の場合はゲーム終了（バスト）として扱う。
+        if stacks[new_dealer as usize] == 0 {
+            return Err(BoardError::InvalidAction(
+                "heads-up: dealer has stack 0; game over".into(),
+            ));
+        }
+        let opponent = (new_dealer + 1) % n as u8;
+        if stacks[opponent as usize] == 0 {
+            return Err(BoardError::InvalidAction(
+                "heads-up: opponent has stack 0; game over".into(),
+            ));
+        }
+        (new_dealer, opponent)
     } else {
         // SB は dealer の次でスタック 0 をスキップ
         let sb = next_non_zero_stack_pos(&stacks, new_dealer).ok_or_else(|| {
@@ -4150,5 +4160,90 @@ mod tests {
             bb_player.total_invested > 0,
             "BB must have posted blind (non-zero stack)"
         );
+    }
+
+    // ================================================================
+    // Bug 4: ヘッズアップ next_game でスタック 0 のチェック
+    // ================================================================
+
+    /// ヘッズアップで dealer のスタックが 0 のとき next_game がエラーを返す。
+    #[test]
+    fn heads_up_next_game_dealer_stack_zero_returns_error() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        // dealer=0 で開始し、手動で player 1 (次のディーラー) のスタックを 0 にする。
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        // next_game では new_dealer = (0+1)%2 = 1 になる。
+        // position 1 のスタックを 0 にセットする。
+        board.players[1].stack = 0;
+        board.phase = Phase::Showdown;
+
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_err(),
+            "next_game should fail when heads-up dealer has stack 0"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("stack 0"),
+            "error message should mention stack 0, got: {}",
+            msg
+        );
+    }
+
+    /// ヘッズアップで opponent のスタックが 0 のとき next_game がエラーを返す。
+    #[test]
+    fn heads_up_next_game_opponent_stack_zero_returns_error() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        // dealer=0 で開始し、position 0 (新ディーラーの opponent) のスタックを 0 にする。
+        // next_game: new_dealer=(0+1)%2=1, opponent=(1+1)%2=0
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        board.players[0].stack = 0;
+        board.phase = Phase::Showdown;
+
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_err(),
+            "next_game should fail when heads-up opponent has stack 0"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("stack 0"),
+            "error message should mention stack 0, got: {}",
+            msg
+        );
+    }
+
+    /// ヘッズアップで両者ともスタックがある場合は next_game が成功する（既存動作の保護）。
+    #[test]
+    fn heads_up_next_game_both_have_stack_succeeds() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        // 初期スタックは両者とも 5000 (50*100)。
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_ok(),
+            "next_game should succeed when both players have chips"
+        );
+        let (new_board, _) = result.unwrap();
+        assert_eq!(new_board.dealer_position, 1);
+        assert_eq!(new_board.hand_number, 2);
     }
 }
