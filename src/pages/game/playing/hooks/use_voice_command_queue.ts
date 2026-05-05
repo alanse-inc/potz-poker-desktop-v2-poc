@@ -61,14 +61,24 @@ export function useVoiceCommandQueue(
   const queueRef = useRef<VoicePokerCommand[]>([]);
   const isProcessingRef = useRef(false);
   const activeIntervalsRef = useRef<ReturnType<typeof setInterval>[]>([]);
+  const unmountedRef = useRef(false);
 
   const waitForBoardUpdate = useCallback(
     (prevBoard: TexasHoldemBoard): Promise<boolean> => {
+      if (unmountedRef.current) return Promise.resolve(false);
       const prevHandNumber = prevBoard.handNumber;
       const prevPhase = prevBoard.phase;
       return new Promise((resolve) => {
         let elapsed = 0;
         const interval = setInterval(() => {
+          if (unmountedRef.current) {
+            clearInterval(interval);
+            activeIntervalsRef.current = activeIntervalsRef.current.filter(
+              (id) => id !== interval,
+            );
+            resolve(false);
+            return;
+          }
           elapsed += 100;
           const current = boardRef.current;
           if (
@@ -97,9 +107,18 @@ export function useVoiceCommandQueue(
 
   const waitForActionableBoard =
     useCallback((): Promise<TexasHoldemBoard | null> => {
+      if (unmountedRef.current) return Promise.resolve(null);
       return new Promise((resolve) => {
         let elapsed = 0;
         const interval = setInterval(() => {
+          if (unmountedRef.current) {
+            clearInterval(interval);
+            activeIntervalsRef.current = activeIntervalsRef.current.filter(
+              (id) => id !== interval,
+            );
+            resolve(null);
+            return;
+          }
           elapsed += ACTIONABLE_POLL_INTERVAL_MS;
           const current = boardRef.current;
           if (current && isActionableBoard(current)) {
@@ -644,6 +663,7 @@ export function useVoiceCommandQueue(
 
   useEffect(() => {
     return () => {
+      unmountedRef.current = true;
       for (const id of activeIntervalsRef.current) {
         clearInterval(id);
       }

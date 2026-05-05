@@ -715,6 +715,50 @@ describe("useVoiceCommandQueue", () => {
     });
   });
 
+  describe("unmount 後の interval リーク防止", () => {
+    it("processNext 実行中に unmount しても waitForBoardUpdate が新規 interval を ghost 化しない", async () => {
+      const board = buildMockBoard();
+      const boardRef = { current: board };
+
+      const { result, unmount } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // call 実行後はボードを更新しない（waitForBoardUpdate がポーリング中に unmount させる）
+      vi.mocked(api.action.call).mockImplementation(async () => {
+        // 実行完了直後に unmount する
+        unmount();
+        return board;
+      });
+
+      result.current.enqueue(buildCommand({ action: "call" }));
+
+      // unmount 後にタイマーを進めても interval が ghost 化しないことを確認
+      await vi.runAllTimersAsync();
+
+      // unmount 後は fold が実行されない
+      expect(api.action.fold).not.toHaveBeenCalled();
+    });
+
+    it("unmount 後に waitForActionableBoard を呼ぶと即座に null を返す", async () => {
+      const board = buildMockBoard({ phase: "showdown" });
+      const boardRef = { current: board };
+
+      // showdown フェーズ中に autoFoldUntilSeat を発動させるため seatNumber を指定
+      const { result, unmount } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      unmount();
+
+      // unmount 後のキュー処理で interval が作られないことを確認（タイマーを進めてもエラーなし）
+      result.current.enqueue(buildCommand({ action: "call", seatNumber: 1 }));
+      await vi.runAllTimersAsync();
+
+      expect(api.action.call).not.toHaveBeenCalled();
+    });
+  });
+
   describe("enqueue での check-around streetAtCapture 記録", () => {
     it("check-around コマンドにboardのフェーズがstreetAtCaptureとして記録される", async () => {
       const board = buildMockBoard({
