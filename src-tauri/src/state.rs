@@ -33,6 +33,10 @@ pub struct InnerState {
     pub event_history: Vec<String>,
     /// RFID 登録モードフラグ。
     pub register_mode: bool,
+    /// シリアルポート接続状態。
+    pub serial_connected: bool,
+    /// 接続中のシリアルポート名。
+    pub serial_port_name: Option<String>,
 }
 
 impl InnerState {
@@ -71,6 +75,8 @@ impl Default for InnerState {
             burn_card: None,
             event_history: Vec::new(),
             register_mode: false,
+            serial_connected: false,
+            serial_port_name: None,
         }
     }
 }
