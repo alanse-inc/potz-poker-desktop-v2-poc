@@ -162,15 +162,13 @@ export function FirstGameSetting() {
     }
 
     // BTN が選択されているか確認
-    const dealerIndex = players.findIndex((p) => p?.isDealer);
-    if (dealerIndex === -1) {
+    const dealerInFilled = filledPlayers.findIndex((p) => p.isDealer);
+    if (dealerInFilled === -1) {
       toast.error("BTN（ディーラー）を選択してください");
       return;
     }
 
-    const playerNames = players
-      .map((p) => p?.name ?? null)
-      .filter((n): n is string => n !== null);
+    const playerNames = filledPlayers.map((p) => p.name);
 
     try {
       await api.board.startGame({
@@ -179,7 +177,7 @@ export function FirstGameSetting() {
         minChip,
         bbAnte,
         playerNames,
-        dealerPosition: dealerIndex,
+        dealerPosition: dealerInFilled,
       });
       navigate("/game/playing");
     } catch (e) {
