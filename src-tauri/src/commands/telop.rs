@@ -11,6 +11,8 @@ const TELOP_STORE_PATH: &str = "telop_settings.json";
 const KEY_TELOP_ID: &str = "telopId";
 const KEY_TELOP_BACKGROUND_COLOR: &str = "telopBackgroundColor";
 const KEY_TELOP_CURRENT_SCREEN: &str = "telopCurrentScreen";
+const KEY_TELOP_MESSAGE: &str = "telopMessage";
+const KEY_TELOP_COLOR: &str = "telopColor";
 
 const TELOP_LABEL: &str = "telop";
 
@@ -58,6 +60,9 @@ pub fn set_telop_message(
         inner.telop_message = message;
         inner.telop_state()
     };
+    let store = app.store(TELOP_STORE_PATH).map_err(|e| e.to_string())?;
+    store.set(KEY_TELOP_MESSAGE, serde_json::json!(telop.message));
+    store.save().map_err(|e| e.to_string())?;
     let _ = app.emit(TELOP_UPDATED, &telop);
     Ok(())
 }
@@ -73,6 +78,9 @@ pub fn set_telop_color(
         inner.telop_color = color;
         inner.telop_state()
     };
+    let store = app.store(TELOP_STORE_PATH).map_err(|e| e.to_string())?;
+    store.set(KEY_TELOP_COLOR, serde_json::json!(telop.color));
+    store.save().map_err(|e| e.to_string())?;
     let _ = app.emit(TELOP_UPDATED, &telop);
     Ok(())
 }
@@ -179,6 +187,16 @@ pub fn load_telop_settings_from_store(app: &AppHandle, state: &AppState) {
             state.lock().telop_current_screen = Some(s.to_string());
         }
     }
+    if let Some(v) = store.get(KEY_TELOP_MESSAGE) {
+        if let Some(s) = v.as_str() {
+            state.lock().telop_message = s.to_string();
+        }
+    }
+    if let Some(v) = store.get(KEY_TELOP_COLOR) {
+        if let Some(s) = v.as_str() {
+            state.lock().telop_color = s.to_string();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -239,5 +257,31 @@ mod tests {
         state.lock().telop_current_screen = Some("playing".to_string());
         state.lock().telop_current_screen = None;
         assert!(state.lock().telop_current_screen.is_none());
+    }
+
+    #[test]
+    fn telop_message_default_is_empty() {
+        let state = make_state();
+        assert_eq!(state.lock().telop_message, "");
+    }
+
+    #[test]
+    fn telop_color_default() {
+        let state = make_state();
+        assert_eq!(state.lock().telop_color, "#1a1a2e");
+    }
+
+    #[test]
+    fn set_telop_message_updates_state() {
+        let state = make_state();
+        state.lock().telop_message = "Hello World".to_string();
+        assert_eq!(state.lock().telop_message, "Hello World");
+    }
+
+    #[test]
+    fn set_telop_color_updates_state() {
+        let state = make_state();
+        state.lock().telop_color = "#ff0000".to_string();
+        assert_eq!(state.lock().telop_color, "#ff0000");
     }
 }
