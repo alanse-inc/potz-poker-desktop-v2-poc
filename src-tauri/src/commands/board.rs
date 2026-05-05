@@ -325,11 +325,13 @@ mod tests {
         let deck = build_remaining_deck(&board);
         let burn_card = Card::new(Suit::Spade, CardValue::Ace);
 
-        let mut state = InnerState::default();
-        state.board = Some(board.clone());
-        state.deck = deck.clone();
-        state.burn_count = 2;
-        state.burn_card = Some(burn_card);
+        let mut state = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            burn_count: 2,
+            burn_card: Some(burn_card),
+            ..Default::default()
+        };
 
         // スナップショットを push
         let snap = (board, deck, state.burn_count, state.burn_card);
@@ -353,9 +355,11 @@ mod tests {
         let board = start_game(settings, names, 0).unwrap();
         let deck = build_remaining_deck(&board);
 
-        let mut state = InnerState::default();
-        state.board = Some(board.clone());
-        state.deck = deck.clone();
+        let mut state = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            ..Default::default()
+        };
 
         // MAX_HISTORY + 5 件 push して上限を超えることをシミュレート
         for _ in 0..MAX_HISTORY + 5 {
@@ -382,9 +386,11 @@ mod tests {
         let deck = build_remaining_deck(&board);
         let burn_card = Card::new(Suit::Heart, CardValue::King);
 
-        let mut state = InnerState::default();
-        state.board = Some(board.clone());
-        state.deck = deck.clone();
+        let mut state = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            ..Default::default()
+        };
 
         // back_board で復元されるべき値を history に push
         state.history.push((board.clone(), deck.clone(), 3, Some(burn_card)));

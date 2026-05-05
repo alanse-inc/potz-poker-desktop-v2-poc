@@ -52,11 +52,12 @@ mod tests {
         let names = vec!["Alice".into(), "Bob".into()];
         let board = start_game(settings.clone(), names, 0).unwrap();
         let deck = build_remaining_deck(&board);
-        let mut state = InnerState::default();
-        state.settings = settings;
-        state.board = Some(board);
-        state.deck = deck;
-        state
+        InnerState {
+            settings,
+            board: Some(board),
+            deck,
+            ..Default::default()
+        }
     }
 
     #[test]

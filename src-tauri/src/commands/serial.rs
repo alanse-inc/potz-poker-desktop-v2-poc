@@ -568,10 +568,11 @@ mod tests {
         for p in &mut board.players {
             p.hand = None;
         }
-        let mut state = InnerState::default();
-        state.settings = settings;
-        state.board = Some(board);
-        state
+        InnerState {
+            settings,
+            board: Some(board),
+            ..Default::default()
+        }
     }
 
     /// apply_card_placed のロジック部分を InnerState に対して直接実行するヘルパー。
@@ -893,9 +894,11 @@ mod tests {
     /// get_serial_status ロジックは connected: true と port_name を返すこと。
     #[test]
     fn get_serial_status_returns_connected_when_state_is_set() {
-        let mut state = InnerState::default();
-        state.serial_connected = true;
-        state.serial_port_name = Some("/dev/ttyUSB0".to_string());
+        let state = InnerState {
+            serial_connected: true,
+            serial_port_name: Some("/dev/ttyUSB0".to_string()),
+            ..Default::default()
+        };
 
         assert!(state.serial_connected);
         assert_eq!(state.serial_port_name.as_deref(), Some("/dev/ttyUSB0"));
@@ -904,9 +907,11 @@ mod tests {
     /// serial_connected を false にリセットしたとき、切断状態を返すこと。
     #[test]
     fn get_serial_status_returns_disconnected_after_reset() {
-        let mut state = InnerState::default();
-        state.serial_connected = true;
-        state.serial_port_name = Some("COM3".to_string());
+        let mut state = InnerState {
+            serial_connected: true,
+            serial_port_name: Some("COM3".to_string()),
+            ..Default::default()
+        };
 
         // 切断時の更新をシミュレート
         state.serial_connected = false;
