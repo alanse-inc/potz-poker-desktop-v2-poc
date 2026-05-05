@@ -487,6 +487,11 @@ pub fn apply_card_placed(
                 .ok_or_else(|| format!("player at seat {} not found", seat))?;
             player.hand = match player.hand {
                 None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
+                Some([first, _]) if first == card => {
+                    // 同一カードの再スキャンは無視（hand は変更しない）
+                    tracing::warn!("duplicate RFID scan for same card {:?} at seat {}, ignoring", card, seat);
+                    Some([first, first])
+                }
                 Some([first, _]) => Some([first, card]), // 2枚目スキャン: hand を確定
             };
         }
@@ -585,6 +590,7 @@ mod tests {
                     .ok_or_else(|| format!("player at seat {} not found", seat))?;
                 player.hand = match player.hand {
                     None => Some([card, card]),
+                    Some([first, _]) if first == card => Some([first, first]), // 同一カード再スキャンは無視
                     Some([first, _]) => Some([first, card]),
                 };
             }
@@ -959,5 +965,59 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+    }
+
+    // ---- Bug 5: RFID 同一カード重複スキャン無視 ----
+
+    /// 1枚目スキャン後、同一カードを再スキャンしても hand は変化しない（pending 状態を維持）。
+    #[test]
+    fn duplicate_rfid_scan_same_card_is_ignored() {
+        let mut state = make_state_with_board();
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+
+        // 1枚目スキャン
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        let hand_after_first = state.board.as_ref().unwrap().players[0].hand;
+        assert_eq!(hand_after_first, Some([card1, card1]), "first scan: pending state");
+
+        // 同一カードを再スキャン → hand は変化しないはず
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        let hand_after_duplicate = state.board.as_ref().unwrap().players[0].hand;
+        assert_eq!(
+            hand_after_duplicate,
+            Some([card1, card1]),
+            "duplicate scan of same card should not change hand"
+        );
+    }
+
+    /// 1枚目スキャン後、異なるカードをスキャンすると hand が確定する（正常フロー）。
+    #[test]
+    fn second_different_card_completes_hand() {
+        let mut state = make_state_with_board();
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card2 = Card::new(Suit::Heart, CardValue::King);
+
+        apply_card_to_state(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(hand[0], card1);
+        assert_eq!(hand[1], card2);
+        assert_ne!(hand[0], hand[1], "confirmed hand must have two distinct cards");
+    }
+
+    /// 同一カードを3回スキャンしても hand は pending のままで重複確定しない。
+    #[test]
+    fn triple_duplicate_rfid_scan_stays_pending() {
+        let mut state = make_state_with_board();
+        let card = Card::new(Suit::Diamond, CardValue::Queen);
+
+        apply_card_to_state(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        apply_card_to_state(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(hand[0], card);
+        assert_eq!(hand[1], card, "hand[1] should still be the same card (pending state)");
     }
 }
