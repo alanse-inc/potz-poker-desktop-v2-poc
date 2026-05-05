@@ -97,6 +97,9 @@ export function AutoBoardProvider({ children }: { children: ReactNode }) {
         // 自ウィンドウが emit したイベントは無視する（二重更新防止）
         if (e.payload.source === myLabel) return;
         setBoardState(e.payload.board);
+        // テロップウィンドウ側の localStorage にも保存する
+        // （WebviewWindow が独立した localStorage を持つ場合の reload 対策）
+        saveToStorage(e.payload.board);
       },
     )
       .then((fn) => {

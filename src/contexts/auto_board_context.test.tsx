@@ -254,4 +254,69 @@ describe("AutoBoardProvider", () => {
       renderHook(() => useAutoBoard());
     }).toThrow("useAutoBoard must be used within AutoBoardProvider");
   });
+
+  it("listen イベント受信で localStorage が同期される（別ウィンドウからのイベント）", async () => {
+    let capturedCb:
+      | ((e: {
+          payload: { board: AutoModeBoard | null; source?: string };
+        }) => void)
+      | undefined;
+
+    vi.mocked(listen).mockImplementation(async (_event, cb) => {
+      capturedCb = cb as typeof capturedCb;
+      return () => {};
+    });
+
+    renderHook(() => useAutoBoard(), { wrapper });
+
+    await waitFor(() => {
+      expect(listen).toHaveBeenCalledTimes(1);
+    });
+
+    const updatedBoard = makeBoard({ handNumber: 77 });
+    act(() => {
+      capturedCb?.({
+        payload: { board: updatedBoard, source: "other-window" },
+      });
+    });
+
+    // localStorage にも保存されていること
+    await waitFor(() => {
+      const stored = JSON.parse(
+        localStorage.getItem("auto_mode_board") ?? "null",
+      ) as AutoModeBoard | null;
+      expect(stored?.handNumber).toBe(77);
+    });
+  });
+
+  it("listen イベントで null を受信すると localStorage からも削除される（別ウィンドウからのイベント）", async () => {
+    const initialBoard = makeBoard({ handNumber: 10 });
+    localStorage.setItem("auto_mode_board", JSON.stringify(initialBoard));
+
+    let capturedCb:
+      | ((e: {
+          payload: { board: AutoModeBoard | null; source?: string };
+        }) => void)
+      | undefined;
+
+    vi.mocked(listen).mockImplementation(async (_event, cb) => {
+      capturedCb = cb as typeof capturedCb;
+      return () => {};
+    });
+
+    renderHook(() => useAutoBoard(), { wrapper });
+
+    await waitFor(() => {
+      expect(listen).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      capturedCb?.({ payload: { board: null, source: "other-window" } });
+    });
+
+    // localStorage からも削除されていること
+    await waitFor(() => {
+      expect(localStorage.getItem("auto_mode_board")).toBeNull();
+    });
+  });
 });
