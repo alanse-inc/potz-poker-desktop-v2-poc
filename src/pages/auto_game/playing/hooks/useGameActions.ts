@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
 import { api } from "../../../../api/client";
@@ -35,6 +35,15 @@ export function useGameActions() {
 
   const foldQueueRef = useRef<Array<FoldOperation>>([]);
   const isProcessingRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      for (const timerId of clickTimerRef.current.values()) {
+        clearTimeout(timerId);
+      }
+      clickTimerRef.current.clear();
+    };
+  }, []);
 
   const processFoldQueue = useCallback(async () => {
     if (isProcessingRef.current) return;
