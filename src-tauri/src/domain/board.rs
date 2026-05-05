@@ -675,6 +675,10 @@ pub fn next_game(
         let bb = next_non_zero_stack_pos(&stacks, sb).ok_or_else(|| {
             BoardError::InvalidAction("only one player has chips; cannot determine BB".into())
         })?;
+        // SB と BB が同一位置 = 残スタック 1 名のみ → ゲーム続行不可
+        if sb == bb {
+            return Err(BoardError::InvalidAction("ゲーム続行不可".into()));
+        }
         (sb, bb)
     };
 
@@ -4609,5 +4613,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn next_game_single_remaining_stack_returns_error() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["A".into(), "B".into(), "C".into()];
+        let board1 = start_game(settings.clone(), names, 0).unwrap();
+        // B と C のスタックを 0 にして A だけ残す（n=3, 残 1 名）
+        let mut board1 = board1;
+        board1.players[1].stack = 0;
+        board1.players[2].stack = 0;
+        let result = next_game(&board1, &settings);
+        assert!(
+            result.is_err(),
+            "残スタック1名のとき next_game はエラーを返すべき"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("ゲーム続行不可"),
+            "エラーメッセージが想定外: {}",
+            msg
+        );
     }
 }
