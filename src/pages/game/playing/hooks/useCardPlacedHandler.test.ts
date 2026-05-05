@@ -137,6 +137,28 @@ describe("useCardPlacedHandler", () => {
     expect(result.current.eventHistory).toHaveLength(0);
   });
 
+  it("logs error when listener registration fails (setup rejects)", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.spyOn(api.notifications, "onCardPlaced").mockRejectedValue(
+      new Error("Tauri not connected"),
+    );
+
+    renderHook(() => useCardPlacedHandler());
+
+    // setup() は非同期で失敗する — マイクロタスクを消化させる
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[useCardPlacedHandler] failed to register listener",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
   it("drops oldest events when history exceeds MAX_EVENT_HISTORY (200)", async () => {
     const { result } = renderHook(() => useCardPlacedHandler());
 

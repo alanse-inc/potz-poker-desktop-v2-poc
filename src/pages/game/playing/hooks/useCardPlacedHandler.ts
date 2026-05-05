@@ -91,7 +91,9 @@ export function useCardPlacedHandler() {
       unlisten = combinedUnlisten;
     };
 
-    setup();
+    setup().catch((err) => {
+      console.error("[useCardPlacedHandler] failed to register listener", err);
+    });
 
     return () => {
       cancelled = true;
