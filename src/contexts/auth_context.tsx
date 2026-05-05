@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const clientRef = useRef<Auth0Client | null>(null);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getClient = useCallback(async (): Promise<Auth0Client | null> => {
     if (!isAuth0Configured()) return null;
@@ -192,7 +193,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     Sentry.setUser(null);
     resetMixpanel();
     setSession({ isAuthenticated: false });
-    setTimeout(() => {
+    if (reloadTimerRef.current !== null) {
+      clearTimeout(reloadTimerRef.current);
+    }
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
       window.location.reload();
     }, 100);
   }, [getClient]);
