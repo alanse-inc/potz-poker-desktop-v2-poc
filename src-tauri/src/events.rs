@@ -11,3 +11,9 @@ pub const CARD_PLACED_UNREGISTERED: &str = "card_placed_unregistered";
 pub const CARD_PLACED_REGISTER: &str = "card_placed_register";
 /// シリアル接続状態が変わったとき。
 pub const SERIAL_STATUS_UPDATED: &str = "serial_status_updated";
+/// テロップ ID が変わったとき。
+pub const TELOP_ID_UPDATED: &str = "telop_id_updated";
+/// テロップ背景色が変わったとき。
+pub const TELOP_BACKGROUND_COLOR_UPDATED: &str = "telop_background_color_updated";
+/// テロップ現在画面状態が変わったとき。
+pub const TELOP_CURRENT_SCREEN_UPDATED: &str = "telop_current_screen_updated";

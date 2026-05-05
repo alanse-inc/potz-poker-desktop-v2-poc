@@ -23,7 +23,9 @@ use commands::serial::{
 use commands::settings::{load_game_settings, save_game_settings};
 use commands::table_name::{get_table_name, set_table_name};
 use commands::telop::{
-    close_telop_window, get_telop_state, open_telop_window, set_telop_color, set_telop_message,
+    close_telop_window, get_telop_background_color, get_telop_current_screen, get_telop_id,
+    get_telop_state, load_telop_settings_from_store, open_telop_window, set_telop_background_color,
+    set_telop_color, set_telop_current_screen, set_telop_id, set_telop_message,
 };
 use state::{AppState, InnerState};
 use tauri::Manager;
@@ -68,6 +70,12 @@ pub fn run() {
             set_telop_message,
             set_telop_color,
             get_telop_state,
+            get_telop_id,
+            set_telop_id,
+            get_telop_background_color,
+            set_telop_background_color,
+            get_telop_current_screen,
+            set_telop_current_screen,
             // expose
             expose,
             // serial / rfid
@@ -90,6 +98,8 @@ pub fn run() {
             // ストアからデッキを読み込む（legacy 移行含む）
             let app_state: tauri::State<AppState> = app.state();
             load_decks_from_store(app.handle(), &app_state);
+            // テロップ設定を読み込む
+            load_telop_settings_from_store(app.handle(), &app_state);
             // シリアルリスナーを開始
             start_serial_listener(app.handle().clone());
             Ok(())

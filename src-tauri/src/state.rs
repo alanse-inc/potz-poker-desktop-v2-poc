@@ -37,6 +37,12 @@ pub struct InnerState {
     pub serial_connected: bool,
     /// 接続中のシリアルポート名。
     pub serial_port_name: Option<String>,
+    /// テロップ表示テンプレート種別。
+    pub telop_id: String,
+    /// テロップ背景色。
+    pub telop_background_color: String,
+    /// テロップ現在画面状態。
+    pub telop_current_screen: Option<String>,
 }
 
 impl InnerState {
@@ -77,6 +83,9 @@ impl Default for InnerState {
             register_mode: false,
             serial_connected: false,
             serial_port_name: None,
+            telop_id: "modern".to_string(),
+            telop_background_color: "#00ff00".to_string(),
+            telop_current_screen: None,
         }
     }
 }
