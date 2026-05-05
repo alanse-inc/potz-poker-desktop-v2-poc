@@ -167,6 +167,40 @@ mod tests {
         assert_eq!(s.small_blind, sb);
         assert_eq!(s.big_blind, u32::MAX); // saturating result
     }
+
+    // ================================================================
+    // Bug 7 fix: save_game_settings が sanitize を適用すること
+    // ================================================================
+
+    #[test]
+    fn save_game_settings_sanitizes_bb_equal_to_sb() {
+        // sb == bb の場合、sanitize 後に bb = sb * 2 になること
+        let s = sanitize_settings(100, 100, 50, false);
+        assert_eq!(s.small_blind, 100);
+        assert_eq!(s.big_blind, 200); // sanitize により sb * 2 に補正される
+        assert_eq!(s.min_chip, 50);
+        // validate も通ること
+        assert!(validate_settings(&s).is_ok());
+    }
+
+    #[test]
+    fn save_game_settings_sanitizes_bb_less_than_sb() {
+        // bb < sb の場合、sanitize 後に bb = sb * 2 になること
+        let s = sanitize_settings(100, 50, 25, false);
+        assert_eq!(s.small_blind, 100);
+        assert_eq!(s.big_blind, 200); // sanitize により sb * 2 に補正される
+                                      // validate も通ること
+        assert!(validate_settings(&s).is_ok());
+    }
+
+    #[test]
+    fn save_game_settings_sanitizes_zero_min_chip() {
+        // min_chip == 0 の場合、sanitize 後に min_chip = sb になること
+        let s = sanitize_settings(100, 200, 0, false);
+        assert_eq!(s.min_chip, 100); // sanitize により sb に補正される
+                                     // validate も通ること
+        assert!(validate_settings(&s).is_ok());
+    }
 }
 
 fn validate_settings(settings: &GameSettings) -> Result<(), String> {
@@ -191,15 +225,22 @@ pub fn save_game_settings(
     state: State<'_, AppState>,
     settings: GameSettings,
 ) -> Result<(), String> {
-    validate_settings(&settings)?;
+    // sanitize で値を正規化してから validate / 保存（load 側との対称性を保つ）
+    let sanitized = sanitize_settings(
+        settings.small_blind,
+        settings.big_blind,
+        settings.min_chip,
+        settings.bb_ante,
+    );
+    validate_settings(&sanitized)?;
     let store = app.store(STORE_PATH).map_err(|e| e.to_string())?;
 
-    store.set(KEY_SMALL_BLIND, serde_json::json!(settings.small_blind));
-    store.set(KEY_BIG_BLIND, serde_json::json!(settings.big_blind));
-    store.set(KEY_MIN_CHIP, serde_json::json!(settings.min_chip));
-    store.set(KEY_BB_ANTE, serde_json::json!(settings.bb_ante));
+    store.set(KEY_SMALL_BLIND, serde_json::json!(sanitized.small_blind));
+    store.set(KEY_BIG_BLIND, serde_json::json!(sanitized.big_blind));
+    store.set(KEY_MIN_CHIP, serde_json::json!(sanitized.min_chip));
+    store.set(KEY_BB_ANTE, serde_json::json!(sanitized.bb_ante));
     store.save().map_err(|e| e.to_string())?;
 
-    state.lock().settings = settings;
+    state.lock().settings = sanitized;
     Ok(())
 }
