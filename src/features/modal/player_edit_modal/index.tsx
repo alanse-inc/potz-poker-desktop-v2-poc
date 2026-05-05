@@ -31,8 +31,12 @@ export function PlayerEditModal({
       return;
     }
     const stackNum = Number(stack);
-    if (!Number.isFinite(stackNum) || stackNum < 0) {
-      toast.error("スタックは 0 以上の数値を入力してください");
+    if (
+      !Number.isFinite(stackNum) ||
+      !Number.isInteger(stackNum) ||
+      stackNum < 0
+    ) {
+      toast.error("スタックは 0 以上の整数を入力してください");
       return;
     }
     if (stackNum > 10_000_000) {
