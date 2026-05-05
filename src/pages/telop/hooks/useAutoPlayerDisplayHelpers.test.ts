@@ -156,8 +156,8 @@ describe("useAutoPlayerDisplayHelpers", () => {
       expect(result.current.isWinner).toBe(false);
     });
 
-    it("リバー前は false", () => {
-      const player = makePlayer({ id: "player-1" });
+    it("リバー前でも winners に含まれる場合は true (フォールドウィン対応)", () => {
+      const player = makePlayer({ id: "player-1", action: null });
       const board = makeBoard({
         communityCards: [
           { suit: "spade", value: "A" },
@@ -169,7 +169,7 @@ describe("useAutoPlayerDisplayHelpers", () => {
       const { result } = renderHook(() =>
         useAutoPlayerDisplayHelpers({ player, board }),
       );
-      expect(result.current.isWinner).toBe(false);
+      expect(result.current.isWinner).toBe(true);
     });
 
     it("board が undefined のときは false", () => {

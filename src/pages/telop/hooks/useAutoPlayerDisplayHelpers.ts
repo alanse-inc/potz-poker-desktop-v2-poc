@@ -42,7 +42,6 @@ export function useAutoPlayerDisplayHelpers({
 
   const isWinner = useMemo(() => {
     if (!board) return false;
-    if (board.communityCards.length !== 5) return false;
     if (player.action === "fold") return false;
     return board.winners?.includes(player.id) ?? false;
   }, [board, player]);
