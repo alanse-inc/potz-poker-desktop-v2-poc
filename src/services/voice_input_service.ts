@@ -380,8 +380,8 @@ export class VoiceInputService {
       this.handleDeepgramMessage(event.data as string);
     };
 
-    ws.onerror = () => {
-      trackError("DeepGram WebSocket 接続エラー");
+    ws.onerror = (event: Event) => {
+      trackError(`DeepGram WebSocket 接続エラー: ${event.type}`);
       this.emitStatus("error", "DeepGram WebSocket 接続エラー");
     };
 
