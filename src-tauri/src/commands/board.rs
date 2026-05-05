@@ -70,7 +70,7 @@ pub fn move_next_game(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<TexasHoldemBoard, String> {
-    let board = {
+    let (board, initial_board) = {
         let mut inner = state.lock();
         let prev = inner
             .board
@@ -80,18 +80,21 @@ pub fn move_next_game(
         let settings = inner.settings.clone();
 
         let (board, deck) = next_game(&prev, &settings).map_err(|e| e.to_string())?;
+        let initial_board = TexasHoldemInitialBoard::from_board(&board, settings);
 
         inner.history.clear();
         inner.board = Some(board.clone());
+        inner.initial_board = Some(initial_board.clone());
         inner.deck = deck;
         inner.burn_count = 0;
         inner.burn_card = None;
         inner.event_history.clear();
 
-        board
+        (board, initial_board)
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &board);
+    let _ = app.emit(INITIAL_BOARD_UPDATED, &initial_board);
     Ok(board)
 }
 
@@ -418,5 +421,51 @@ mod tests {
         assert_eq!(restored.suit, Suit::Heart);
         assert_eq!(restored.value, CardValue::King);
         assert!(state.history.is_empty());
+    }
+
+    #[test]
+    fn move_next_game_updates_initial_board() {
+        // move_next_game 相当のロジックで initial_board が更新されることを確認
+        use crate::domain::board::next_game;
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let first_board = start_game(settings.clone(), names, 0).unwrap();
+        let first_deck = build_remaining_deck(&first_board);
+        let first_initial_board =
+            TexasHoldemInitialBoard::from_board(&first_board, settings.clone());
+
+        let mut state = InnerState {
+            board: Some(first_board.clone()),
+            deck: first_deck,
+            initial_board: Some(first_initial_board.clone()),
+            settings: settings.clone(),
+            ..Default::default()
+        };
+
+        // move_next_game 相当の処理を再現
+        let prev = state.board.as_ref().unwrap().clone();
+        let (new_board, new_deck) = next_game(&prev, &state.settings).unwrap();
+        let new_initial_board =
+            TexasHoldemInitialBoard::from_board(&new_board, state.settings.clone());
+
+        state.history.clear();
+        state.board = Some(new_board.clone());
+        state.initial_board = Some(new_initial_board.clone());
+        state.deck = new_deck;
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+
+        // initial_board が新しい board を反映していること
+        let stored = state.initial_board.as_ref().unwrap();
+        assert_eq!(stored.dealer_position, new_board.dealer_position);
+        // 最初の initial_board とはディーラー位置が異なること（次のゲームにシフト）
+        assert_ne!(stored.dealer_position, first_initial_board.dealer_position);
     }
 }
