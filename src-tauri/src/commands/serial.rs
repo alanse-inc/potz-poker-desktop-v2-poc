@@ -13,7 +13,7 @@ use tauri::{AppHandle, State};
 #[cfg(not(test))]
 use crate::domain::card_distribution::determine_next_card_position;
 #[cfg(not(test))]
-use crate::events::{BOARD_UPDATED, CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, SERIAL_STATUS_UPDATED};
+use crate::events::{BOARD_UPDATED, CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, DECK_UPDATED, SERIAL_STATUS_UPDATED};
 #[cfg(not(test))]
 use parking_lot::Mutex;
 #[cfg(not(test))]
@@ -420,7 +420,10 @@ pub async fn register_rfid_card(
         deck.register(args.rfid, args.card);
     }
     crate::commands::deck::persist_decks_pub(&app, &state).await?;
-    Ok(state.lock().current_deck().cloned().unwrap_or_default())
+    let mapping = state.lock().current_deck().cloned().unwrap_or_default();
+    #[cfg(not(test))]
+    let _ = app.emit(DECK_UPDATED, &mapping);
+    Ok(mapping)
 }
 
 /// RFID マッピングを削除。
@@ -438,7 +441,10 @@ pub async fn unregister_rfid_card(
         deck.unregister(&args.rfid);
     }
     crate::commands::deck::persist_decks_pub(&app, &state).await?;
-    Ok(state.lock().current_deck().cloned().unwrap_or_default())
+    let mapping = state.lock().current_deck().cloned().unwrap_or_default();
+    #[cfg(not(test))]
+    let _ = app.emit(DECK_UPDATED, &mapping);
+    Ok(mapping)
 }
 
 /// 登録モードフラグを切り替える。

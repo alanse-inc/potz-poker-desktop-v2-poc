@@ -2,6 +2,7 @@
 
 pub const BOARD_UPDATED: &str = "board_updated";
 pub const TELOP_UPDATED: &str = "telop_updated";
+pub const DECK_UPDATED: &str = "deck_updated";
 
 /// RFID 登録済みカードが置かれたとき (ゲーム中)。
 pub const CARD_PLACED: &str = "card_placed";
