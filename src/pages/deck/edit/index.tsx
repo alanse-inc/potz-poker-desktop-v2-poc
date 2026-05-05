@@ -51,6 +51,7 @@ export function DeckEdit() {
   const [isWaiting, setIsWaiting] = useState(false);
   const [saving, setSaving] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
+  const isCancelledRef = useRef(false);
 
   // デッキをロード
   useEffect(() => {
@@ -69,8 +70,10 @@ export function DeckEdit() {
   // アンマウント時に登録モードをオフ
   useEffect(() => {
     return () => {
-      api.rfid.setRegisterMode(false).catch(console.error);
+      isCancelledRef.current = true;
       unlistenRef.current?.();
+      unlistenRef.current = null;
+      api.rfid.setRegisterMode(false).catch(console.error);
     };
   }, []);
 
@@ -123,6 +126,10 @@ export function DeckEdit() {
           },
         );
 
+        if (isCancelledRef.current) {
+          unlisten();
+          return;
+        }
         unlistenRef.current = unlisten;
       } catch (e) {
         toast.error(
