@@ -1,4 +1,3 @@
-import { listen } from "@tauri-apps/api/event";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,15 +8,13 @@ import {
   useRfidCardMapping,
 } from "./rfid_card_mapping_context";
 
-// @tauri-apps/api/event は setup.ts でモック済みだが個別に上書きする
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(),
-}));
-
 vi.mock("../api/client", () => ({
   api: {
     rfid: {
       getMapping: vi.fn(),
+    },
+    notifications: {
+      onDeckUpdated: vi.fn(),
     },
   },
 }));
@@ -41,7 +38,7 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 describe("RFIDCardMappingProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(listen).mockResolvedValue(() => {});
+    vi.mocked(api.notifications.onDeckUpdated).mockResolvedValue(() => {});
     vi.mocked(api.rfid.getMapping).mockRejectedValue(
       new Error("command not found"),
     );
@@ -77,11 +74,11 @@ describe("RFIDCardMappingProvider", () => {
     });
   });
 
-  it("listen('deck_updated') を購読する", async () => {
+  it("api.notifications.onDeckUpdated を購読する", async () => {
     renderHook(() => useRfidCardMapping(), { wrapper });
 
     await waitFor(() => {
-      expect(listen).toHaveBeenCalledWith("deck_updated", expect.any(Function));
+      expect(api.notifications.onDeckUpdated).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -89,11 +86,13 @@ describe("RFIDCardMappingProvider", () => {
     const initialMapping = makeMapping({ id: "deck-1" });
     vi.mocked(api.rfid.getMapping).mockResolvedValue(initialMapping);
 
-    let capturedCb: ((event: { payload: RfidCardMapping }) => void) | undefined;
-    vi.mocked(listen).mockImplementation(async (_event, cb) => {
-      capturedCb = cb as (event: { payload: RfidCardMapping }) => void;
-      return () => {};
-    });
+    let capturedCb: ((mapping: RfidCardMapping) => void) | undefined;
+    vi.mocked(api.notifications.onDeckUpdated).mockImplementation(
+      async (cb) => {
+        capturedCb = cb;
+        return () => {};
+      },
+    );
 
     const { result } = renderHook(() => useRfidCardMapping(), { wrapper });
 
@@ -103,7 +102,7 @@ describe("RFIDCardMappingProvider", () => {
 
     const updatedMapping = makeMapping({ id: "deck-2", name: "Updated Deck" });
     act(() => {
-      capturedCb?.({ payload: updatedMapping });
+      capturedCb?.(updatedMapping);
     });
 
     await waitFor(() => {
@@ -113,12 +112,12 @@ describe("RFIDCardMappingProvider", () => {
 
   it("アンマウント時に unlisten が呼ばれる", async () => {
     const unsubscribe = vi.fn();
-    vi.mocked(listen).mockResolvedValue(unsubscribe);
+    vi.mocked(api.notifications.onDeckUpdated).mockResolvedValue(unsubscribe);
 
     const { unmount } = renderHook(() => useRfidCardMapping(), { wrapper });
 
     await waitFor(() => {
-      expect(listen).toHaveBeenCalledTimes(1);
+      expect(api.notifications.onDeckUpdated).toHaveBeenCalledTimes(1);
     });
 
     unmount();

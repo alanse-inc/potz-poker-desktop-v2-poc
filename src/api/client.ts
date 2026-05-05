@@ -116,6 +116,10 @@ export const api = {
       listen<CardPlacedRegisterPayload>("card_placed_register", (e) =>
         cb(e.payload),
       ),
+    onDeckUpdated: (
+      cb: (mapping: RfidCardMapping) => void,
+    ): Promise<UnlistenFn> =>
+      listen<RfidCardMapping>("deck_updated", (e) => cb(e.payload)),
     onSerialStatusUpdated: (
       cb: (status: SerialStatus) => void,
     ): Promise<UnlistenFn> =>

@@ -274,6 +274,29 @@ describe("api.notifications", () => {
     expect(cb).toHaveBeenCalledWith(fakePayload);
   });
 
+  it("onDeckUpdated(cb) calls listen('deck_updated', ...) and invokes cb with payload", async () => {
+    const cb = vi.fn();
+    const fakePayload = {
+      id: "deck-1",
+      name: "Main",
+      cards: { "rfid-001": { suit: "spade", value: "A" } },
+    };
+
+    let capturedHandler: ((e: { payload: unknown }) => void) | undefined;
+    vi.mocked(listen).mockImplementation(
+      async (_event, handler: (e: { payload: unknown }) => void) => {
+        capturedHandler = handler;
+        return () => {};
+      },
+    );
+
+    await api.notifications.onDeckUpdated(cb);
+    expect(listen).toHaveBeenCalledWith("deck_updated", expect.any(Function));
+
+    capturedHandler?.({ payload: fakePayload });
+    expect(cb).toHaveBeenCalledWith(fakePayload);
+  });
+
   it("onSerialStatusUpdated(cb) calls listen('serial_status_updated', ...)", async () => {
     const cb = vi.fn();
     const fakePayload = { connected: true, portName: "/dev/tty.usbmodem1234" };

@@ -1,4 +1,3 @@
-import { listen } from "@tauri-apps/api/event";
 import {
   createContext,
   type ReactNode,
@@ -57,12 +56,13 @@ export const RFIDCardMappingProvider = ({
     };
     void loadCurrentMapping();
 
-    // Tauri の deck_updated イベントを購読してリアルタイム更新に対応
+    // deck_updated イベントを購読してリアルタイム更新に対応
     let cancelled = false;
     let unlistenFn: (() => void) | null = null;
-    listen<RfidCardMapping>("deck_updated", (event) => {
-      setRfidCardMapping(event.payload);
-    })
+    api.notifications
+      .onDeckUpdated((mapping) => {
+        setRfidCardMapping(mapping);
+      })
       .then((fn) => {
         if (cancelled) {
           fn();
