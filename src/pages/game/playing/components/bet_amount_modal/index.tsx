@@ -43,10 +43,11 @@ export function BetAmountModal({
       { label: "MIN", value: minAmount },
       { label: "2BB", value: bigBlind * 2 },
       { label: "3BB", value: bigBlind * 3 },
-      {
-        label: "POT",
-        value: potAmount !== undefined ? potAmount : maxAmount,
-      },
+      ...(potAmount !== undefined &&
+      potAmount >= minAmount &&
+      potAmount <= maxAmount
+        ? [{ label: "POT", value: potAmount }]
+        : []),
     ];
     const clamped = items
       .map((p) => ({
@@ -60,7 +61,7 @@ export function BetAmountModal({
       seen.add(p.value);
       return true;
     });
-  }, [minAmount, maxAmount, bigBlind]);
+  }, [minAmount, maxAmount, bigBlind, potAmount]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

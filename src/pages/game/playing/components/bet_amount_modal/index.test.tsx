@@ -59,6 +59,42 @@ describe("BetAmountModal", () => {
     expect(screen.queryByRole("button", { name: /^3BB/ })).toBeInTheDocument();
   });
 
+  it("potAmount が minAmount 未満のとき POT ボタンが表示されない", () => {
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={100}
+        maxAmount={1000}
+        bigBlind={50}
+        potAmount={50}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /^POT/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("potAmount が minAmount 以上 maxAmount 以下のとき POT ボタンが表示され値が正しい", () => {
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={100}
+        maxAmount={1000}
+        bigBlind={50}
+        potAmount={200}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const potButton = screen.getByRole("button", { name: /^POT/ });
+    expect(potButton).toBeInTheDocument();
+    expect(potButton).toHaveTextContent("200");
+  });
+
   it("小数値を手入力すると実行ボタンが disabled になる", async () => {
     const user = userEvent.setup();
     render(
