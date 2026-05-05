@@ -178,8 +178,9 @@ impl TexasHoldemBoard {
 
         // 次のアクション順：SB の左から
         if self.phase != Phase::Showdown {
-            if let Some(pos) = self.next_active_position_after(self.dealer_position) {
-                self.current_turn = pos;
+            match self.next_active_position_after(self.dealer_position) {
+                Some(pos) => self.current_turn = pos,
+                None => self.current_turn = u8::MAX,
             }
         }
     }
@@ -2164,5 +2165,73 @@ mod tests {
         // 次の raise の min_raise_to = 200 + 200 = 400 → raise to=300 は拒否されるべき
         let result = board_raise(&mut board, 300, &mut deck);
         assert!(result.is_err(), "raise to 300 should be rejected (min raise=400)");
+    }
+
+    // ---- Bug 12: 全員 all-in 後の current_turn ----
+
+    /// 全員 all-in 後に advance_phase が呼ばれると current_turn が u8::MAX になること。
+    #[test]
+    fn advance_phase_sets_sentinel_when_all_players_allin() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let stacks = vec![200u32, 200, 200];
+        let mut board = start_game_with_stacks(settings, names, stacks, 1, 0, 1, 2).unwrap();
+        let mut deck = build_remaining_deck(&board);
+
+        // 全員 all-in させる
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+
+        // 全員 all-in → Showdown まで進む
+        assert_eq!(board.phase, Phase::Showdown);
+    }
+
+    /// advance_phase で next_active_position_after が None のとき current_turn = u8::MAX になること。
+    #[test]
+    fn advance_phase_sets_max_sentinel_when_no_active_player() {
+        // 全員 all-in の Flop フェーズを手動で構築
+        let hand_a = [
+            Card { suit: Suit::Spade, value: CardValue::Ace },
+            Card { suit: Suit::Heart, value: CardValue::King },
+        ];
+        let hand_b = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 0, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 200 },
+                Player { position: 1, name: "B".into(), stack: 0, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 200 },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 400 }],
+            phase: Phase::PreFlop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        board.advance_phase(&mut deck);
+
+        // 全員 all-in のため next_active_position_after は None → u8::MAX
+        assert_eq!(
+            board.current_turn,
+            u8::MAX,
+            "current_turn should be u8::MAX when all players are all-in"
+        );
     }
 }

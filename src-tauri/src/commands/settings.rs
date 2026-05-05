@@ -20,7 +20,7 @@ pub fn sanitize_settings(sb: u32, bb: u32, min_chip: u32, bb_ante: bool) -> Game
     let sb = if sb < 1 { 100 } else { sb };
     let bb = if bb < 1 {
         200
-    } else if bb < sb {
+    } else if bb <= sb {
         sb * 2
     } else {
         bb
@@ -141,6 +141,20 @@ mod tests {
     fn validate_settings_accepts_valid_input() {
         assert!(validate_settings(&make_settings(100, 200, 100)).is_ok());
     }
+
+    #[test]
+    fn validate_settings_rejects_bb_equal_to_sb() {
+        let result = validate_settings(&make_settings(100, 100, 100));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Big blind must be greater than small blind");
+    }
+
+    #[test]
+    fn sanitize_settings_normalizes_bb_equal_to_sb() {
+        let s = sanitize_settings(100, 100, 50, false);
+        assert_eq!(s.small_blind, 100);
+        assert_eq!(s.big_blind, 200); // sb * 2
+    }
 }
 
 fn validate_settings(settings: &GameSettings) -> Result<(), String> {
@@ -150,8 +164,8 @@ fn validate_settings(settings: &GameSettings) -> Result<(), String> {
     if settings.big_blind < 1 {
         return Err("invalid settings: big_blind must be >= 1".to_string());
     }
-    if settings.big_blind < settings.small_blind {
-        return Err("invalid settings: big_blind must be >= small_blind".to_string());
+    if settings.big_blind <= settings.small_blind {
+        return Err("Big blind must be greater than small blind".to_string());
     }
     if settings.min_chip < 1 {
         return Err("invalid settings: min_chip must be >= 1".to_string());
