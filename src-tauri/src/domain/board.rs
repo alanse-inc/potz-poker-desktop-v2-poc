@@ -625,6 +625,12 @@ fn start_game_with_stacks(
 ) -> Result<TexasHoldemBoard, BoardError> {
     let n = player_names.len();
 
+    if stacks[sb_pos as usize] == 0 && stacks[bb_pos as usize] == 0 {
+        return Err(BoardError::InvalidAction(
+            "both SB and BB have stack 0; at least one must have chips to post blinds".into(),
+        ));
+    }
+
     let mut players: Vec<Player> = player_names
         .into_iter()
         .enumerate()
