@@ -319,6 +319,17 @@ impl TexasHoldemBoard {
             return;
         }
 
+        let invested_sum: u32 = self.players.iter().map(|p| p.total_invested).sum();
+        let pot_total = self.total_pot();
+        if invested_sum != pot_total {
+            tracing::warn!(
+                "resolve_showdown: total_invested sum ({}) != total_pot ({}); \
+                 chip conservation may be violated",
+                invested_sum,
+                pot_total
+            );
+        }
+
         let active: Vec<usize> = self
             .players
             .iter()
