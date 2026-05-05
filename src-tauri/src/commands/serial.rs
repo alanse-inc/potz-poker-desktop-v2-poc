@@ -195,7 +195,8 @@ async fn run_serial_listener(app: AppHandle) {
         }
 
         // 接続失敗 / 切断時は切断状態を通知して待機
-        {
+        // Mutex lock を解放してから emit する（lock 保持中の emit はデッドロックリスクがある）
+        let should_emit_disconnected = {
             let mut ss = serial_state.lock();
             if ss.connected {
                 ss.connected = false;
@@ -206,11 +207,17 @@ async fn run_serial_listener(app: AppHandle) {
                     inner.serial_connected = false;
                     inner.serial_port_name = None;
                 }
-                let _ = app.emit(SERIAL_STATUS_UPDATED, SerialStatusPayload {
-                    connected: false,
-                    port_name: None,
-                });
+                true
+            } else {
+                false
             }
+            // ss はここで drop される
+        };
+        if should_emit_disconnected {
+            let _ = app.emit(SERIAL_STATUS_UPDATED, SerialStatusPayload {
+                connected: false,
+                port_name: None,
+            });
         }
 
         tokio::time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MS)).await;
@@ -330,34 +337,51 @@ fn read_loop(
 /// 受信した RFID を処理してイベントを emit する。
 #[cfg(not(test))]
 fn process_rfid(app: &AppHandle, rfid: String) {
-    let state: State<AppState> = app.state();
-    let guard = state.lock();
-
-    // 登録モード中
-    if guard.register_mode {
-        let _ = app.emit(CARD_PLACED_REGISTER, CardPlacedRegisterPayload { rfid });
-        return;
+    // lock スコープ内で必要なデータを取得し、emit の前に必ず lock を解放する。
+    enum RfidEvent {
+        Register,
+        Unregistered,
+        Placed { card: crate::domain::card::Card, board: crate::domain::board::TexasHoldemBoard, burn_count: u8 },
+        NoBoard,
     }
 
-    // 現在のデッキからカードを検索
-    let card_opt = guard.current_deck().and_then(|d| d.lookup(&rfid));
-    match card_opt {
-        None => {
-            // 未登録 RFID
+    let event = {
+        let state: State<AppState> = app.state();
+        let guard = state.lock();
+
+        if guard.register_mode {
+            RfidEvent::Register
+        } else {
+            let card_opt = guard.current_deck().and_then(|d| d.lookup(&rfid));
+            match card_opt {
+                None => RfidEvent::Unregistered,
+                Some(card) => {
+                    match &guard.board {
+                        Some(b) => RfidEvent::Placed {
+                            card,
+                            board: b.clone(),
+                            burn_count: guard.burn_count,
+                        },
+                        None => {
+                            tracing::warn!("Card placed but no board active. rfid={}", rfid);
+                            RfidEvent::NoBoard
+                        }
+                    }
+                }
+            }
+        }
+        // guard はここで drop される（lock 解放）
+    };
+
+    // lock 解放後に emit する
+    match event {
+        RfidEvent::Register => {
+            let _ = app.emit(CARD_PLACED_REGISTER, CardPlacedRegisterPayload { rfid });
+        }
+        RfidEvent::Unregistered => {
             let _ = app.emit(CARD_PLACED_UNREGISTERED, CardPlacedUnregisteredPayload { rfid });
         }
-        Some(card) => {
-            // ボード状態を取得
-            let board = match &guard.board {
-                Some(b) => b.clone(),
-                None => {
-                    tracing::warn!("Card placed but no board active. rfid={}", rfid);
-                    return;
-                }
-            };
-            let burn_count = guard.burn_count;
-            drop(guard);
-
+        RfidEvent::Placed { card, board, burn_count } => {
             match determine_next_card_position(&board, burn_count) {
                 Ok(position) => {
                     let _ = app.emit(CARD_PLACED, CardPlacedPayload { rfid, card, position });
@@ -367,6 +391,7 @@ fn process_rfid(app: &AppHandle, rfid: String) {
                 }
             }
         }
+        RfidEvent::NoBoard => {}
     }
 }
 
@@ -486,10 +511,17 @@ pub fn apply_card_placed(
         guard.event_history.remove(0);
     }
 
+    // board のスナップショットを取得してから lock を解放する
+    #[cfg(not(test))]
+    let board_snapshot = guard.board.clone();
+
+    // Mutex lock を解放してから emit する（lock 保持中の emit はデッドロックリスクがある）
+    drop(guard);
+
     // board_updated を emit してフロントエンドの BoardContext を更新する
     #[cfg(not(test))]
-    if let Some(board) = guard.board.as_ref() {
-        let _ = app.emit(BOARD_UPDATED, board);
+    if let Some(board) = board_snapshot {
+        let _ = app.emit(BOARD_UPDATED, &board);
     }
 
     // テスト時は app を使わない

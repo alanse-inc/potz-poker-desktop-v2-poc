@@ -51,6 +51,8 @@ where
     action_fn(board_ref, deck_ref).map_err(|e| e.to_string())?;
 
     let result = board_ref.clone();
+    drop(inner); // Mutex lock を解放してから emit する
+
     let _ = app.emit(BOARD_UPDATED, &result);
     Ok(result)
 }
