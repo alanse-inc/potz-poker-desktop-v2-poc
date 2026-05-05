@@ -728,6 +728,11 @@ pub fn build_remaining_deck(board: &TexasHoldemBoard) -> Vec<Card> {
 /// コミュニティカードを手動で設定する。
 /// locate_number は 0..=4 で、board.community_cards.len() == locate_number のときのみ許可する。
 /// card は deck に含まれていなければならない。
+///
+/// フェーズと locate_number の整合性チェック:
+/// - locate_number 0..=2: Phase::PreFlop のみ許可（RFID モードでフロップを手動配布）
+/// - locate_number 3:     Phase::Flop のみ許可（ターンを手動配布）
+/// - locate_number 4:     Phase::Turn のみ許可（リバーを手動配布）
 pub fn set_community_card(
     board: &mut TexasHoldemBoard,
     locate_number: u8,
@@ -740,6 +745,21 @@ pub fn set_community_card(
             locate_number
         )));
     }
+
+    // フェーズと locate_number の整合性チェック
+    let valid_phase = match locate_number {
+        0..=2 => board.phase == Phase::PreFlop,
+        3 => board.phase == Phase::Flop,
+        4 => board.phase == Phase::Turn,
+        _ => false,
+    };
+    if !valid_phase {
+        return Err(BoardError::InvalidAction(format!(
+            "invalid phase {:?} for community card index {}",
+            board.phase, locate_number
+        )));
+    }
+
     if board.community_cards.len() != locate_number as usize {
         return Err(BoardError::InvalidAction(format!(
             "community_cards.len() is {}, expected {}",
@@ -3807,6 +3827,105 @@ mod tests {
                 value: CardValue::Seven
             },
             "river card should be the card after burn"
+        );
+    }
+
+    // ================================================================
+    // Bug 5: set_community_card フェーズ整合性チェック
+    // ================================================================
+
+    /// PreFlop 中に locate_number=0,1,2 のコミュニティカードは許可される（RFID フロップ配布）。
+    #[test]
+    fn set_community_card_preflop_allows_flop_indices() {
+        let (mut board, mut deck) = make_board();
+        assert_eq!(board.phase, Phase::PreFlop);
+
+        let card0 = deck[deck.len() - 1];
+        assert!(
+            set_community_card(&mut board, 0, card0, &mut deck).is_ok(),
+            "locate_number=0 in PreFlop should be allowed"
+        );
+        let card1 = deck[deck.len() - 1];
+        assert!(
+            set_community_card(&mut board, 1, card1, &mut deck).is_ok(),
+            "locate_number=1 in PreFlop should be allowed"
+        );
+        let card2 = deck[deck.len() - 1];
+        assert!(
+            set_community_card(&mut board, 2, card2, &mut deck).is_ok(),
+            "locate_number=2 in PreFlop should be allowed"
+        );
+        assert_eq!(board.community_cards.len(), 3);
+    }
+
+    /// Flop フェーズ中に locate_number=3（ターン）は許可される。
+    #[test]
+    fn set_community_card_flop_allows_turn_index() {
+        let (mut board, mut deck) = make_board();
+        // Flop フェーズに強制移行し community_cards を 3 枚にセット
+        board.phase = Phase::Flop;
+        for _ in 0..3 {
+            let c = deck.pop().unwrap();
+            board.community_cards.push(c);
+        }
+        let turn_card = deck[deck.len() - 1];
+        let result = set_community_card(&mut board, 3, turn_card, &mut deck);
+        assert!(result.is_ok(), "locate_number=3 in Flop should be allowed");
+        assert_eq!(board.community_cards.len(), 4);
+    }
+
+    /// Turn フェーズ中に locate_number=4（リバー）は許可される。
+    #[test]
+    fn set_community_card_turn_allows_river_index() {
+        let (mut board, mut deck) = make_board();
+        // Turn フェーズに強制移行し community_cards を 4 枚にセット
+        board.phase = Phase::Turn;
+        for _ in 0..4 {
+            let c = deck.pop().unwrap();
+            board.community_cards.push(c);
+        }
+        let river_card = deck[deck.len() - 1];
+        let result = set_community_card(&mut board, 4, river_card, &mut deck);
+        assert!(result.is_ok(), "locate_number=4 in Turn should be allowed");
+        assert_eq!(board.community_cards.len(), 5);
+    }
+
+    /// PreFlop 中に locate_number=3 はフェーズ不整合でエラーになる。
+    #[test]
+    fn set_community_card_preflop_rejects_turn_index() {
+        let (mut board, mut deck) = make_board();
+        // community_cards を 3 枚セット（locate_number=3 の前提を満たす）
+        for _ in 0..3 {
+            let c = deck.pop().unwrap();
+            board.community_cards.push(c);
+        }
+        // 依然として PreFlop のままで locate_number=3 を試みる
+        assert_eq!(board.phase, Phase::PreFlop);
+        let card = deck[deck.len() - 1];
+        let result = set_community_card(&mut board, 3, card, &mut deck);
+        assert!(
+            result.is_err(),
+            "locate_number=3 in PreFlop should be rejected as phase mismatch"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("invalid phase"),
+            "error message should mention invalid phase, got: {}",
+            msg
+        );
+    }
+
+    /// Flop フェーズ中に locate_number=0 はフェーズ不整合でエラーになる。
+    #[test]
+    fn set_community_card_flop_rejects_flop_index() {
+        let (mut board, mut deck) = make_board();
+        board.phase = Phase::Flop;
+        // community_cards は空のまま（locate_number=0 の前提を満たす）
+        let card = deck[deck.len() - 1];
+        let result = set_community_card(&mut board, 0, card, &mut deck);
+        assert!(
+            result.is_err(),
+            "locate_number=0 in Flop phase should be rejected"
         );
     }
 }
