@@ -19,6 +19,7 @@ export const STATUS_LABELS: Record<VoiceInputStatus, string> = {
 export const DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen";
 export const MAX_RECONNECT_ATTEMPTS = 5;
 export const RECONNECT_DELAY_MS = 1000;
+export const MAX_RECONNECT_DELAY_MS = 30000;
 export const KEEP_ALIVE_INTERVAL_MS = 8000;
 export const AUDIO_BUFFER_LIMIT = 10;
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.3;

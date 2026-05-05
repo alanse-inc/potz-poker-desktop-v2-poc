@@ -19,13 +19,28 @@ function TelopApp() {
   });
 
   useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
     api.telop
       .getState()
       .then(setState)
       .catch(() => {});
-    const unsubscribe = api.notifications.onTelopUpdated(setState);
+
+    api.notifications
+      .onTelopUpdated(setState)
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch(() => {});
+
     return () => {
-      unsubscribe.then((fn) => fn()).catch(() => {});
+      cancelled = true;
+      unlisten?.();
     };
   }, []);
 

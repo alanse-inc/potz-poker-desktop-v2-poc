@@ -34,6 +34,7 @@ import {
   FILLER_WORDS,
   KEEP_ALIVE_INTERVAL_MS,
   MAX_RECONNECT_ATTEMPTS,
+  MAX_RECONNECT_DELAY_MS,
   MIC_GAIN,
   RECONNECT_DELAY_MS,
 } from "./voice_input_constants";
@@ -395,17 +396,23 @@ export class VoiceInputService {
 
       const isAbnormalClose = event.code !== 1000;
       if (isAbnormalClose && this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(
+          RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts,
+          MAX_RECONNECT_DELAY_MS,
+        );
         this.reconnectAttempts++;
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
           if (!this.intentionallyStopped) {
             this.connectWebSocket(apiKey, stream);
           }
-        }, RECONNECT_DELAY_MS);
+        }, delay);
       } else {
-        if (this._status !== "stopped" && this._status !== "error") {
-          this.emitStatus("stopped");
-        }
+        this.cleanup();
+        this.emitStatus(
+          "error",
+          "再接続上限に達しました。音声入力を再起動してください。",
+        );
       }
     };
   }

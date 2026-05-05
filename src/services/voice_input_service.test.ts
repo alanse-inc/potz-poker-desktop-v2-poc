@@ -228,3 +228,133 @@ describe("VoiceInputService – reconnect timer cancellation (BUG-D)", () => {
     expect(service.status).toBe("stopped");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 指数バックオフ / 最大試行後のクリーンアップ (BUG-S-2)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – exponential backoff reconnect (BUG-S-2)", () => {
+  let service: VoiceInputService;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    setupAudioContextMock();
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("再接続遅延が指数バックオフで増加する", async () => {
+    // RECONNECT_DELAY_MS=1000 として, attempt=0→1000ms, attempt=1→2000ms, attempt=2→4000ms
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    // WS #0: open → 異常切断 → 再接続待ち (delay=1000ms, attempt=0 時)
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+    ws0.simulateAbnormalClose(1006);
+
+    // 1000ms ちょうどでは発火しない (delay は Math.pow(2,0)*1000 = 1000ms)
+    vi.advanceTimersByTime(999);
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    // 1000ms 経過 → WS #1 が作られる
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    // WS #1: open → 異常切断 → 再接続待ち (delay=2000ms, attempt=1 時)
+    const ws1 = MockWebSocket.instances[1];
+    ws1.simulateOpen();
+    ws1.simulateAbnormalClose(1006);
+
+    vi.advanceTimersByTime(1999);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances.length).toBe(3);
+
+    // WS #2: open → 異常切断 → 再接続待ち (delay=4000ms, attempt=2 時)
+    const ws2 = MockWebSocket.instances[2];
+    ws2.simulateOpen();
+    ws2.simulateAbnormalClose(1006);
+
+    vi.advanceTimersByTime(3999);
+    expect(MockWebSocket.instances.length).toBe(3);
+
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances.length).toBe(4);
+  });
+
+  it("MAX_RECONNECT_ATTEMPTS 達成後に status=error かつ cleanup が呼ばれる", async () => {
+    const statusEvents: string[] = [];
+    service.onStatus((e) => statusEvents.push(e.status));
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    // MAX_RECONNECT_ATTEMPTS=5 回、異常切断を繰り返す
+    for (let i = 0; i <= 5; i++) {
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws.simulateOpen();
+      ws.simulateAbnormalClose(1006);
+
+      if (i < 5) {
+        // まだ再接続試行中 → タイマーを全部進めて次の WS を作る
+        vi.runAllTimers();
+      }
+    }
+
+    // 6 回目の異常切断（MAX=5 を超えた）後は再接続なし
+    expect(service.status).toBe("error");
+    // エラーメッセージが発行されていることを確認
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    expect(lastStatus).toBe("error");
+  });
+
+  it("MAX_RECONNECT_ATTEMPTS 後に発行されるエラーイベントにメッセージが含まれる", async () => {
+    const errorMessages: (string | undefined)[] = [];
+    service.onStatus((e) => {
+      if (e.status === "error") {
+        errorMessages.push(e.message);
+      }
+    });
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    // 5 回再接続を試みて使い切る
+    for (let i = 0; i <= 5; i++) {
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws.simulateOpen();
+      ws.simulateAbnormalClose(1006);
+      if (i < 5) {
+        vi.runAllTimers();
+      }
+    }
+
+    // 最後のエラーイベントには再接続上限メッセージが含まれること
+    expect(errorMessages.length).toBeGreaterThan(0);
+    const lastMsg = errorMessages[errorMessages.length - 1];
+    expect(lastMsg).toContain("再接続上限");
+  });
+});
