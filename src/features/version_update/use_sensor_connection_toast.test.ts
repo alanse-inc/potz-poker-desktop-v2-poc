@@ -6,7 +6,7 @@ import { act, renderHook } from "@testing-library/react";
 import toast from "react-hot-toast";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "../../contexts/auth_context";
-import { updateDeviceProperties } from "../../services/mixpanel";
+import { updateDeviceProperties } from "../../services/analytics";
 
 // --- モック ---
 
@@ -17,7 +17,7 @@ vi.mock("react-hot-toast", () => ({
   },
 }));
 
-vi.mock("../../services/mixpanel", () => ({
+vi.mock("../../services/analytics", () => ({
   updateDeviceProperties: vi.fn(),
 }));
 

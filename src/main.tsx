@@ -13,7 +13,7 @@ import { RFIDCardMappingProvider } from "./contexts/rfid_card_mapping_context";
 import { SessionProvider } from "./contexts/session_context";
 import { TelopProvider } from "./contexts/telop_context";
 import { mainRouter } from "./routes";
-import { initMixpanel } from "./services/mixpanel";
+import { initMixpanel } from "./services/analytics";
 import { initializeSentry, Sentry } from "./services/sentry";
 
 initializeSentry();

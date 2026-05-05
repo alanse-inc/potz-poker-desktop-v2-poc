@@ -3,7 +3,7 @@ import toast from "react-hot-toast";
 import packageInfo from "../../../package.json";
 import { useAuth } from "../../contexts/auth_context";
 import { useSSEConnection } from "../../hooks/useSSEConnection";
-import { updateDeviceProperties } from "../../services/mixpanel";
+import { updateDeviceProperties } from "../../services/analytics";
 import type { SerialStatus } from "../../types";
 
 // セッション中の初回接続フラグ。コンポーネント再マウント時にリセットされないよう module スコープで管理

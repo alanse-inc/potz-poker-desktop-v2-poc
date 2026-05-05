@@ -25,7 +25,7 @@ describe("initMixpanel", () => {
 
   it("VITE_MIXPANEL_TOKEN が設定されている場合、mixpanel.init が呼ばれる", async () => {
     vi.stubEnv("VITE_MIXPANEL_TOKEN", "test-token-123");
-    const { initMixpanel } = await import("./mixpanel");
+    const { initMixpanel } = await import("./analytics");
     initMixpanel();
     expect(mockInit).toHaveBeenCalledOnce();
     expect(mockInit).toHaveBeenCalledWith(
@@ -36,14 +36,14 @@ describe("initMixpanel", () => {
 
   it("VITE_MIXPANEL_TOKEN が未設定の場合、mixpanel.init が呼ばれない", async () => {
     vi.stubEnv("VITE_MIXPANEL_TOKEN", "");
-    const { initMixpanel } = await import("./mixpanel");
+    const { initMixpanel } = await import("./analytics");
     initMixpanel();
     expect(mockInit).not.toHaveBeenCalled();
   });
 
   it("initMixpanel を複数回呼んでも2回目以降は init されない", async () => {
     vi.stubEnv("VITE_MIXPANEL_TOKEN", "test-token-123");
-    const { initMixpanel } = await import("./mixpanel");
+    const { initMixpanel } = await import("./analytics");
     initMixpanel();
     initMixpanel();
     expect(mockInit).toHaveBeenCalledOnce();

@@ -12,7 +12,7 @@ vi.mock("./services/sentry", () => ({
   },
 }));
 
-vi.mock("./services/mixpanel", () => ({
+vi.mock("./services/analytics", () => ({
   initMixpanel: mockInitMixpanel,
 }));
 

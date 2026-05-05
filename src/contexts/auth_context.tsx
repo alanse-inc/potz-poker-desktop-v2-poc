@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { identifyUser, resetMixpanel } from "../services/mixpanel";
+import { identifyUser, resetMixpanel } from "../services/analytics";
 import { Sentry } from "../services/sentry";
 
 export type Auth0LicenseObject = {

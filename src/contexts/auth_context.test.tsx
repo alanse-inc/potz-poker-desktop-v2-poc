@@ -37,7 +37,7 @@ vi.mock("../services/sentry", () => ({
   },
 }));
 
-vi.mock("../services/mixpanel", () => ({
+vi.mock("../services/analytics", () => ({
   identifyUser: vi.fn(),
   resetMixpanel: vi.fn(),
 }));
@@ -258,7 +258,7 @@ describe("deep-link コールバック処理", () => {
   });
 
   test("コールバック処理成功時に identifyUser が呼ばれる", async () => {
-    const { identifyUser } = await import("../services/mixpanel");
+    const { identifyUser } = await import("../services/analytics");
     const mockUser = { sub: "auth0|test123", name: "Test User" };
     mockAuth0Client.getUser.mockResolvedValue(mockUser);
     mockAuth0Client.handleRedirectCallback.mockResolvedValue({});
@@ -454,7 +454,7 @@ describe("logout()", () => {
   });
 
   test("logout 時に resetMixpanel が呼ばれる", async () => {
-    const { resetMixpanel } = await import("../services/mixpanel");
+    const { resetMixpanel } = await import("../services/analytics");
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => {
