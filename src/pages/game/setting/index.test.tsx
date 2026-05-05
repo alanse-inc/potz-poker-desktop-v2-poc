@@ -140,13 +140,59 @@ describe("GameSetting", () => {
       await user.click(startBtn);
 
       await waitFor(() => {
+        // Alice は最初の+ ボタン（index 0 = Seat1）に追加される
+        // Bob は Alice 追加後に残る+ ボタンの 2 番目（元の index 2 = Seat3）に追加される
         expect(mockNavigate).toHaveBeenCalledWith("/game/select-btn", {
           state: expect.objectContaining({
             smallBlind: 100,
             bigBlind: 200,
             minChip: 100,
             bbAnte: false,
-            playerNames: expect.arrayContaining(["Alice", "Bob"]),
+            playerNames: ["Alice", "Bob"],
+            playerSeats: [
+              { seatIndex: 0, name: "Alice" },
+              { seatIndex: 2, name: "Bob" },
+            ],
+          }),
+        });
+      });
+    });
+
+    it("離散した席にプレイヤーを置いて GAME START を押すと seatIndex が正しく渡される", async () => {
+      const user = userEvent.setup();
+      setup();
+      await waitFor(() => expect(mockLoadSettings).toHaveBeenCalled());
+
+      // Seat1 (index 0) に Alice を追加: 最初の + ボタン
+      const plusButtons = await screen.findAllByText("+");
+      await user.click(plusButtons[0]);
+      await user.type(screen.getByPlaceholderText("Player"), "Alice");
+      await user.click(screen.getByText("追加"));
+
+      // Alice 追加後、残りの + ボタンの index 2 は元の index 3 (Seat4) に相当
+      const plusButtons2 = screen.getAllByText("+");
+      await user.click(plusButtons2[2]);
+      await user.type(screen.getByPlaceholderText("Player"), "Bob");
+      await user.click(screen.getByText("追加"));
+
+      // Bob 追加後、残りの + ボタンの index 4 は元の index 6 (Seat7) に相当
+      const plusButtons3 = screen.getAllByText("+");
+      await user.click(plusButtons3[4]);
+      await user.type(screen.getByPlaceholderText("Player"), "Carol");
+      await user.click(screen.getByText("追加"));
+
+      const startBtn = screen.getByText("GAME START");
+      await user.click(startBtn);
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith("/game/select-btn", {
+          state: expect.objectContaining({
+            playerNames: ["Alice", "Bob", "Carol"],
+            playerSeats: [
+              { seatIndex: 0, name: "Alice" },
+              { seatIndex: 3, name: "Bob" },
+              { seatIndex: 6, name: "Carol" },
+            ],
           }),
         });
       });

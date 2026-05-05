@@ -54,6 +54,11 @@ const defaultState = {
   minChip: 100,
   bbAnte: false,
   playerNames: ["Alice", "Bob", "Carol"],
+  playerSeats: [
+    { seatIndex: 0, name: "Alice" },
+    { seatIndex: 1, name: "Bob" },
+    { seatIndex: 2, name: "Carol" },
+  ],
 };
 
 describe("SelectBtn", () => {
@@ -119,6 +124,60 @@ describe("SelectBtn", () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/game/setting", {
         replace: true,
+      });
+    });
+  });
+
+  describe("離散席のプレイヤーが正しい席番号で表示される", () => {
+    it("seatIndex が 4, 6, 8 のプレイヤーがそれぞれの席に配置される", () => {
+      const sparseState = {
+        smallBlind: 100,
+        bigBlind: 200,
+        minChip: 100,
+        bbAnte: false,
+        playerNames: ["Alice", "Bob", "Carol"],
+        playerSeats: [
+          { seatIndex: 4, name: "Alice" },
+          { seatIndex: 6, name: "Bob" },
+          { seatIndex: 8, name: "Carol" },
+        ],
+      };
+      renderWithState(sparseState);
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Bob")).toBeInTheDocument();
+      expect(screen.getByText("Carol")).toBeInTheDocument();
+    });
+
+    it("離散席でも dealerPosition は playerNames 配列インデックスで渡される", async () => {
+      const user = userEvent.setup();
+      mockStartGame.mockResolvedValueOnce(undefined);
+      const sparseState = {
+        smallBlind: 100,
+        bigBlind: 200,
+        minChip: 100,
+        bbAnte: false,
+        playerNames: ["Alice", "Bob", "Carol"],
+        playerSeats: [
+          { seatIndex: 4, name: "Alice" },
+          { seatIndex: 6, name: "Bob" },
+          { seatIndex: 8, name: "Carol" },
+        ],
+      };
+      renderWithState(sparseState);
+
+      // Bob（playerNames 配列インデックス 1）をディーラーに選択
+      await user.click(screen.getByText("Bob"));
+      await user.click(screen.getByText("ゲーム開始"));
+
+      await waitFor(() => {
+        expect(mockStartGame).toHaveBeenCalledWith({
+          smallBlind: 100,
+          bigBlind: 200,
+          minChip: 100,
+          bbAnte: false,
+          playerNames: ["Alice", "Bob", "Carol"],
+          dealerPosition: 1,
+        });
       });
     });
   });

@@ -148,9 +148,10 @@ export function GameSetting() {
 
   const handleGameStart = () => {
     if (!isStartable) return;
-    const playerNames = players
-      .map((p) => p?.name ?? null)
-      .filter((n): n is string => n !== null);
+    const playerSeats = players
+      .map((p, idx) => (p ? { seatIndex: idx, name: p.name } : null))
+      .filter((x): x is { seatIndex: number; name: string } => x !== null);
+    const playerNames = playerSeats.map((s) => s.name);
 
     navigate("/game/select-btn", {
       state: {
@@ -159,6 +160,7 @@ export function GameSetting() {
         minChip,
         bbAnte,
         playerNames,
+        playerSeats,
       },
     });
   };

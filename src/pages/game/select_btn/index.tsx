@@ -22,6 +22,7 @@ type LocationState = {
   minChip: number;
   bbAnte: boolean;
   playerNames: string[];
+  playerSeats: { seatIndex: number; name: string }[];
 };
 
 function positionToSeat(position: number): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 {
@@ -81,13 +82,13 @@ export function SelectBtn() {
   };
 
   const seats = produce(EMPTY_SEATS, (draft) => {
-    state.playerNames.forEach((name, i) => {
-      const seat = positionToSeat(i);
+    state.playerSeats.forEach(({ seatIndex, name }, i) => {
+      const seat = positionToSeat(seatIndex);
       const isSelected = dealer === i;
       const seatContent: SeatContent = {
         playerCard: (
           <SelectablePlayerCard
-            seatNumber={i + 1}
+            seatNumber={seatIndex + 1}
             name={name}
             initialStack={state.smallBlind * 100}
             highlight={isSelected}
