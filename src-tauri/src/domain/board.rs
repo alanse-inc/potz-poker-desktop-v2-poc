@@ -182,22 +182,25 @@ impl TexasHoldemBoard {
             Phase::Showdown => Phase::Showdown,
         };
 
+        // Manual モード (RFID) で既にカードが追加済みの場合は各フェーズでスキップ。
         match self.phase {
-            Phase::Flop => {
+            Phase::Flop if self.community_cards.len() < 3 => {
                 let _ = deck.pop(); // burn card
-                for _ in 0..3 {
+                while self.community_cards.len() < 3 {
                     if let Some(card) = deck.pop() {
                         self.community_cards.push(card);
+                    } else {
+                        break;
                     }
                 }
             }
-            Phase::Turn => {
+            Phase::Turn if self.community_cards.len() < 4 => {
                 let _ = deck.pop(); // burn card
                 if let Some(card) = deck.pop() {
                     self.community_cards.push(card);
                 }
             }
-            Phase::River => {
+            Phase::River if self.community_cards.len() < 5 => {
                 let _ = deck.pop(); // burn card
                 if let Some(card) = deck.pop() {
                     self.community_cards.push(card);
@@ -554,6 +557,18 @@ pub fn start_game(
     player_names: Vec<String>,
     dealer: u8,
 ) -> Result<TexasHoldemBoard, BoardError> {
+    let (board, _deck) = start_game_with_deck(settings, player_names, dealer, 1)?;
+    Ok(board)
+}
+
+/// ゲームを開始してボードとシャッフル済み残デッキを返す。
+/// Auto モードで community cards を内部デッキから配布する際に使用する。
+pub fn start_game_with_deck(
+    settings: GameSettings,
+    player_names: Vec<String>,
+    dealer: u8,
+    hand_number: u32,
+) -> Result<(TexasHoldemBoard, Vec<Card>), BoardError> {
     let n = player_names.len();
     if !(2..=10).contains(&n) {
         return Err(BoardError::InvalidAction("2 to 10 players required".into()));
@@ -600,7 +615,15 @@ pub fn start_game(
         (dealer + 2) % n as u8
     };
 
-    start_game_with_stacks(settings, player_names, stacks, 1, dealer, sb_pos, bb_pos)
+    start_game_with_stacks_and_deck(
+        settings,
+        player_names,
+        stacks,
+        hand_number,
+        dealer,
+        sb_pos,
+        bb_pos,
+    )
 }
 
 /// スタックが 0 でないプレイヤーの位置を from_pos の次から順に探す。
@@ -660,7 +683,7 @@ pub fn next_game(
     let names: Vec<String> = prev.players.iter().map(|p| p.name.clone()).collect();
     let new_settings = settings.clone();
 
-    let board = start_game_with_stacks(
+    let (board, deck) = start_game_with_stacks_and_deck(
         new_settings,
         names,
         stacks,
@@ -670,10 +693,11 @@ pub fn next_game(
         new_bb,
     )?;
 
-    let deck = build_remaining_deck(&board);
     Ok((board, deck))
 }
 
+/// テスト用互換ラッパー。デッキを破棄してボードのみ返す。
+#[cfg(test)]
 fn start_game_with_stacks(
     settings: GameSettings,
     player_names: Vec<String>,
@@ -683,6 +707,28 @@ fn start_game_with_stacks(
     sb_pos: u8,
     bb_pos: u8,
 ) -> Result<TexasHoldemBoard, BoardError> {
+    start_game_with_stacks_and_deck(
+        settings,
+        player_names,
+        stacks,
+        hand_number,
+        dealer,
+        sb_pos,
+        bb_pos,
+    )
+    .map(|(board, _deck)| board)
+}
+
+/// ゲームを開始してボードとシャッフル済み残デッキを返す内部実装。
+fn start_game_with_stacks_and_deck(
+    settings: GameSettings,
+    player_names: Vec<String>,
+    stacks: Vec<u32>,
+    hand_number: u32,
+    dealer: u8,
+    sb_pos: u8,
+    bb_pos: u8,
+) -> Result<(TexasHoldemBoard, Vec<Card>), BoardError> {
     let n = player_names.len();
 
     if stacks[sb_pos as usize] == 0 && stacks[bb_pos as usize] == 0 {
@@ -779,7 +825,7 @@ fn start_game_with_stacks(
         p.hand = Some([c1, c2]);
     }
 
-    Ok(TexasHoldemBoard {
+    let board = TexasHoldemBoard {
         hand_number,
         dealer_position: dealer,
         sb_position: sb_pos,
@@ -794,10 +840,13 @@ fn start_game_with_stacks(
         }],
         phase: Phase::PreFlop,
         winners: Vec::new(),
-    })
+    };
+    // ハンド配布後の残デッキをそのまま返す（再シャッフルしない）。
+    Ok((board, deck))
 }
 
 /// board で使用済みのカードを除いた残デッキを返す。
+/// Manual モード (RFID) の初期化や recovery 用途に使用する。
 pub fn build_remaining_deck(board: &TexasHoldemBoard) -> Vec<Card> {
     let used: std::collections::HashSet<(Suit, CardValue)> = board
         .players
@@ -4331,5 +4380,203 @@ mod tests {
         let names = vec!["Alice".into(), "Bob".into()];
         let result = start_game(settings, names, 0);
         assert!(result.is_ok());
+    }
+
+    // ================================================================
+    // Bug 3+4 fix: advance_phase での community card 二重追加防止
+    // ================================================================
+
+    /// Manual モード (RFID) でフロップ 3 枚を set_community_card で手動追加した後、
+    /// preflop ベットラウンドが完了しても advance_phase が community に追加しないこと。
+    #[test]
+    fn manual_set_community_then_advance_phase_does_not_double_add_flop() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+        let mut deck = build_remaining_deck(&board);
+
+        // Phase::PreFlop の状態でフロップ 3 枚を手動追加 (locate_number 0,1,2)
+        let card0 = deck[deck.len() - 1];
+        set_community_card(&mut board, 0, card0, &mut deck).unwrap();
+        let card1 = deck[deck.len() - 1];
+        set_community_card(&mut board, 1, card1, &mut deck).unwrap();
+        let card2 = deck[deck.len() - 1];
+        set_community_card(&mut board, 2, card2, &mut deck).unwrap();
+
+        assert_eq!(board.community_cards.len(), 3);
+        // フェーズはまだ PreFlop のまま
+        assert_eq!(board.phase, Phase::PreFlop);
+
+        // preflop アクションを全員完了させて advance_phase を発火する
+        // UTG=0, SB=1, BB=2: UTG call → SB call → BB check でラウンド完了
+        board_call(&mut board, &mut deck).unwrap();
+        board_call(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+
+        // advance_phase 後フェーズは Flop になっているはず
+        assert_eq!(board.phase, Phase::Flop);
+        // 既に 3 枚あるため追加されず、3 枚のまま
+        assert_eq!(
+            board.community_cards.len(),
+            3,
+            "advance_phase should not add more cards when flop is already set manually"
+        );
+        // 手動で追加した 3 枚が維持されている
+        assert_eq!(board.community_cards[0], card0);
+        assert_eq!(board.community_cards[1], card1);
+        assert_eq!(board.community_cards[2], card2);
+    }
+
+    /// Manual モードでターン (locate_number=3) を手動追加した後、
+    /// flop ベットラウンド完了時に advance_phase が重複追加しないこと。
+    #[test]
+    fn manual_set_community_then_advance_phase_does_not_double_add_turn() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let (mut board, mut deck) = start_game_with_deck(settings, names, 0, 1).unwrap();
+
+        // flop フェーズに直接進めるため community_cards に 3 枚手動追加してフェーズを Flop にする
+        // まず preflop を全員 check/call で完了させる
+        board_call(&mut board, &mut deck).unwrap(); // UTG
+        board_call(&mut board, &mut deck).unwrap(); // SB
+        board_check(&mut board, &mut deck).unwrap(); // BB
+        assert_eq!(board.phase, Phase::Flop);
+        let flop_len = board.community_cards.len();
+        assert_eq!(flop_len, 3);
+
+        // フロップ後のデッキからターンカードを手動追加
+        let turn_card = deck[deck.len() - 1];
+        set_community_card(&mut board, 3, turn_card, &mut deck).unwrap();
+        assert_eq!(board.community_cards.len(), 4);
+        assert_eq!(board.phase, Phase::Flop); // まだ Flop のまま
+
+        // flop ベットラウンドを全員 check で完了させる
+        board_check(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+
+        // advance_phase 後フェーズは Turn
+        assert_eq!(board.phase, Phase::Turn);
+        // 既にターンが手動追加済みのため 4 枚のまま
+        assert_eq!(
+            board.community_cards.len(),
+            4,
+            "advance_phase should not add turn card when already set manually"
+        );
+        assert_eq!(board.community_cards[3], turn_card);
+    }
+
+    /// Auto モード（deck から自動配布）では advance_phase が従来通り community cards を追加すること。
+    #[test]
+    fn auto_mode_advance_phase_adds_community_cards_normally() {
+        let (mut board, mut deck) = make_board();
+
+        // preflop アクション完了: UTG call → SB call → BB check
+        board_call(&mut board, &mut deck).unwrap();
+        board_call(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+
+        // Flop に進んで community_cards が 3 枚になること
+        assert_eq!(board.phase, Phase::Flop);
+        assert_eq!(board.community_cards.len(), 3);
+
+        // flop check を全員で完了
+        board_check(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+
+        // Turn に進んで community_cards が 4 枚になること
+        assert_eq!(board.phase, Phase::Turn);
+        assert_eq!(board.community_cards.len(), 4);
+
+        // turn check を全員で完了
+        board_check(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+        board_check(&mut board, &mut deck).unwrap();
+
+        // River に進んで community_cards が 5 枚になること
+        assert_eq!(board.phase, Phase::River);
+        assert_eq!(board.community_cards.len(), 5);
+    }
+
+    // ================================================================
+    // Bug 7 fix: start_game_with_deck でシャッフル済みデッキが保持されること
+    // ================================================================
+
+    /// start_game_with_deck が返すデッキはプレイヤーのハンドで使われたカードを含まないこと。
+    #[test]
+    fn start_game_with_deck_returns_remaining_deck_without_hand_cards() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let (board, deck) = start_game_with_deck(settings, names, 0, 1).unwrap();
+
+        // 3 人 × 2 枚 = 6 枚使用済み → 残 52 - 6 = 46 枚
+        assert_eq!(deck.len(), 52 - board.players.len() * 2);
+
+        // 返ってきたデッキにプレイヤーの手札が含まれていないこと
+        let hand_cards: Vec<(Suit, CardValue)> = board
+            .players
+            .iter()
+            .flat_map(|p| {
+                p.hand
+                    .iter()
+                    .flat_map(|h| h.iter().map(|c| (c.suit, c.value)))
+            })
+            .collect();
+        for (suit, value) in &hand_cards {
+            assert!(
+                !deck.iter().any(|c| c.suit == *suit && c.value == *value),
+                "deck should not contain hand card {:?} {:?}",
+                suit,
+                value
+            );
+        }
+    }
+
+    /// next_game が返すデッキも再シャッフルせずプレイヤーのハンドを除いた残デッキであること。
+    #[test]
+    fn next_game_returns_deck_without_hand_cards() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board1 = start_game(settings.clone(), names, 0).unwrap();
+        let (board2, deck2) = next_game(&board1, &settings).unwrap();
+
+        // 2 人 × 2 枚 = 4 枚使用済み → 残 52 - 4 = 48 枚
+        assert_eq!(deck2.len(), 52 - board2.players.len() * 2);
+
+        // 返ってきたデッキにプレイヤー2の手札が含まれていないこと
+        for p in &board2.players {
+            if let Some(hand) = p.hand {
+                for card in &hand {
+                    assert!(
+                        !deck2
+                            .iter()
+                            .any(|c| c.suit == card.suit && c.value == card.value),
+                        "deck should not contain hand card {:?}",
+                        card
+                    );
+                }
+            }
+        }
     }
 }

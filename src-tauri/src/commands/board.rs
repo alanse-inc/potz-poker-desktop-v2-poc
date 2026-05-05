@@ -2,11 +2,11 @@
 
 use crate::commands::settings::{sanitize_settings, validate_settings};
 use crate::domain::board::{
-    add_player as domain_add_player, build_remaining_deck,
-    evaluate_player_hand as domain_evaluate_player_hand, next_game,
-    remove_player as domain_remove_player, set_community_card as domain_set_community_card,
-    start_game as domain_start_game, update_player as domain_update_player, TexasHoldemBoard,
-    TexasHoldemInitialBoard,
+    add_player as domain_add_player, evaluate_player_hand as domain_evaluate_player_hand,
+    next_game, remove_player as domain_remove_player,
+    set_community_card as domain_set_community_card,
+    start_game_with_deck as domain_start_game_with_deck, update_player as domain_update_player,
+    TexasHoldemBoard, TexasHoldemInitialBoard,
 };
 use crate::domain::card::Card;
 use crate::domain::hand::EvaluatedHand;
@@ -40,9 +40,10 @@ pub fn start_game(
     let settings = sanitize_settings(small_blind, big_blind, min_chip, bb_ante);
     validate_settings(&settings)?;
 
-    let board = domain_start_game(settings.clone(), player_names, dealer_position)
-        .map_err(|e| e.to_string())?;
-    let deck = build_remaining_deck(&board);
+    // start_game_with_deck でシャッフル済み残デッキを直接取得する（再シャッフル不要）。
+    let (board, deck) =
+        domain_start_game_with_deck(settings.clone(), player_names, dealer_position, 1)
+            .map_err(|e| e.to_string())?;
     let initial_board = TexasHoldemInitialBoard::from_board(&board, settings.clone());
 
     {
@@ -369,7 +370,7 @@ pub fn remove_player(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::board::{start_game, GameSettings};
+    use crate::domain::board::{build_remaining_deck, start_game, GameSettings};
     use crate::domain::card::{Card, CardValue, Suit};
     use crate::state::{InnerState, MAX_HISTORY};
 
