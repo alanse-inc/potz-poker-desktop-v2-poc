@@ -153,9 +153,11 @@ describe("api.rfid", () => {
     });
   });
 
-  it("setRegisterMode(true) calls invoke('set_register_mode', { enabled: true })", async () => {
+  it("setRegisterMode(true) calls invoke('set_register_mode', { args: { enabled: true } })", async () => {
     await api.rfid.setRegisterMode(true);
-    expect(invoke).toHaveBeenCalledWith("set_register_mode", { enabled: true });
+    expect(invoke).toHaveBeenCalledWith("set_register_mode", {
+      args: { enabled: true },
+    });
   });
 
   it("getSerialStatus() calls invoke('get_serial_status')", async () => {

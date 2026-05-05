@@ -795,6 +795,7 @@ pub fn remove_player(
 // ---- アクション実装 ----
 
 pub fn board_bet(board: &mut TexasHoldemBoard, amount: u32, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+    let prev_bet = board.current_bet;
     board.apply_action(
         |p, current_bet| {
             if current_bet > 0 {
@@ -816,7 +817,7 @@ pub fn board_bet(board: &mut TexasHoldemBoard, amount: u32, deck: &mut Vec<Card>
         deck,
     )?;
     let new_bet = board.players.iter().map(|p| p.bet_in_round).max().unwrap_or(0);
-    board.last_raise_size = new_bet.saturating_sub(board.current_bet);
+    board.last_raise_size = new_bet.saturating_sub(prev_bet);
     board.current_bet = new_bet;
     Ok(())
 }
@@ -2114,5 +2115,54 @@ mod tests {
         let result = board_raise(&mut board, 150, &mut deck);
         assert!(result.is_ok(), "all-in raise below min should be allowed");
         assert!(board.players[0].is_all_in);
+    }
+
+    /// Bet 後に last_raise_size が bet 額そのものになる（prev_bet=0 から差分を取る）。
+    /// これは BUG-X minimum raise validation が機能するための前提。
+    #[test]
+    fn bet_sets_last_raise_size_to_bet_amount() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        // Flop で current_bet=0, last_raise_size=0 の状態から bet 200 → last_raise_size=200
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 1, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        board_bet(&mut board, 200, &mut deck).unwrap();
+        assert_eq!(board.current_bet, 200, "current_bet should equal bet amount");
+        assert_eq!(board.last_raise_size, 200, "last_raise_size should equal bet amount (regression: was 0)");
+
+        // 次の raise の min_raise_to = 200 + 200 = 400 → raise to=300 は拒否されるべき
+        let result = board_raise(&mut board, 300, &mut deck);
+        assert!(result.is_err(), "raise to 300 should be rejected (min raise=400)");
     }
 }
