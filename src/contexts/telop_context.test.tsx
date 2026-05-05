@@ -1,12 +1,15 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import type { TelopId, TelopScreenState } from "../types";
 import { TelopProvider, useTelop } from "./telop_context";
 
 vi.mock("../api/client", () => ({
   api: {
+    telop: {
+      isOpen: vi.fn(),
+    },
     telopSettings: {
       getTelopId: vi.fn(),
       setTelopId: vi.fn(),
@@ -30,6 +33,7 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 describe("TelopProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.telop.isOpen).mockResolvedValue(false);
     vi.mocked(api.telopSettings.getTelopId).mockRejectedValue(
       new Error("not implemented"),
     );
@@ -51,6 +55,10 @@ describe("TelopProvider", () => {
     vi.mocked(api.notifications.onTelopCurrentScreenUpdated).mockResolvedValue(
       () => {},
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("デフォルト値が正しく設定される", () => {
@@ -245,5 +253,63 @@ describe("TelopProvider", () => {
       expect(unlistenColor).toHaveBeenCalledTimes(1);
       expect(unlistenScreen).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("初期化時に api.telop.isOpen() が呼ばれ isOpen が同期される", async () => {
+    vi.mocked(api.telop.isOpen).mockResolvedValue(true);
+
+    const { result } = renderHook(() => useTelop(), { wrapper });
+
+    await waitFor(() => {
+      expect(api.telop.isOpen).toHaveBeenCalledTimes(1);
+      expect(result.current.isOpen).toBe(true);
+    });
+  });
+
+  it("ポーリングにより isOpen が定期的に同期される", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.telop.isOpen).mockResolvedValue(false);
+
+    const { result } = renderHook(() => useTelop(), { wrapper });
+
+    // 初期化非同期処理が完了するまで待つ
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.isOpen).toBe(false);
+
+    // telop ウィンドウが開かれた状態をシミュレート
+    vi.mocked(api.telop.isOpen).mockResolvedValue(true);
+
+    // 1 秒後のポーリングを進め、PromiseQueue を flush する
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(result.current.isOpen).toBe(true);
+  });
+
+  it("ポーリングでウィンドウが閉じられたことを検知して isOpen が false になる", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.telop.isOpen).mockResolvedValue(true);
+
+    const { result } = renderHook(() => useTelop(), { wrapper });
+
+    // 初期化非同期処理が完了するまで待つ
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.isOpen).toBe(true);
+
+    // OS の close ボタンでウィンドウが閉じられた状態をシミュレート
+    vi.mocked(api.telop.isOpen).mockResolvedValue(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(result.current.isOpen).toBe(false);
   });
 });

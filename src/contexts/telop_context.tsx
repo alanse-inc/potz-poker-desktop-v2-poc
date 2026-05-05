@@ -104,9 +104,36 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
       } catch {
         // Rust 側未実装の場合は無視
       }
+
+      // テロップウィンドウの open 状態を Tauri 側から取得して同期する
+      try {
+        const open = await api.telop.isOpen();
+        setIsOpen(open);
+      } catch (e) {
+        console.error(
+          "[TelopContext] Failed to get telop window open state",
+          e,
+        );
+      }
     };
 
     void initializeTelopSettings();
+
+    // テロップウィンドウが OS の close ボタンで閉じられた場合に備え、
+    // 1 秒ごとにポーリングして isOpen を同期する
+    const pollId = setInterval(() => {
+      api.telop
+        .isOpen()
+        .then((open) => {
+          setIsOpen(open);
+        })
+        .catch((e) => {
+          console.error(
+            "[TelopContext] Failed to poll telop window open state",
+            e,
+          );
+        });
+    }, 1000);
 
     // Tauri イベント経由のリアルタイム更新を購読
     let cancelled = false;
@@ -157,6 +184,7 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       cancelled = true;
+      clearInterval(pollId);
       unlistenTelopId?.();
       unlistenBackgroundColor?.();
       unlistenCurrentScreen?.();
