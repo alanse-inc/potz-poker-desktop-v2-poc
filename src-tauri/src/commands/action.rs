@@ -29,7 +29,9 @@ where
             .ok_or_else(|| BoardError::GameNotStarted.to_string())?
             .clone();
         let deck_snap = inner.deck.clone();
-        inner.history.push((board_snap, deck_snap));
+        let burn_count_snap = inner.burn_count;
+        let burn_card_snap = inner.burn_card;
+        inner.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
     }
 
     // board と deck を取り出して mut 参照を渡す

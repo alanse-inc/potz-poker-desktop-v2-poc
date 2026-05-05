@@ -6,6 +6,7 @@ use crate::domain::rfid_mapping::RfidCardMapping;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TelopState {
@@ -20,7 +21,7 @@ pub struct InnerState {
     pub settings: GameSettings,
     pub telop_color: String,
     pub telop_message: String,
-    pub history: Vec<(TexasHoldemBoard, Vec<Card>)>,
+    pub history: Vec<(TexasHoldemBoard, Vec<Card>, u8, Option<Card>)>,
     /// 複数デッキ管理。
     pub decks: Vec<RfidCardMapping>,
     /// 現在選択中のデッキ ID。

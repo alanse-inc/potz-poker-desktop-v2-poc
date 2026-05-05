@@ -760,7 +760,9 @@ mod tests {
         // history にスナップショットを積む（back_board が pop する対象）
         let board_snap = state.board.as_ref().unwrap().clone();
         let deck_snap = build_remaining_deck(&board_snap);
-        state.history.push((board_snap, deck_snap));
+        let burn_count_snap = state.burn_count;
+        let burn_card_snap = state.burn_card;
+        state.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
 
         // RFID スキャンでバーンカードが配られたと仮定
         let burn = Card::new(Suit::Diamond, CardValue::Two);
@@ -772,11 +774,11 @@ mod tests {
         assert!(!state.event_history.is_empty());
 
         // back_board ロジックをシミュレート
-        let (prev_board, prev_deck) = state.history.pop().unwrap();
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = state.history.pop().unwrap();
         state.board = Some(prev_board);
         state.deck = prev_deck;
-        state.burn_count = 0;
-        state.burn_card = None;
+        state.burn_count = prev_burn_count;
+        state.burn_card = prev_burn_card;
         state.event_history.clear();
 
         assert_eq!(state.burn_count, 0, "burn_count should be 0 after back_board");
@@ -796,7 +798,9 @@ mod tests {
         // history にスナップショットを積む
         let board_snap = state.board.as_ref().unwrap().clone();
         let deck_snap = build_remaining_deck(&board_snap);
-        state.history.push((board_snap, deck_snap));
+        let burn_count_snap = state.burn_count;
+        let burn_card_snap = state.burn_card;
+        state.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
 
         // 複数回バーンカードを配布
         let burn1 = Card::new(Suit::Club, CardValue::Three);
@@ -813,11 +817,11 @@ mod tests {
         assert_eq!(state.event_history.len(), 2);
 
         // back_board ロジックをシミュレート
-        let (prev_board, prev_deck) = state.history.pop().unwrap();
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = state.history.pop().unwrap();
         state.board = Some(prev_board);
         state.deck = prev_deck;
-        state.burn_count = 0;
-        state.burn_card = None;
+        state.burn_count = prev_burn_count;
+        state.burn_card = prev_burn_card;
         state.event_history.clear();
 
         assert_eq!(

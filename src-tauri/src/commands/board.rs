@@ -110,15 +110,15 @@ pub fn back_board(
 ) -> Result<TexasHoldemBoard, String> {
     let prev_board = {
         let mut inner = state.lock();
-        let (prev_board, prev_deck) = inner
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = inner
             .history
             .pop()
             .ok_or_else(|| BoardError::NoHistory.to_string())?;
 
         inner.board = Some(prev_board.clone());
         inner.deck = prev_deck;
-        inner.burn_count = 0;
-        inner.burn_card = None;
+        inner.burn_count = prev_burn_count;
+        inner.burn_card = prev_burn_card;
         inner.event_history.clear();
 
         prev_board
@@ -160,7 +160,9 @@ pub fn set_community_card(
                 .ok_or_else(|| BoardError::GameNotStarted.to_string())?
                 .clone();
             let deck_snap = inner.deck.clone();
-            inner.history.push((board_snap, deck_snap));
+            let burn_count_snap = inner.burn_count;
+            let burn_card_snap = inner.burn_card;
+            inner.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
         }
 
         // board と deck を取り出して mut 参照を渡す
@@ -265,6 +267,8 @@ pub fn remove_player(
 mod tests {
     use super::*;
     use crate::domain::board::{start_game, GameSettings};
+    use crate::domain::card::{Card, CardValue, Suit};
+    use crate::state::InnerState;
 
     #[test]
     fn calculate_initial_stack_uses_average_when_players_exist() {
@@ -301,5 +305,75 @@ mod tests {
         // fallback: big_blind * 100 = 100 * 100 = 10000
         let stack = calculate_initial_stack(&board, 100);
         assert_eq!(stack, 10000);
+    }
+
+    #[test]
+    fn history_snapshot_tuple_contains_burn_fields() {
+        // history の各要素が (TexasHoldemBoard, Vec<Card>, u8, Option<Card>) の 4-tuple であることを確認
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings, names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+        let burn_card = Card::new(Suit::Spade, CardValue::Ace);
+
+        let mut state = InnerState::default();
+        state.board = Some(board.clone());
+        state.deck = deck.clone();
+        state.burn_count = 2;
+        state.burn_card = Some(burn_card);
+
+        // スナップショットを push
+        let snap = (board, deck, state.burn_count, state.burn_card);
+        state.history.push(snap);
+
+        assert_eq!(state.history.len(), 1);
+        let (_, _, snapped_count, snapped_card) = &state.history[0];
+        assert_eq!(*snapped_count, 2);
+        assert!(snapped_card.is_some());
+    }
+
+    #[test]
+    fn back_board_restores_burn_count_and_burn_card() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings, names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+        let burn_card = Card::new(Suit::Heart, CardValue::King);
+
+        let mut state = InnerState::default();
+        state.board = Some(board.clone());
+        state.deck = deck.clone();
+
+        // back_board で復元されるべき値を history に push
+        state.history.push((board.clone(), deck.clone(), 3, Some(burn_card)));
+
+        // 現在の burn_count / burn_card を別の値にしておく
+        state.burn_count = 0;
+        state.burn_card = None;
+
+        // back_board 相当の復元処理
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) =
+            state.history.pop().unwrap();
+        state.board = Some(prev_board);
+        state.deck = prev_deck;
+        state.burn_count = prev_burn_count;
+        state.burn_card = prev_burn_card;
+
+        assert_eq!(state.burn_count, 3);
+        assert!(state.burn_card.is_some());
+        let restored = state.burn_card.unwrap();
+        assert_eq!(restored.suit, Suit::Heart);
+        assert_eq!(restored.value, CardValue::King);
+        assert!(state.history.is_empty());
     }
 }
