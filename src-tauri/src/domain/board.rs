@@ -1033,6 +1033,9 @@ pub fn remove_player(board: &mut TexasHoldemBoard, position: u8) -> Result<(), B
         board.bb_position = 0;
     }
     board.winners.retain(|&w| w < n);
+    if board.current_turn >= n {
+        board.current_turn = u8::MAX;
+    }
     Ok(())
 }
 
@@ -1488,6 +1491,20 @@ mod tests {
         remove_player(&mut board, 0).unwrap();
         let r = remove_player(&mut board, 0);
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn remove_player_resets_current_turn_when_out_of_range() {
+        let (mut board, _deck) = make_board();
+        board.phase = Phase::Showdown;
+        // current_turn を削除後に範囲外になる値に設定する
+        board.current_turn = 2; // 削除後 n=2 になるため 2 は範囲外
+        remove_player(&mut board, 1).unwrap();
+        assert_eq!(
+            board.current_turn,
+            u8::MAX,
+            "current_turn should be u8::MAX when out of range after remove_player"
+        );
     }
 
     #[test]
