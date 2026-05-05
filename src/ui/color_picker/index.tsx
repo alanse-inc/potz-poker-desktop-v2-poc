@@ -6,12 +6,16 @@ type Props = {
   label?: string;
 };
 
+const validateColor = (color: string): boolean => {
+  const hexRegex = /^#([0-9A-F]{3}){1,2}$/i;
+  return hexRegex.test(color);
+};
+
 export function ColorPicker({ value, onChange, label }: Props) {
   const [textValue, setTextValue] = useState(value);
   const [isValidColor, setIsValidColor] = useState(true);
   const [currentValidColor, setCurrentValidColor] = useState(value);
 
-  // 外部からのvalue変更に追従する
   useEffect(() => {
     setTextValue(value);
     const isValid = validateColor(value);
@@ -20,11 +24,6 @@ export function ColorPicker({ value, onChange, label }: Props) {
     }
     setIsValidColor(isValid);
   }, [value]);
-
-  const validateColor = (color: string): boolean => {
-    const hexRegex = /^#([0-9A-F]{3}){1,2}$/i;
-    return hexRegex.test(color);
-  };
 
   const handleColorChange = (color: string) => {
     onChange(color);

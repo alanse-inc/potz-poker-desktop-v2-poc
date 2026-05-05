@@ -61,9 +61,7 @@ describe("ColorPicker", () => {
   });
 
   it("label が指定されると表示される", () => {
-    render(
-      <ColorPicker value="#ff0000" onChange={vi.fn()} label="背景色" />,
-    );
+    render(<ColorPicker value="#ff0000" onChange={vi.fn()} label="背景色" />);
     expect(screen.getByText("背景色")).toBeInTheDocument();
   });
 });

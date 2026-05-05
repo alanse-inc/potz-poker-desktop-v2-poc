@@ -134,12 +134,7 @@ export function useDraggableResizable(config: DraggableResizableConfig) {
       rndRef.current.updateSize(newSize);
       setSize(newSize);
     }
-  }, [
-    config.minWidth,
-    config.minHeight,
-    scale,
-    findContentElement,
-  ]);
+  }, [config.minWidth, config.minHeight, scale, findContentElement]);
 
   useEffect(() => {
     if (

@@ -20,7 +20,8 @@
       "!**/src-tauri/target",
       "!**/src-tauri/gen",
       "!**/package.json",
-      "!**/*/css"
+      "!**/*/css",
+      "!.claude/worktrees"
     ]
   },
   "css": {

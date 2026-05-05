@@ -19,8 +19,7 @@ export function ChipInputModal({
   const [input, setInput] = useState(initialValue.toString());
 
   const numeric = Number(input);
-  const isNotPositive =
-    !Number.isInteger(numeric) || numeric <= 0;
+  const isNotPositive = !Number.isInteger(numeric) || numeric <= 0;
   const validationError = !isNotPositive && validate ? validate(numeric) : null;
   const isInvalid = isNotPositive || validationError !== null;
 

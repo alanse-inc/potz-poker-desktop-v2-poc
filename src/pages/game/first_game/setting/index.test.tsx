@@ -107,9 +107,7 @@ describe("FirstGameSetting", () => {
 
     renderSetting();
 
-    await vi.waitFor(() =>
-      expect(api.gameSettings.load).toHaveBeenCalled(),
-    );
+    await vi.waitFor(() => expect(api.gameSettings.load).toHaveBeenCalled());
 
     const btn = screen.getByText("GAME START").closest("button");
     if (btn && !btn.hasAttribute("disabled")) {
