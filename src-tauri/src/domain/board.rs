@@ -350,6 +350,9 @@ impl TexasHoldemBoard {
         let dealer_left_key = |i: usize| (i + n - dealer_idx - 1) % n;
 
         // 各プレイヤーの手役を評価（active = has_hand のプレイヤー）
+        // active のフィルタ条件（!has_folded && hand.is_some()）と
+        // evals のフィルタ条件（active から hand? で取り出す）は同一のため、
+        // active が非空であれば evals も必ず非空になる。
         let evals: Vec<(usize, EvaluatedHand)> = active
             .iter()
             .filter_map(|&idx| {
@@ -362,9 +365,7 @@ impl TexasHoldemBoard {
             })
             .collect();
 
-        if evals.is_empty() {
-            return;
-        }
+        debug_assert!(!evals.is_empty(), "active is non-empty so evals must be non-empty");
 
         // サイドポット計算:
         // 各プレイヤーの total_invested をしきい値として使いポットを切り分ける。
