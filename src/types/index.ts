@@ -94,6 +94,11 @@ export type CardPlacedRegisterPayload = {
   rfid: string;
 };
 
+/** ゲーム未開始時 RFID イベントペイロード (card_placed_no_board) */
+export type CardPlacedNoBoardPayload = {
+  rfid: string;
+};
+
 /** シリアル接続状態 */
 export type SerialStatus = {
   connected: boolean;

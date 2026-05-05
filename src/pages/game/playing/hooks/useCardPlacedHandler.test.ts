@@ -10,6 +10,7 @@ vi.mock("react-hot-toast", () => ({
 describe("useCardPlacedHandler", () => {
   let onCardPlacedCb: ((payload: unknown) => Promise<void>) | undefined;
   let onCardPlacedUnregisteredCb: (() => void) | undefined;
+  let onCardPlacedNoBoardCb: (() => void) | undefined;
 
   beforeEach(() => {
     vi.spyOn(api.notifications, "onCardPlaced").mockImplementation(
@@ -22,6 +23,13 @@ describe("useCardPlacedHandler", () => {
     vi.spyOn(api.notifications, "onCardPlacedUnregistered").mockImplementation(
       async (cb) => {
         onCardPlacedUnregisteredCb = cb;
+        return () => {};
+      },
+    );
+
+    vi.spyOn(api.notifications, "onCardPlacedNoBoard").mockImplementation(
+      async (cb) => {
+        onCardPlacedNoBoardCb = cb;
         return () => {};
       },
     );
@@ -114,6 +122,19 @@ describe("useCardPlacedHandler", () => {
 
     expect(toast.default.error).toHaveBeenCalledWith(
       "デッキに登録されていないカードです",
+    );
+  });
+
+  it("shows error toast when no board event received", async () => {
+    const toast = await import("react-hot-toast");
+    renderHook(() => useCardPlacedHandler());
+
+    await act(async () => {
+      onCardPlacedNoBoardCb?.();
+    });
+
+    expect(toast.default.error).toHaveBeenCalledWith(
+      "ゲームが開始されていません",
     );
   });
 

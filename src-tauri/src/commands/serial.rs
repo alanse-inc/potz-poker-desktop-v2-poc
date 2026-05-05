@@ -14,8 +14,8 @@ use tauri::{AppHandle, State};
 use crate::domain::card_distribution::determine_next_card_position;
 #[cfg(not(test))]
 use crate::events::{
-    BOARD_UPDATED, CARD_PLACED, CARD_PLACED_REGISTER, CARD_PLACED_UNREGISTERED, DECK_UPDATED,
-    SERIAL_STATUS_UPDATED,
+    BOARD_UPDATED, CARD_PLACED, CARD_PLACED_NO_BOARD, CARD_PLACED_REGISTER,
+    CARD_PLACED_UNREGISTERED, DECK_UPDATED, SERIAL_STATUS_UPDATED,
 };
 #[cfg(not(test))]
 use parking_lot::Mutex;
@@ -70,6 +70,12 @@ pub struct CardPlacedUnregisteredPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardPlacedRegisterPayload {
+    pub rfid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardPlacedNoBoardPayload {
     pub rfid: String,
 }
 
@@ -432,7 +438,9 @@ fn process_rfid(app: &AppHandle, rfid: String) {
                 tracing::warn!("Cannot determine card position: {}", e);
             }
         },
-        RfidEvent::NoBoard => {}
+        RfidEvent::NoBoard => {
+            let _ = app.emit(CARD_PLACED_NO_BOARD, CardPlacedNoBoardPayload { rfid });
+        }
     }
 }
 

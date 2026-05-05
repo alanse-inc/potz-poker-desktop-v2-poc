@@ -274,6 +274,28 @@ describe("api.notifications", () => {
     expect(cb).toHaveBeenCalledWith(fakePayload);
   });
 
+  it("onCardPlacedNoBoard(cb) calls listen('card_placed_no_board', ...) and invokes cb with payload", async () => {
+    const cb = vi.fn();
+    const fakePayload = { rfid: "A1B2C3D4E5F678" };
+
+    let capturedHandler: ((e: { payload: unknown }) => void) | undefined;
+    vi.mocked(listen).mockImplementation(
+      async (_event, handler: (e: { payload: unknown }) => void) => {
+        capturedHandler = handler;
+        return () => {};
+      },
+    );
+
+    await api.notifications.onCardPlacedNoBoard(cb);
+    expect(listen).toHaveBeenCalledWith(
+      "card_placed_no_board",
+      expect.any(Function),
+    );
+
+    capturedHandler?.({ payload: fakePayload });
+    expect(cb).toHaveBeenCalledWith(fakePayload);
+  });
+
   it("onDeckUpdated(cb) calls listen('deck_updated', ...) and invokes cb with payload", async () => {
     const cb = vi.fn();
     const fakePayload = {

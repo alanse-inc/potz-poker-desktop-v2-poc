@@ -10,6 +10,8 @@ pub const CARD_PLACED: &str = "card_placed";
 pub const CARD_PLACED_UNREGISTERED: &str = "card_placed_unregistered";
 /// 登録モード中にカードが置かれたとき。
 pub const CARD_PLACED_REGISTER: &str = "card_placed_register";
+/// ゲーム未開始時にカードが置かれたとき。
+pub const CARD_PLACED_NO_BOARD: &str = "card_placed_no_board";
 /// シリアル接続状態が変わったとき。
 pub const SERIAL_STATUS_UPDATED: &str = "serial_status_updated";
 /// テロップ ID が変わったとき。

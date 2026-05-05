@@ -106,9 +106,25 @@ export function useCardPlacedHandler() {
         return;
       }
 
+      // ゲーム未開始時のカードスキャンを購読
+      const unlistenNoBoard = await api.notifications.onCardPlacedNoBoard(
+        () => {
+          toast.error("ゲームが開始されていません");
+        },
+      );
+
+      // onCardPlacedNoBoard 登録後にアンマウントされた場合は全部解除
+      if (cancelled) {
+        unlistenCardPlaced();
+        unlistenUnregistered();
+        unlistenNoBoard();
+        return;
+      }
+
       unlisten = () => {
         unlistenCardPlaced();
         unlistenUnregistered();
+        unlistenNoBoard();
       };
     };
 

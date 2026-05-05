@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Card,
+  CardPlacedNoBoardPayload,
   CardPlacedPayload,
   CardPlacedRegisterPayload,
   CardPlacedUnregisteredPayload,
@@ -114,6 +115,12 @@ export const api = {
       cb: (payload: CardPlacedRegisterPayload) => void,
     ): Promise<UnlistenFn> =>
       listen<CardPlacedRegisterPayload>("card_placed_register", (e) =>
+        cb(e.payload),
+      ),
+    onCardPlacedNoBoard: (
+      cb: (payload: CardPlacedNoBoardPayload) => void,
+    ): Promise<UnlistenFn> =>
+      listen<CardPlacedNoBoardPayload>("card_placed_no_board", (e) =>
         cb(e.payload),
       ),
     onDeckUpdated: (
