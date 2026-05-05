@@ -124,6 +124,10 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
   const [isLoadingGameTable, setIsLoadingGameTable] = useState(false);
   // useEffect deps に isLoadingGameTable を含めると再登録ループが起きるため ref で管理
   const isLoadingGameTableRef = useRef(false);
+  // useEffect deps に loadGameTable を含めると operator 変更のたびにリスナーが再登録されるため ref で管理
+  const loadGameTableRef = useRef<(tableId: string) => Promise<void>>(
+    async () => {},
+  );
   const [operatorError, setOperatorError] = useState<string | null>(null);
   const [gameTableError, setGameTableError] = useState<string | null>(null);
 
@@ -199,6 +203,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     },
     [operator],
   );
+  loadGameTableRef.current = loadGameTable;
 
   // Tauri の serial_status_updated イベントを購読してデバイス接続変化に対応
   useEffect(() => {
@@ -212,7 +217,8 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       if (status.connected && status.portName) {
         if (isLoadingGameTableRef.current) return;
         isLoadingGameTableRef.current = true;
-        loadGameTable(status.portName)
+        loadGameTableRef
+          .current(status.portName)
           .catch((error) => {
             console.error(
               "[OperatorContext] loadGameTable failed in serial_status_updated handler",
@@ -244,7 +250,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unlistenFn?.();
     };
-  }, [operator, loadGameTable]);
+  }, [operator]);
 
   // operator 取得済み + gameTable 未取得の間、定期的にデバイス接続を確認するポーリング
   useEffect(() => {
@@ -267,7 +273,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       try {
         const tableId = await fetchSerialStatus();
         if (tableId) {
-          await loadGameTable(tableId);
+          await loadGameTableRef.current(tableId);
         }
       } finally {
         isLoadingGameTableRef.current = false;
@@ -281,7 +287,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     return () => {
       clearInterval(intervalId);
     };
-  }, [operator, gameTable, loadGameTable]);
+  }, [operator, gameTable]);
 
   const value = useMemo(
     () => ({
