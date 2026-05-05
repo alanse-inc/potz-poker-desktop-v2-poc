@@ -265,8 +265,10 @@ describe("VoiceInputService – exponential backoff reconnect (BUG-S-2)", () => 
     vi.clearAllMocks();
   });
 
-  it("再接続遅延が指数バックオフで増加する", async () => {
+  it("再接続遅延が指数バックオフで増加する（同一接続内）", async () => {
     // RECONNECT_DELAY_MS=1000 として, attempt=0→1000ms, attempt=1→2000ms, attempt=2→4000ms
+    // onopen で reconnectAttempts=0 にリセットされるため、
+    // 指数バックオフは「open せずに連続切断」したときに有効になる
     const startPromise = service.start();
     await flushPromises();
     await startPromise;
@@ -284,9 +286,8 @@ describe("VoiceInputService – exponential backoff reconnect (BUG-S-2)", () => 
     vi.advanceTimersByTime(1);
     expect(MockWebSocket.instances.length).toBe(2);
 
-    // WS #1: open → 異常切断 → 再接続待ち (delay=2000ms, attempt=1 時)
+    // WS #1: open せずに異常切断 → reconnectAttempts=1 のまま → delay=2000ms
     const ws1 = MockWebSocket.instances[1];
-    ws1.simulateOpen();
     ws1.simulateAbnormalClose(1006);
 
     vi.advanceTimersByTime(1999);
@@ -295,9 +296,8 @@ describe("VoiceInputService – exponential backoff reconnect (BUG-S-2)", () => 
     vi.advanceTimersByTime(1);
     expect(MockWebSocket.instances.length).toBe(3);
 
-    // WS #2: open → 異常切断 → 再接続待ち (delay=4000ms, attempt=2 時)
+    // WS #2: open せずに異常切断 → reconnectAttempts=2 のまま → delay=4000ms
     const ws2 = MockWebSocket.instances[2];
-    ws2.simulateOpen();
     ws2.simulateAbnormalClose(1006);
 
     vi.advanceTimersByTime(3999);
@@ -315,21 +315,21 @@ describe("VoiceInputService – exponential backoff reconnect (BUG-S-2)", () => 
     await flushPromises();
     await startPromise;
 
-    // MAX_RECONNECT_ATTEMPTS=5 回、異常切断を繰り返す
-    for (let i = 0; i <= 5; i++) {
-      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
-      ws.simulateOpen();
-      ws.simulateAbnormalClose(1006);
+    // WS #0: open → 異常切断 (attempt=0→1)
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+    ws0.simulateAbnormalClose(1006);
 
-      if (i < 5) {
-        // まだ再接続試行中 → タイマーを全部進めて次の WS を作る
-        vi.runAllTimers();
-      }
+    // 以後 open せずに連続切断して reconnectAttempts を消費する
+    // attempt=1→2→3→4→5 と増やして MAX に達する
+    for (let i = 1; i <= 5; i++) {
+      vi.runAllTimers();
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws.simulateAbnormalClose(1006);
     }
 
-    // 6 回目の異常切断（MAX=5 を超えた）後は再接続なし
+    // MAX=5 を超えた後は再接続なし
     expect(service.status).toBe("error");
-    // エラーメッセージが発行されていることを確認
     const lastStatus = statusEvents[statusEvents.length - 1];
     expect(lastStatus).toBe("error");
   });
@@ -346,19 +346,82 @@ describe("VoiceInputService – exponential backoff reconnect (BUG-S-2)", () => 
     await flushPromises();
     await startPromise;
 
-    // 5 回再接続を試みて使い切る
-    for (let i = 0; i <= 5; i++) {
+    // WS #0: open → 異常切断 (attempt=0→1)
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+    ws0.simulateAbnormalClose(1006);
+
+    // open せずに連続切断して reconnectAttempts を MAX まで消費する
+    for (let i = 1; i <= 5; i++) {
+      vi.runAllTimers();
       const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
-      ws.simulateOpen();
       ws.simulateAbnormalClose(1006);
-      if (i < 5) {
-        vi.runAllTimers();
-      }
     }
 
     // 最後のエラーイベントには再接続上限メッセージが含まれること
     expect(errorMessages.length).toBeGreaterThan(0);
     const lastMsg = errorMessages[errorMessages.length - 1];
     expect(lastMsg).toContain("再接続上限");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconnectAttempts のリセット (Bug 7)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – reconnectAttempts reset on open (Bug 7)", () => {
+  let service: VoiceInputService;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    setupAudioContextMock();
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("接続成功後に reconnectAttempts が 0 にリセットされ、再切断時も最初から指数バックオフが始まる", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    // WS #0: open → 異常切断 → 1000ms で再接続
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+    ws0.simulateAbnormalClose(1006);
+    vi.advanceTimersByTime(1000);
+
+    // WS #1: open → reconnectAttempts が 0 にリセットされているはず
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws1 = MockWebSocket.instances[1];
+    ws1.simulateOpen();
+
+    // 再度異常切断 → attempts が 0 に戻っているので delay は 1000ms になるはず
+    ws1.simulateAbnormalClose(1006);
+
+    // 999ms では再接続しない
+    vi.advanceTimersByTime(999);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    // 1000ms で再接続する (0 リセットされているので delay = 1000ms)
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances.length).toBe(3);
   });
 });

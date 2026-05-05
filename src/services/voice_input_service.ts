@@ -370,6 +370,7 @@ export class VoiceInputService {
     this.ws = ws;
 
     ws.onopen = () => {
+      this.reconnectAttempts = 0;
       this.emitStatus("listening");
       this.setupAudioProcessor(stream);
       this.startKeepAlive();
