@@ -120,13 +120,20 @@ describe("useVoiceCommandQueue", () => {
   });
 
   describe("enqueue / processNext", () => {
-    it("isProcessing 中は二重処理しない", async () => {
+    it("キューに積まれたコマンドは順次処理される（ボード更新あり）", async () => {
       const board = buildMockBoard();
       const boardRef = { current: board };
 
       const { result } = renderHook(() =>
         useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
       );
+
+      // call 実行後にボードを更新することで waitForBoardUpdate を成功させる
+      vi.mocked(api.action.call).mockImplementation(async () => {
+        const newBoard = buildMockBoard({ handNumber: board.handNumber + 1 });
+        boardRef.current = newBoard;
+        return newBoard;
+      });
 
       result.current.enqueue(buildCommand({ action: "call" }));
       result.current.enqueue(buildCommand({ action: "call" }));
@@ -584,6 +591,82 @@ describe("useVoiceCommandQueue", () => {
         "listening",
         expect.stringContaining("SB ポジションのプレイヤーが見つかりません"),
       );
+    });
+  });
+
+  describe("handleNormalAction - waitForBoardUpdate タイムアウト", () => {
+    it("waitForBoardUpdate がタイムアウト（false）した場合、キューを中断し後続コマンドを実行しない", async () => {
+      const board = buildMockBoard();
+      // boardRef.current を変更しないことで waitForBoardUpdate をタイムアウトさせる
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // call の後に fold をキュー。waitForBoardUpdate がタイムアウトすれば fold は実行されない
+      result.current.enqueue(buildCommand({ action: "call" }));
+      result.current.enqueue(buildCommand({ action: "fold" }));
+
+      await vi.runAllTimersAsync();
+
+      expect(api.action.call).toHaveBeenCalledTimes(1);
+      expect(api.action.fold).not.toHaveBeenCalled();
+      expect(mockVoiceInputService.emitStatusPublic).toHaveBeenCalledWith(
+        "listening",
+        expect.stringContaining(
+          "ボード更新タイムアウトのためキューを中断しました",
+        ),
+      );
+    });
+
+    it("waitForBoardUpdate がタイムアウトした場合、warnVoiceAction（toast.error）が呼ばれる", async () => {
+      const { default: toast } = await import("react-hot-toast");
+      const toastErrorSpy = vi.spyOn(toast, "error");
+
+      const board = buildMockBoard();
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      result.current.enqueue(buildCommand({ action: "call" }));
+
+      await vi.runAllTimersAsync();
+
+      expect(toastErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "ボード更新タイムアウトのためキューを中断しました",
+        ),
+      );
+
+      toastErrorSpy.mockRestore();
+    });
+
+    it("waitForBoardUpdate が成功（true）した場合、キューは継続される", async () => {
+      const board = buildMockBoard();
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // enqueue 前に mockImplementation を設定し、call 実行後にボードを更新して
+      // waitForBoardUpdate を成功させる
+      vi.mocked(api.action.call).mockImplementation(async () => {
+        const newBoard = buildMockBoard({ handNumber: 2 });
+        boardRef.current = newBoard;
+        return newBoard;
+      });
+
+      result.current.enqueue(buildCommand({ action: "call" }));
+      result.current.enqueue(buildCommand({ action: "fold" }));
+
+      await vi.runAllTimersAsync();
+
+      expect(api.action.call).toHaveBeenCalledTimes(1);
+      expect(api.action.fold).toHaveBeenCalledTimes(1);
     });
   });
 

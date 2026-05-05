@@ -524,7 +524,11 @@ export function useVoiceCommandQueue(
           timestamp: command.timestamp,
           processingTime: command.processingTime,
         });
-        await waitForBoardUpdate(currentBoard);
+        const boardUpdated = await waitForBoardUpdate(currentBoard);
+        if (!boardUpdated) {
+          warnVoiceAction("ボード更新タイムアウトのためキューを中断しました");
+          return BREAK_QUEUE;
+        }
         await sleep(POST_ACTION_SETTLE_MS);
       }
       return CONTINUE_QUEUE;
