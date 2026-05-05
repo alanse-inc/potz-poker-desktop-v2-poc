@@ -434,7 +434,10 @@ impl TexasHoldemBoard {
                 .iter()
                 .filter(|&&ti| ti > prev_threshold)
                 .count() as u32;
-            let pot_amount = level_amount.saturating_mul(contributors).saturating_add(carry_over);
+            let pot_amount = ((level_amount as u64)
+                .saturating_mul(contributors as u64)
+                .saturating_add(carry_over as u64))
+            .min(u32::MAX as u64) as u32;
 
             // このポットの勝者候補: total_invested >= threshold かつ has_folded でない
             let eligible_for_pot: Vec<usize> = (0..self.players.len())
