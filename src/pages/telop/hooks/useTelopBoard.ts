@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../api/client";
 import type { TexasHoldemBoard } from "../../../types";
 
@@ -8,28 +8,46 @@ import type { TexasHoldemBoard } from "../../../types";
  */
 export function useTelopBoard() {
   const [board, setBoard] = useState<TexasHoldemBoard | null>(null);
+  const initialLoadedRef = useRef(false);
 
   useEffect(() => {
-    // 初期ボード取得
-    api.board
-      .getBoard()
-      .then(setBoard)
-      .catch(() => {
-        // board が null の場合はモック表示になる
-      });
+    let cancelled = false;
+    let unlistenBoard: (() => void) | undefined;
 
-    let unlistenBoard: (() => void) | null = null;
-
+    // リスナーを先に登録し、getBoard 完了後にのみイベントを反映する
     api.notifications
       .onBoardUpdated((updated) => {
-        setBoard(updated ?? null);
+        if (!cancelled && initialLoadedRef.current) {
+          setBoard(updated ?? null);
+        }
       })
       .then((fn) => {
-        unlistenBoard = fn;
+        if (cancelled) {
+          fn();
+        } else {
+          unlistenBoard = fn;
+        }
       })
       .catch(() => {});
 
+    // 初期ボード取得し、完了後にリスナーを有効化
+    api.board
+      .getBoard()
+      .then((b) => {
+        if (!cancelled) {
+          setBoard(b);
+          initialLoadedRef.current = true;
+        }
+      })
+      .catch(() => {
+        // board が null の場合はモック表示になる
+        if (!cancelled) {
+          initialLoadedRef.current = true;
+        }
+      });
+
     return () => {
+      cancelled = true;
       unlistenBoard?.();
     };
   }, []);
