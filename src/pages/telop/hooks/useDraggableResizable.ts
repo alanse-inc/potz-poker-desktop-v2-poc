@@ -50,6 +50,7 @@ export function useDraggableResizable(config: DraggableResizableConfig) {
   const sizeHistoryRef = useRef<
     Array<{ width: number; height: number; timestamp: number }>
   >([]);
+  const sizeRef = useRef<{ width: number; height: number }>(config.initialSize);
 
   useEffect(() => {
     if (config.delayAutoSize && !isAutoSizeEnabled) {
@@ -118,8 +119,8 @@ export function useDraggableResizable(config: DraggableResizableConfig) {
     const threshold = recentHistory.length > 3 ? 5 : 2;
 
     if (
-      Math.abs(newWidth - size.width) > threshold ||
-      Math.abs(newHeight - size.height) > threshold
+      Math.abs(newWidth - sizeRef.current.width) > threshold ||
+      Math.abs(newHeight - sizeRef.current.height) > threshold
     ) {
       sizeHistoryRef.current.push({
         width: newWidth,
@@ -128,14 +129,14 @@ export function useDraggableResizable(config: DraggableResizableConfig) {
       });
       sizeHistoryRef.current = sizeHistoryRef.current.slice(-10);
 
-      rndRef.current.updateSize({ width: newWidth, height: newHeight });
-      setSize({ width: newWidth, height: newHeight });
+      const newSize = { width: newWidth, height: newHeight };
+      sizeRef.current = newSize;
+      rndRef.current.updateSize(newSize);
+      setSize(newSize);
     }
   }, [
     config.minWidth,
     config.minHeight,
-    size.width,
-    size.height,
     scale,
     findContentElement,
   ]);
@@ -267,6 +268,7 @@ export function useDraggableResizable(config: DraggableResizableConfig) {
         setScale(newScale);
       }
 
+      sizeRef.current = newSize;
       setSize(newSize);
 
       if (config.autoSizeToContent) {
@@ -299,6 +301,7 @@ export function useDraggableResizable(config: DraggableResizableConfig) {
         rndRef.current.updateSize(newSize);
       }
 
+      sizeRef.current = newSize;
       setScale(clampedScale);
       setSize(newSize);
     },

@@ -205,6 +205,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     if (!operator) return;
 
     let unlistenFn: (() => void) | null = null;
+    let cancelled = false;
 
     listen<SerialStatus>("serial_status_updated", (event) => {
       const status = event.payload;
@@ -226,6 +227,10 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       }
     })
       .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
         unlistenFn = fn;
       })
       .catch((error) => {
@@ -236,6 +241,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       });
 
     return () => {
+      cancelled = true;
       unlistenFn?.();
     };
   }, [operator, loadGameTable]);
