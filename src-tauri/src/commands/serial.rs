@@ -344,6 +344,9 @@ fn read_loop(
                 continue;
             }
         }
+        if debounce_map.len() > 200 {
+            debounce_map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(60));
+        }
         debounce_map.insert(rfid.clone(), now);
 
         // イベント分類
