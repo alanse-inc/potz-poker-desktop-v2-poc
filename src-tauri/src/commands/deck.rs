@@ -49,7 +49,8 @@ pub async fn save_deck(
     if deck.id.is_empty() {
         deck.id = generate_id();
     }
-    {
+    #[cfg_attr(test, allow(unused))]
+    let emit_payload = {
         let mut guard = state.lock();
         if let Some(existing) = guard.decks.iter_mut().find(|d| d.id == deck.id) {
             *existing = deck.clone();
@@ -59,13 +60,11 @@ pub async fn save_deck(
         if guard.current_deck_id.is_none() {
             guard.current_deck_id = Some(deck.id.clone());
         }
-    }
+        guard.current_deck().cloned().unwrap_or_default()
+    };
     persist_decks(&app, &state).await?;
     #[cfg(not(test))]
-    let _ = app.emit(
-        DECK_UPDATED,
-        state.lock().current_deck().cloned().unwrap_or_default(),
-    );
+    let _ = app.emit(DECK_UPDATED, emit_payload);
     Ok(deck)
 }
 
@@ -85,19 +84,18 @@ pub async fn delete_deck(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
-    {
+    #[cfg_attr(test, allow(unused))]
+    let emit_payload = {
         let mut guard = state.lock();
         guard.decks.retain(|d| d.id != args.id);
         if guard.current_deck_id.as_deref() == Some(args.id.as_str()) {
             guard.current_deck_id = guard.decks.first().map(|d| d.id.clone());
         }
-    }
+        guard.current_deck().cloned().unwrap_or_default()
+    };
     persist_decks(&app, &state).await?;
     #[cfg(not(test))]
-    let _ = app.emit(
-        DECK_UPDATED,
-        state.lock().current_deck().cloned().unwrap_or_default(),
-    );
+    let _ = app.emit(DECK_UPDATED, emit_payload);
     Ok(())
 }
 
@@ -107,20 +105,19 @@ pub async fn choose_deck(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
-    {
+    #[cfg_attr(test, allow(unused))]
+    let emit_payload = {
         let mut guard = state.lock();
         let exists = guard.decks.iter().any(|d| d.id == args.id);
         if !exists {
             return Err(format!("deck {} not found", args.id));
         }
         guard.current_deck_id = Some(args.id);
-    }
+        guard.current_deck().cloned().unwrap_or_default()
+    };
     persist_decks(&app, &state).await?;
     #[cfg(not(test))]
-    let _ = app.emit(
-        DECK_UPDATED,
-        state.lock().current_deck().cloned().unwrap_or_default(),
-    );
+    let _ = app.emit(DECK_UPDATED, emit_payload);
     Ok(())
 }
 
