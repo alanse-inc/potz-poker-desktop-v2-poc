@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { api } from "../../../../../api/client";
 import { SmallCard } from "../../../../../features/card/face/small_size";
@@ -39,6 +39,11 @@ function isSameCard(a: Card, b: Card): boolean {
   return a.suit === b.suit && a.value === b.value;
 }
 
+/** カードを一意に識別する文字列キーを返す */
+function cardKey(card: Card): string {
+  return `${card.suit}-${card.value}`;
+}
+
 /** 全52枚のカードを生成する */
 function allCards(): Card[] {
   const cards: Card[] = [];
@@ -53,6 +58,14 @@ function allCards(): Card[] {
 export function SelectExposeCardModal({ onClose, onConfirmed }: Props) {
   const [selected, setSelected] = useState<Card | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** 残デッキのカードキー Set。null は未ロード状態（全カード選択可能として扱う） */
+  const [remainingKeys, setRemainingKeys] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    api.board.getRemainingDeck().then((remaining) => {
+      setRemainingKeys(new Set(remaining.map(cardKey)));
+    });
+  }, []);
 
   const cards = allCards();
 
@@ -94,18 +107,28 @@ export function SelectExposeCardModal({ onClose, onConfirmed }: Props) {
                   {suitCards.map((card) => {
                     const isSelected =
                       selected !== null && isSameCard(card, selected);
+                    /** 残デッキがロード済みで、かつこのカードが含まれていない場合は使用済み */
+                    const isUsed =
+                      remainingKeys !== null &&
+                      !remainingKeys.has(cardKey(card));
                     return (
                       <div
                         key={`${card.suit}-${card.value}`}
                         className={`rounded transition-all duration-75 ${
-                          isSelected
-                            ? "scale-110 ring-2 ring-primary"
-                            : "opacity-80 hover:opacity-100"
+                          isUsed
+                            ? "cursor-not-allowed opacity-25"
+                            : isSelected
+                              ? "scale-110 ring-2 ring-primary"
+                              : "opacity-80 hover:opacity-100"
                         }`}
                       >
                         <SmallCard
                           card={card}
-                          onClick={() => setSelected(isSelected ? null : card)}
+                          onClick={
+                            isUsed
+                              ? undefined
+                              : () => setSelected(isSelected ? null : card)
+                          }
                         />
                       </div>
                     );

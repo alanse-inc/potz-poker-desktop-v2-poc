@@ -7,6 +7,9 @@ import { SelectExposeCardModal } from "./index";
 // api/client をモック
 vi.mock("../../../../../api/client", () => ({
   api: {
+    board: {
+      getRemainingDeck: vi.fn(),
+    },
     action: {
       expose: vi.fn(),
     },
@@ -45,6 +48,28 @@ describe("SelectExposeCardModal", () => {
   beforeEach(() => {
     onClose.mockReset();
     onConfirmed.mockReset();
+    // デフォルトは全52枚が残デッキ（使用済みカードなし）
+    vi.mocked(api.board.getRemainingDeck).mockResolvedValue(
+      (["spade", "heart", "diamond", "club"] as const).flatMap((suit) =>
+        (
+          [
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "T",
+            "J",
+            "Q",
+            "K",
+            "A",
+          ] as const
+        ).map((value) => ({ suit, value })),
+      ),
+    );
     vi.mocked(api.action.expose).mockResolvedValue({
       suit: "spade",
       value: "A",
