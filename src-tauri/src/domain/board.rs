@@ -511,13 +511,19 @@ impl TexasHoldemBoard {
             prev_threshold = threshold;
         }
 
-        // total_invested が 0 のプレイヤーがポットに入れていない場合など、
-        // 端数が残っていたら dealer-left の最初の非フォールドプレイヤーに渡す。
+        // 端数が残っていたら dealer-left かつ勝者のプレイヤーに渡す。
+        // 勝者がいない場合は dealer-left の最初の非フォールドプレイヤーに渡す。
         let undistributed = total_pot_before.saturating_sub(distributed);
         if undistributed > 0 {
-            let mut leftover_candidates: Vec<usize> = (0..self.players.len())
-                .filter(|&i| !self.players[i].has_folded)
-                .collect();
+            let mut leftover_candidates: Vec<usize> = if !all_winner_positions.is_empty() {
+                (0..self.players.len())
+                    .filter(|&i| all_winner_positions.contains(&self.players[i].position))
+                    .collect()
+            } else {
+                (0..self.players.len())
+                    .filter(|&i| !self.players[i].has_folded)
+                    .collect()
+            };
             leftover_candidates.sort_by_key(|&i| dealer_left_key(i));
             if let Some(&widx) = leftover_candidates.first() {
                 self.players[widx].stack += undistributed;
@@ -3364,6 +3370,130 @@ mod tests {
             total_after, total_before,
             "total chips must be preserved with bb_ante and sidepot"
         );
+    }
+
+    // ================================================================
+    // Bug 7 (resolve_showdown undistributed): 勝者に端数を渡す
+    // ================================================================
+
+    /// undistributed が発生したとき dealer-left の非フォールドではなく
+    /// 勝者 (all_winner_positions) に端数が渡ること。
+    ///
+    /// シナリオ: dealer=0, 3 人。p0=winner(non-folded), p1=non-folded(loser), p2=folded。
+    /// dealer-left 順は p1→p2→p0 なので修正前は p1 が端数を受け取っていた。
+    /// pots.sum()=110 > total_invested.sum()=100 で undistributed=10 を人工的に生成。
+    #[test]
+    fn resolve_showdown_undistributed_goes_to_winner_not_dealer_left_loser() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_winner: [Card; 2] = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::King,
+            },
+        ];
+        let hand_loser: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Three,
+            },
+        ];
+        let community = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Jack,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ten,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Five,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Six,
+            },
+        ];
+        // dealer=0 → dealer-left 順は p1→p2→p0
+        // p0: winner (手役最強), p1: loser (non-folded), p2: folded
+        // total_invested: p0=100, p1=0, p2=0 → sum=100
+        // pots[0].amount=110 → undistributed=10
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            // p1 が current_turn で check すると is_round_complete → advance_phase → Showdown
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "Winner".into(),
+                    stack: 0,
+                    hand: Some(hand_winner),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "Loser".into(),
+                    stack: 500,
+                    hand: Some(hand_loser),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: false,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 2,
+                    name: "Folded".into(),
+                    stack: 500,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: true,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 110 }],
+            phase: Phase::River,
+            winners: vec![],
+        };
+        // p1 が check → is_round_complete → advance_phase → Showdown → resolve_showdown
+        let mut deck = Vec::new();
+        board_check(&mut board, &mut deck).unwrap();
+
+        assert_eq!(board.phase, Phase::Showdown);
+        let winner = &board.players[0]; // p0 = Winner
+        let loser = &board.players[1]; // p1 = Loser
+        // p0 が pot 100 + undistributed 10 = 110 を受け取るべき
+        assert_eq!(
+            winner.stack, 110,
+            "winner should receive distributed 100 + undistributed 10"
+        );
+        // p1 は端数を受け取らない
+        assert_eq!(loser.stack, 500, "loser should not receive undistributed");
     }
 
     // ================================================================
