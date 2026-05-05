@@ -702,6 +702,14 @@ fn start_game_with_stacks(
         0
     };
 
+    // SB/BB 以外でスタックが 0 のプレイヤーも is_all_in=true にする。
+    // ブラインド徴収後に処理するため SB/BB は既に設定済み。
+    for p in &mut players {
+        if p.stack == 0 {
+            p.is_all_in = true;
+        }
+    }
+
     let current_bet = bb_amount;
 
     let utg_pos = if n <= 2 {
@@ -3984,5 +3992,35 @@ mod tests {
         let result = board_fold(&mut board, &mut deck);
         assert!(result.is_ok(), "non-allin player should be able to fold");
         assert!(board.players[0].has_folded);
+    }
+
+    // ================================================================
+    // Bug 1 fix: start_game でスタック 0 の全プレイヤーを is_all_in=true に設定
+    // ================================================================
+
+    /// 4 人ゲームで dealer=3, SB=0, BB=1, Player[2] が stack=0 → is_all_in=true になること。
+    #[test]
+    fn start_game_non_sb_bb_with_zero_stack_is_allin() {
+        let settings = GameSettings {
+            small_blind: 100,
+            big_blind: 200,
+            min_chip: 100,
+            bb_ante: false,
+        };
+        let names = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+        // dealer=3, SB=0(stack=1000), BB=1(stack=1000), P2(stack=0), P3=dealer(stack=1000)
+        let stacks = vec![1000u32, 1000, 0, 1000];
+        let board = start_game_with_stacks(settings, names, stacks, 1, 3, 0, 1).unwrap();
+
+        // P2 (position=2) は SB/BB ではないが stack=0 なので is_all_in=true
+        assert!(
+            board.players[2].is_all_in,
+            "player with stack=0 (non-SB/BB) must be is_all_in=true"
+        );
+        // SB/BB は正常
+        assert_eq!(board.players[0].bet_in_round, 100); // SB
+        assert_eq!(board.players[1].bet_in_round, 200); // BB
+                                                        // P3 (dealer) は stack>0 なので is_all_in=false
+        assert!(!board.players[3].is_all_in);
     }
 }
