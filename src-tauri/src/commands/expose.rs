@@ -2,8 +2,9 @@
 
 use crate::domain::board::TexasHoldemBoard;
 use crate::domain::card::Card;
+use crate::error::BoardError;
 use crate::events::BOARD_UPDATED;
-use crate::state::AppState;
+use crate::state::{AppState, MAX_HISTORY};
 use tauri::{AppHandle, Emitter, State};
 
 /// Expose コマンド。
@@ -13,12 +14,49 @@ use tauri::{AppHandle, Emitter, State};
 pub fn expose(app: AppHandle, expose_card: Card, state: State<AppState>) -> Result<Card, String> {
     let (burn_card, board_snapshot): (Card, TexasHoldemBoard) = {
         let mut guard = state.lock();
-        let burn_card = guard.burn_card.ok_or_else(|| "no burn card".to_string())?;
+
+        // snapshot を history に保存（action.rs の run_action パターンに倣う）
         {
-            let board = guard.board.as_mut().ok_or_else(|| "no board".to_string())?;
-            crate::domain::board::board_expose(board, expose_card, burn_card)
-                .map_err(|e| e.to_string())?;
+            let board_snap = guard
+                .board
+                .as_ref()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?
+                .clone();
+            let deck_snap = guard.deck.clone();
+            let burn_count_snap = guard.burn_count;
+            let burn_card_snap = guard.burn_card;
+            guard
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if guard.history.len() > MAX_HISTORY {
+                let excess = guard.history.len() - MAX_HISTORY;
+                guard.history.drain(0..excess);
+            }
         }
+
+        let burn_card = guard.burn_card.ok_or_else(|| "no burn card".to_string());
+        let burn_card = match burn_card {
+            Ok(c) => c,
+            Err(e) => {
+                guard.history.pop(); // エラー時はスナップショットをロールバック
+                return Err(e);
+            }
+        };
+
+        let expose_result = {
+            let board = guard.board.as_mut().ok_or_else(|| "no board".to_string());
+            match board {
+                Ok(board) => crate::domain::board::board_expose(board, expose_card, burn_card)
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            }
+        };
+
+        if let Err(e) = expose_result {
+            guard.history.pop(); // エラー時はスナップショットをロールバック
+            return Err(e);
+        }
+
         guard.deck.retain(|c| c != &burn_card && c != &expose_card);
         let board_snapshot = guard.board.clone().ok_or_else(|| "no board".to_string())?;
         (burn_card, board_snapshot)
@@ -121,6 +159,80 @@ mod tests {
         assert!(
             state.deck.len() < deck_len_before,
             "deck length should decrease after expose"
+        );
+    }
+
+    // ================================================================
+    // Bug 4 fix: expose が history に保存し back_board で undo できること
+    // ================================================================
+
+    /// expose 相当の処理で history に snapshot が push されること、および
+    /// back_board 相当の処理で community_cards が空に戻ることを確認。
+    #[test]
+    fn expose_pushes_to_history_and_back_board_restores() {
+        use crate::state::MAX_HISTORY;
+
+        let mut state = make_state_with_board();
+        let burn_card = Card::new(Suit::Diamond, CardValue::Two);
+        if !state.deck.contains(&burn_card) {
+            state.deck.push(burn_card);
+        }
+        state.burn_card = Some(burn_card);
+
+        let expose_card = state
+            .deck
+            .iter()
+            .rev()
+            .find(|&&c| c != burn_card)
+            .copied()
+            .expect("deck should have a card different from burn_card");
+
+        // expose コマンドと同じ history push パターン
+        {
+            let board_snap = state.board.as_ref().unwrap().clone();
+            let deck_snap = state.deck.clone();
+            let burn_count_snap = state.burn_count;
+            let burn_card_snap = state.burn_card;
+            state
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if state.history.len() > MAX_HISTORY {
+                let excess = state.history.len() - MAX_HISTORY;
+                state.history.drain(0..excess);
+            }
+        }
+
+        {
+            let board = state.board.as_mut().unwrap();
+            board_expose(board, expose_card, burn_card).unwrap();
+        }
+        state.deck.retain(|c| c != &burn_card && c != &expose_card);
+
+        // expose 後 community_cards に 1 枚追加されている
+        assert_eq!(state.board.as_ref().unwrap().community_cards.len(), 1);
+        assert_eq!(state.history.len(), 1);
+
+        // back_board 相当の処理で community_cards が空に戻る
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = state.history.pop().unwrap();
+        state.board = Some(prev_board);
+        state.deck = prev_deck;
+        state.burn_count = prev_burn_count;
+        state.burn_card = prev_burn_card;
+
+        assert_eq!(
+            state.board.as_ref().unwrap().community_cards.len(),
+            0,
+            "community_cards should be restored to empty after back_board"
+        );
+        assert!(state.history.is_empty());
+        // deck に expose_card と burn_card が戻っている
+        assert!(
+            state.deck.contains(&expose_card),
+            "expose_card should be restored to deck"
+        );
+        assert!(
+            state.deck.contains(&burn_card),
+            "burn_card should be restored to deck"
         );
     }
 }
