@@ -65,6 +65,7 @@ export const api = {
   telop: {
     open: () => invoke<void>("open_telop_window"),
     close: () => invoke<void>("close_telop_window"),
+    isOpen: () => invoke<boolean>("is_telop_window_open"),
     setMessage: (message: string) =>
       invoke<void>("set_telop_message", { message }),
     setColor: (color: string) => invoke<void>("set_telop_color", { color }),

@@ -14,6 +14,8 @@ vi.mock("../../../api/client", () => ({
       setMessage: vi.fn(),
       setColor: vi.fn(),
       open: vi.fn(),
+      close: vi.fn(),
+      isOpen: vi.fn(),
     },
   },
 }));
@@ -46,6 +48,8 @@ describe("TelopSettings", () => {
     vi.mocked(api.telop.setMessage).mockResolvedValue(undefined);
     vi.mocked(api.telop.setColor).mockResolvedValue(undefined);
     vi.mocked(api.telop.open).mockResolvedValue(undefined);
+    vi.mocked(api.telop.close).mockResolvedValue(undefined);
+    vi.mocked(api.telop.isOpen).mockResolvedValue(false);
     mockNavigate.mockReset();
   });
 
@@ -171,6 +175,47 @@ describe("TelopSettings", () => {
 
     await waitFor(() => {
       expect(api.telop.open).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("マウント時に api.telop.isOpen() が呼ばれ isOpen が初期化される", async () => {
+    vi.mocked(api.telop.isOpen).mockResolvedValue(false);
+    renderTelopSettings();
+
+    await waitFor(() => {
+      expect(api.telop.isOpen).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("テロップウィンドウを開く")).toBeInTheDocument();
+  });
+
+  it("isOpen が true のとき「テロップウィンドウを閉じる」ボタンが表示される", async () => {
+    vi.mocked(api.telop.isOpen).mockResolvedValue(true);
+    renderTelopSettings();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("テロップウィンドウを閉じる"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("ウィンドウが開いているときボタンをクリックすると api.telop.close() が呼ばれる", async () => {
+    vi.mocked(api.telop.isOpen).mockResolvedValue(true);
+    const user = userEvent.setup();
+    renderTelopSettings();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("テロップウィンドウを閉じる"),
+      ).toBeInTheDocument();
+    });
+
+    const closeButton = screen.getByText("テロップウィンドウを閉じる");
+    await user.click(closeButton);
+
+    await waitFor(() => {
+      expect(api.telop.close).toHaveBeenCalledTimes(1);
     });
   });
 

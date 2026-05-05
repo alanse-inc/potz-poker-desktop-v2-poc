@@ -23,6 +23,15 @@ export function TelopSettings() {
       .catch(() => {
         // ignore
       });
+
+    api.telop
+      .isOpen()
+      .then((open) => {
+        setIsOpen(open);
+      })
+      .catch(() => {
+        // ignore
+      });
   }, []);
 
   const handleApply = async () => {

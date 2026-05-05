@@ -37,6 +37,11 @@ pub fn close_telop_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn is_telop_window_open(app: AppHandle) -> bool {
+    app.get_webview_window(TELOP_LABEL).is_some()
+}
+
+#[tauri::command]
 pub fn set_telop_message(
     app: AppHandle,
     state: State<'_, AppState>,

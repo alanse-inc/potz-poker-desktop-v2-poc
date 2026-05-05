@@ -24,8 +24,9 @@ use commands::settings::{load_game_settings, save_game_settings};
 use commands::table_name::{get_table_name, set_table_name};
 use commands::telop::{
     close_telop_window, get_telop_background_color, get_telop_current_screen, get_telop_id,
-    get_telop_state, load_telop_settings_from_store, open_telop_window, set_telop_background_color,
-    set_telop_color, set_telop_current_screen, set_telop_id, set_telop_message,
+    get_telop_state, is_telop_window_open, load_telop_settings_from_store, open_telop_window,
+    set_telop_background_color, set_telop_color, set_telop_current_screen, set_telop_id,
+    set_telop_message,
 };
 use state::{AppState, InnerState};
 use tauri::Manager;
@@ -67,6 +68,7 @@ pub fn run() {
             // telop
             open_telop_window,
             close_telop_window,
+            is_telop_window_open,
             set_telop_message,
             set_telop_color,
             get_telop_state,
