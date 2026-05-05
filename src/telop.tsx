@@ -2,6 +2,7 @@ import "./css/index.css";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api/client";
+import { AutoBoardProvider } from "./contexts/auto_board_context";
 import { TelopPage } from "./pages/telop";
 import type { TelopState } from "./types";
 
@@ -35,7 +36,9 @@ function TelopApp() {
         className="h-screen w-screen"
         style={{ backgroundColor: state.color || "transparent" }}
       >
-        <TelopPage />
+        <AutoBoardProvider>
+          <TelopPage />
+        </AutoBoardProvider>
       </div>
     );
   }
