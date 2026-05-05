@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
+import { api } from "../../../../api/client";
 import { useAutoBoard } from "../../../../contexts/auto_board_context";
 import { useTelop } from "../../../../contexts/telop_context";
 import type { AutoModeBoard } from "../../../../domain/auto_game/types";
@@ -153,7 +154,13 @@ export function useGameActions() {
 
   const handleCaptionWindowToggle = useCallback(async () => {
     try {
-      setIsOpen(!isOpen);
+      if (isOpen) {
+        await api.telop.close();
+        setIsOpen(false);
+      } else {
+        await api.telop.open();
+        setIsOpen(true);
+      }
     } catch (error) {
       trackClientSideError(
         "[AutoGamePlaying] Failed to toggle caption window",
