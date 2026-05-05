@@ -558,6 +558,50 @@ describe("GamePlaying", () => {
     });
   });
 
+  describe("addPlayer ボタンの disabled ロジック", () => {
+    const makePlayers = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        position: i,
+        name: `Player${i + 1}`,
+        stack: 10000,
+        hand: null,
+        betInRound: 0,
+        hasFolded: false,
+        isAllIn: false,
+        hasActed: false,
+      }));
+
+    it("showdown かつプレイヤーが 9 人のとき addPlayer ボタンは有効", () => {
+      mockBoard = makeBoard({
+        phase: "showdown",
+        players: makePlayers(9),
+      });
+      renderGamePlaying();
+
+      expect(screen.getByTestId("btn-add-player")).not.toBeDisabled();
+    });
+
+    it("showdown かつプレイヤーが 10 人のとき addPlayer ボタンは disabled", () => {
+      mockBoard = makeBoard({
+        phase: "showdown",
+        players: makePlayers(10),
+      });
+      renderGamePlaying();
+
+      expect(screen.getByTestId("btn-add-player")).toBeDisabled();
+    });
+
+    it("showdown でないとき addPlayer ボタンは disabled", () => {
+      mockBoard = makeBoard({
+        phase: "pre_flop",
+        players: makePlayers(2),
+      });
+      renderGamePlaying();
+
+      expect(screen.getByTestId("btn-add-player")).toBeDisabled();
+    });
+  });
+
   describe("BACK / RESET", () => {
     it("BACK ボタンをクリックすると api.board.backBoard() が呼ばれる", async () => {
       const user = userEvent.setup();
