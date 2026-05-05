@@ -16,6 +16,8 @@ pub const MAX_HISTORY: usize = 50;
 pub struct TelopState {
     pub message: String,
     pub color: String,
+    /// テロップ表示テンプレート種別 ("modern" / "classic" / "broadcast" / "basic")。
+    pub mode: String,
 }
 
 pub struct InnerState {
@@ -55,6 +57,7 @@ impl InnerState {
         TelopState {
             message: self.telop_message.clone(),
             color: self.telop_color.clone(),
+            mode: self.telop_id.clone(),
         }
     }
 
@@ -101,6 +104,21 @@ pub type AppState = Mutex<InnerState>;
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn telop_state_includes_mode_from_telop_id() {
+        let state = InnerState::default();
+        let telop_state = state.telop_state();
+        assert_eq!(telop_state.mode, "modern");
+    }
+
+    #[test]
+    fn telop_state_mode_reflects_changed_telop_id() {
+        let mut state = InnerState::default();
+        state.telop_id = "classic".to_string();
+        let telop_state = state.telop_state();
+        assert_eq!(telop_state.mode, "classic");
+    }
 
     #[test]
     fn concurrent_access_does_not_panic() {
