@@ -1004,8 +1004,8 @@ pub fn board_raise(
         )));
     }
     // min raise validation: to >= current_bet + last_raise_size（all-in 例外あり）
+    let min_raise_to = board.current_bet.saturating_add(board.last_raise_size);
     {
-        let min_raise_to = board.current_bet.saturating_add(board.last_raise_size);
         let p_idx = board
             .current_player_idx()
             .ok_or_else(|| BoardError::InvalidAction("current player not found".into()))?;
@@ -1019,11 +1019,13 @@ pub fn board_raise(
         }
     }
     board.apply_action(
-        |p, current_bet| {
-            if to <= current_bet {
-                return Err(BoardError::InvalidAction(
-                    "raise must be greater than current bet".into(),
-                ));
+        |p, _current_bet| {
+            let all_in_total = p.stack + p.bet_in_round;
+            if to < min_raise_to && to != all_in_total {
+                return Err(BoardError::InvalidAction(format!(
+                    "raise must be at least {} (or all-in {}); got {}",
+                    min_raise_to, all_in_total, to
+                )));
             }
             let already = p.bet_in_round;
             let needed = to.saturating_sub(already);
