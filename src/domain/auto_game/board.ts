@@ -69,7 +69,7 @@ export function addBurnCard(board: AutoModeBoard, card: Card): AutoModeBoard {
 
 /**
  * プレイヤーのホールカードを更新する
- * 既に 2 枚持っている場合は最初のカードを置換
+ * 既に 2 枚確定済みの場合は無視する (誤スキャン防御)
  */
 export function updatePlayerHand(
   board: AutoModeBoard,
@@ -87,13 +87,11 @@ export function updatePlayerHand(
     return board;
   }
 
-  let newHand: Card[];
   if (currentHand.length >= 2) {
-    // 2 枚以上持っている場合は最初のカードを置換
-    newHand = [currentHand[1], card];
-  } else {
-    newHand = [...currentHand, card];
+    return board; // 確定済みの hand は更新しない
   }
+
+  const newHand: Card[] = [...currentHand, card];
 
   const updatedPlayers = [...board.players];
   updatedPlayers[playerIndex] = { ...player, hand: newHand };
