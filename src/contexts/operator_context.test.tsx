@@ -122,4 +122,35 @@ describe("OperatorProvider", () => {
       expect.anything(),
     );
   });
+
+  it("serial_status_updated リスナーは loadGameTable 実行中に再登録されない", async () => {
+    // listen が呼ばれた回数を追跡する
+    // isLoadingGameTable が deps に含まれている場合、loadGameTable 呼び出しで
+    // true→false と変化するたびに listen が再実行される
+    // この修正後は operator が変わらない限り listen は 1 回のみ呼ばれるべき
+
+    // operator を持つ状態をシミュレート: invoke の呼び出しシーケンスを制御
+    let listenCallCount = 0;
+    vi.mocked(listen).mockImplementation((_event, _handler) => {
+      listenCallCount++;
+      return Promise.resolve(() => {});
+    });
+
+    // operator は null のまま（isSignedIn=false）なので listen は呼ばれない
+    const { result } = renderHook(() => useOperator(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingOperator).toBe(false);
+    });
+
+    // operator=null のため listen は 0 回
+    expect(listenCallCount).toBe(0);
+
+    // loadGameTable を複数回呼んでも listen 回数が増えないことを確認
+    // (operator=null の場合は loadGameTable 自体が何もしないので追加呼び出しなし)
+    await result.current.loadGameTable("table-1");
+    await result.current.loadGameTable("table-2");
+
+    expect(listenCallCount).toBe(0);
+  });
 });

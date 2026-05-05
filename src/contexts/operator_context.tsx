@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { SerialStatus } from "../types";
@@ -121,6 +122,8 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
   const [gameTable, setGameTable] = useState<GameTableResponse | null>(null);
   const [isLoadingOperator, setIsLoadingOperator] = useState(false);
   const [isLoadingGameTable, setIsLoadingGameTable] = useState(false);
+  // useEffect deps に isLoadingGameTable を含めると再登録ループが起きるため ref で管理
+  const isLoadingGameTableRef = useRef(false);
   const [operatorError, setOperatorError] = useState<string | null>(null);
   const [gameTableError, setGameTableError] = useState<string | null>(null);
 
@@ -156,6 +159,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      isLoadingGameTableRef.current = true;
       setIsLoadingGameTable(true);
       setGameTableError(null);
       const tableResult = await fetchGameTable(op.operatorId, tableId);
@@ -167,6 +171,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
           `[OperatorContext] fetchGameTable failed: ${tableResult.message} (${tableResult.status})`,
         );
       }
+      isLoadingGameTableRef.current = false;
       setIsLoadingGameTable(false);
     };
 
@@ -177,6 +182,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     async (tableId: string) => {
       if (!operator) return;
 
+      isLoadingGameTableRef.current = true;
       setIsLoadingGameTable(true);
       setGameTableError(null);
       const result = await fetchGameTable(operator.operatorId, tableId);
@@ -188,6 +194,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
           `[OperatorContext] fetchGameTable failed: ${result.message} (${result.status})`,
         );
       }
+      isLoadingGameTableRef.current = false;
       setIsLoadingGameTable(false);
     },
     [operator],
@@ -201,7 +208,11 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
 
     listen<SerialStatus>("serial_status_updated", (event) => {
       const status = event.payload;
-      if (status.connected && status.portName && !isLoadingGameTable) {
+      if (
+        status.connected &&
+        status.portName &&
+        !isLoadingGameTableRef.current
+      ) {
         loadGameTable(status.portName).catch((error) => {
           console.error(
             "[OperatorContext] loadGameTable failed in serial_status_updated handler",
@@ -225,13 +236,11 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     return () => {
       unlistenFn?.();
     };
-    // isLoadingGameTable を依存配列に含めると再購読が頻発するため意図的に除外
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [operator, loadGameTable, isLoadingGameTable]);
+  }, [operator, loadGameTable]);
 
   // operator 取得済み + gameTable 未取得の間、定期的にデバイス接続を確認するポーリング
   useEffect(() => {
-    if (!operator || gameTable || isLoadingGameTable) return;
+    if (!operator || gameTable) return;
 
     let retryCount = 0;
     const MAX_RETRIES = 30;
@@ -246,7 +255,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       }
       retryCount++;
       const tableId = await fetchSerialStatus();
-      if (!tableId) return;
+      if (!tableId || isLoadingGameTableRef.current) return;
       await loadGameTable(tableId);
     };
 
@@ -257,7 +266,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     return () => {
       clearInterval(intervalId);
     };
-  }, [operator, gameTable, isLoadingGameTable, loadGameTable]);
+  }, [operator, gameTable, loadGameTable]);
 
   const value = useMemo(
     () => ({
