@@ -25,6 +25,8 @@ const mockNavigate = vi.fn();
 describe("useAutoGameSettings", () => {
   const mockSetCurrentScreen = vi.fn().mockResolvedValue(undefined);
   const mockSetIsOpen = vi.fn();
+  const mockOpen = vi.fn().mockResolvedValue(undefined);
+  const mockClose = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,6 +62,8 @@ describe("useAutoGameSettings", () => {
     vi.mocked(useTelop).mockReturnValue({
       isOpen: false,
       setIsOpen: mockSetIsOpen,
+      open: mockOpen,
+      close: mockClose,
       telopId: "modern",
       setTelopId: vi.fn(),
       backgroundColor: "#00ff00",
@@ -103,20 +107,23 @@ describe("useAutoGameSettings", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/auto-game/advanced-setting");
   });
 
-  it("onCaptionWindowToggleでisOpenが切り替わる", async () => {
+  it("onCaptionWindowToggleでisOpenが切り替わる（openが呼ばれる）", async () => {
     const { result } = renderHook(() => useAutoGameSettings());
 
     await act(async () => {
       await result.current.onCaptionWindowToggle();
     });
 
-    expect(mockSetIsOpen).toHaveBeenCalledWith(true);
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+    expect(mockClose).not.toHaveBeenCalled();
   });
 
-  it("isOpen=trueの場合、onCaptionWindowToggleでfalseに切り替わる", async () => {
+  it("isOpen=trueの場合、onCaptionWindowToggleでcloseが呼ばれる", async () => {
     vi.mocked(useTelop).mockReturnValue({
       isOpen: true,
       setIsOpen: mockSetIsOpen,
+      open: mockOpen,
+      close: mockClose,
       telopId: "modern",
       setTelopId: vi.fn(),
       backgroundColor: "#00ff00",
@@ -131,6 +138,7 @@ describe("useAutoGameSettings", () => {
       await result.current.onCaptionWindowToggle();
     });
 
-    expect(mockSetIsOpen).toHaveBeenCalledWith(false);
+    expect(mockClose).toHaveBeenCalledTimes(1);
+    expect(mockOpen).not.toHaveBeenCalled();
   });
 });

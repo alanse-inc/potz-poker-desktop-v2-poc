@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
-import { api } from "../../../../api/client";
 import { useAutoBoard } from "../../../../contexts/auto_board_context";
 import { useTelop } from "../../../../contexts/telop_context";
 import type { AutoModeBoard } from "../../../../domain/auto_game/types";
@@ -22,7 +21,7 @@ const CLICK_DELAY = 300;
 export function useGameActions() {
   const { board, setBoard, resetBoard } = useAutoBoard();
   const navigate = useNavigate();
-  const { isOpen, setIsOpen } = useTelop();
+  const { isOpen, open: openTelop, close: closeTelop } = useTelop();
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
 
   const [optimisticBoard, setOptimisticBoard] = useState<AutoModeBoard | null>(
@@ -164,11 +163,9 @@ export function useGameActions() {
   const handleCaptionWindowToggle = useCallback(async () => {
     try {
       if (isOpen) {
-        await api.telop.close();
-        setIsOpen(false);
+        await closeTelop();
       } else {
-        await api.telop.open();
-        setIsOpen(true);
+        await openTelop();
       }
     } catch (error) {
       trackClientSideError(
@@ -177,7 +174,7 @@ export function useGameActions() {
       );
       toast.error("テロップウィンドウの操作に失敗しました");
     }
-  }, [isOpen, setIsOpen]);
+  }, [isOpen, openTelop, closeTelop]);
 
   const handleChangeGameMode = useCallback(() => {
     navigate("/game/first-game/setting");

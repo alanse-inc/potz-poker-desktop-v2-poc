@@ -1,13 +1,17 @@
 import { useCallback, useEffect } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
-import { api } from "../../../../api/client";
 import { useAutoModeInitializeBoardCommand } from "../../../../contexts/auto_mode_initialize_board_command_context";
 import { useTelop } from "../../../../contexts/telop_context";
 
 export function useAutoGameSettings() {
   const navigate = useNavigate();
-  const { isOpen, setIsOpen, setCurrentScreen } = useTelop();
+  const {
+    isOpen,
+    open: openTelop,
+    close: closeTelop,
+    setCurrentScreen,
+  } = useTelop();
   const { initializeBoardCommand, isStartable } =
     useAutoModeInitializeBoardCommand();
 
@@ -21,11 +25,9 @@ export function useAutoGameSettings() {
   const handleCaptionWindowToggle = useCallback(async () => {
     try {
       if (isOpen) {
-        await api.telop.close();
-        setIsOpen(false);
+        await closeTelop();
       } else {
-        await api.telop.open();
-        setIsOpen(true);
+        await openTelop();
       }
     } catch (e) {
       toast.error(
@@ -34,7 +36,7 @@ export function useAutoGameSettings() {
           : "テロップウィンドウの操作に失敗しました",
       );
     }
-  }, [isOpen, setIsOpen]);
+  }, [isOpen, openTelop, closeTelop]);
 
   const handleClickAdvancedSetting = useCallback(() => {
     navigate("/auto-game/advanced-setting");

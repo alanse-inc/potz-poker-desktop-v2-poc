@@ -60,6 +60,8 @@ describe("useGameActions", () => {
   const mockSetBoard = vi.fn();
   const mockResetBoard = vi.fn();
   const mockSetIsOpen = vi.fn();
+  const mockOpen = vi.fn().mockResolvedValue(undefined);
+  const mockClose = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,6 +79,8 @@ describe("useGameActions", () => {
     vi.mocked(useTelop).mockReturnValue({
       isOpen: false,
       setIsOpen: mockSetIsOpen,
+      open: mockOpen,
+      close: mockClose,
       telopId: "modern",
       setTelopId: vi.fn(),
       backgroundColor: "#00ff00",
@@ -208,6 +212,8 @@ describe("useGameActions", () => {
     vi.mocked(useTelop).mockReturnValue({
       isOpen: true,
       setIsOpen: mockSetIsOpen,
+      open: mockOpen,
+      close: mockClose,
       telopId: "modern",
       setTelopId: vi.fn(),
       backgroundColor: "#00ff00",

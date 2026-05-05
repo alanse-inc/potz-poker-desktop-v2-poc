@@ -24,6 +24,10 @@ type TelopContextType = {
   setTelopId: (telopId: TelopId) => Promise<void>;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
+  /** テロップウィンドウを開き、isOpen を即時 true に更新する */
+  open: () => Promise<void>;
+  /** テロップウィンドウを閉じ、isOpen を即時 false に更新する */
+  close: () => Promise<void>;
   backgroundColor: string;
   setBackgroundColor: (color: string) => Promise<void>;
   currentScreen: TelopScreenState;
@@ -35,6 +39,8 @@ const TelopContext = createContext<TelopContextType>({
   setTelopId: async () => {},
   isOpen: false,
   setIsOpen: () => {},
+  open: async () => {},
+  close: async () => {},
   backgroundColor: "#00ff00",
   setBackgroundColor: async () => {},
   currentScreen: null,
@@ -73,6 +79,17 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error("[TelopContext] Failed to update current screen", error);
     }
+  }, []);
+
+  // open/close を呼び出し直後に isOpen を即時同期するラッパー
+  const open = useCallback(async () => {
+    await api.telop.open();
+    setIsOpen(true);
+  }, []);
+
+  const close = useCallback(async () => {
+    await api.telop.close();
+    setIsOpen(false);
   }, []);
 
   useEffect(() => {
@@ -198,6 +215,8 @@ export const TelopProvider = ({ children }: { children: ReactNode }) => {
         setTelopId,
         isOpen,
         setIsOpen,
+        open,
+        close,
         backgroundColor,
         setBackgroundColor,
         currentScreen,
