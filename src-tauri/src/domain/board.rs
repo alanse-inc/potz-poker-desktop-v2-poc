@@ -940,6 +940,13 @@ pub fn update_player(
     name: Option<String>,
     stack: Option<u32>,
 ) -> Result<(), BoardError> {
+    // stack はハンド進行中に変更されると total_invested とポット計算の整合が崩れるため、
+    // Showdown のときのみ反映する。Showdown 以外で指定された場合はエラーにする。
+    if stack.is_some() && board.phase != Phase::Showdown {
+        return Err(BoardError::InvalidAction(
+            "stack can only be updated during showdown".into(),
+        ));
+    }
     let player = board
         .players
         .iter_mut()
@@ -1444,6 +1451,8 @@ mod tests {
     #[test]
     fn update_player_changes_name_and_stack() {
         let (mut board, _deck) = make_board();
+        // stack 変更は Showdown のみ許可
+        board.phase = Phase::Showdown;
         update_player(&mut board, 0, Some("Alex".into()), Some(1500)).unwrap();
         assert_eq!(board.players[0].name, "Alex");
         assert_eq!(board.players[0].stack, 1500);
@@ -1454,6 +1463,27 @@ mod tests {
         let (mut board, _deck) = make_board();
         let r = update_player(&mut board, 0, Some("  ".into()), None);
         assert!(r.is_err());
+    }
+
+    /// ハンド進行中 (PreFlop) に stack を更新しようとするとエラーになる。
+    #[test]
+    fn update_player_rejects_stack_change_outside_showdown() {
+        let (mut board, _deck) = make_board();
+        assert_eq!(board.phase, Phase::PreFlop);
+        let r = update_player(&mut board, 0, None, Some(2000));
+        assert!(r.is_err(), "stack 変更は PreFlop で拒否されるべき");
+        // 名前のみの更新は許可される
+        update_player(&mut board, 0, Some("Alex".into()), None).unwrap();
+        assert_eq!(board.players[0].name, "Alex");
+    }
+
+    /// Showdown では stack 更新が成功する。
+    #[test]
+    fn update_player_allows_stack_change_during_showdown() {
+        let (mut board, _deck) = make_board();
+        board.phase = Phase::Showdown;
+        update_player(&mut board, 0, None, Some(2000)).unwrap();
+        assert_eq!(board.players[0].stack, 2000);
     }
 
     #[test]

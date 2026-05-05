@@ -370,7 +370,7 @@ pub fn remove_player(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::board::{build_remaining_deck, start_game, GameSettings};
+    use crate::domain::board::{build_remaining_deck, start_game, GameSettings, Phase};
     use crate::domain::card::{Card, CardValue, Suit};
     use crate::state::{InnerState, MAX_HISTORY};
 
@@ -663,7 +663,9 @@ mod tests {
             bb_ante: false,
         };
         let names = vec!["Alice".into(), "Bob".into()];
-        let board = start_game(settings.clone(), names, 0).unwrap();
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        // stack 変更は Showdown のみ許可されるため強制遷移
+        board.phase = Phase::Showdown;
         let deck = build_remaining_deck(&board);
 
         let mut inner = InnerState {
@@ -763,7 +765,9 @@ mod tests {
             bb_ante: false,
         };
         let names = vec!["Alice".into(), "Bob".into()];
-        let board = start_game(settings.clone(), names, 0).unwrap();
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        // stack 変更は Showdown のみ許可されるため強制遷移
+        board.phase = Phase::Showdown;
         let deck = build_remaining_deck(&board);
 
         let mut inner = InnerState {
