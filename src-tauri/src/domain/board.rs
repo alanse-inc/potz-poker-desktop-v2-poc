@@ -207,11 +207,12 @@ impl TexasHoldemBoard {
         }
 
         // 次のアクション順：SB の左から
-        if self.phase != Phase::Showdown {
-            match self.next_active_position_after(self.dealer_position) {
+        match self.phase {
+            Phase::Showdown => self.current_turn = u8::MAX,
+            _ => match self.next_active_position_after(self.dealer_position) {
                 Some(pos) => self.current_turn = pos,
                 None => self.current_turn = u8::MAX,
-            }
+            },
         }
     }
 
