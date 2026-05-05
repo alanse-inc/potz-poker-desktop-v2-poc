@@ -63,7 +63,8 @@ pub fn bet(
     state: State<'_, AppState>,
     amount: u32,
 ) -> Result<TexasHoldemBoard, String> {
-    run_action(&app, &state, |board, deck| board_bet(board, amount, deck))
+    let min_chip = state.lock().settings.min_chip;
+    run_action(&app, &state, move |board, deck| board_bet(board, amount, deck, min_chip))
 }
 
 #[tauri::command]
@@ -96,7 +97,8 @@ pub fn raise(
     state: State<'_, AppState>,
     amount: u32,
 ) -> Result<TexasHoldemBoard, String> {
-    run_action(&app, &state, |board, deck| board_raise(board, amount, deck))
+    let min_chip = state.lock().settings.min_chip;
+    run_action(&app, &state, move |board, deck| board_raise(board, amount, deck, min_chip))
 }
 
 #[tauri::command]

@@ -799,7 +799,13 @@ pub fn remove_player(
 
 // ---- アクション実装 ----
 
-pub fn board_bet(board: &mut TexasHoldemBoard, amount: u32, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+pub fn board_bet(board: &mut TexasHoldemBoard, amount: u32, deck: &mut Vec<Card>, min_chip: u32) -> Result<(), BoardError> {
+    if min_chip > 0 && amount % min_chip != 0 {
+        return Err(BoardError::InvalidAction(format!(
+            "amount {} must be a multiple of min_chip {}",
+            amount, min_chip
+        )));
+    }
     let prev_bet = board.current_bet;
     board.apply_action(
         |p, current_bet| {
@@ -872,7 +878,13 @@ pub fn board_fold(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<
     )
 }
 
-pub fn board_raise(board: &mut TexasHoldemBoard, to: u32, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+pub fn board_raise(board: &mut TexasHoldemBoard, to: u32, deck: &mut Vec<Card>, min_chip: u32) -> Result<(), BoardError> {
+    if min_chip > 0 && to % min_chip != 0 {
+        return Err(BoardError::InvalidAction(format!(
+            "amount {} must be a multiple of min_chip {}",
+            to, min_chip
+        )));
+    }
     // min raise validation: to >= current_bet + last_raise_size（all-in 例外あり）
     {
         let min_raise_to = board.current_bet.saturating_add(board.last_raise_size);
@@ -1059,7 +1071,7 @@ mod tests {
     #[test]
     fn raise_updates_current_bet() {
         let (mut board, mut deck) = make_board();
-        board_raise(&mut board, 300, &mut deck).unwrap();
+        board_raise(&mut board, 300, &mut deck, 1).unwrap();
         assert_eq!(board.current_bet, 300);
     }
 
@@ -1561,7 +1573,7 @@ mod tests {
         assert_eq!(board.phase, Phase::Flop); // まだ Flop
 
         // B: bet 100
-        board_bet(&mut board, 100, &mut deck).unwrap();
+        board_bet(&mut board, 100, &mut deck, 1).unwrap();
         // bet 後もフェーズは Flop のまま（A が応答していないため）
         assert_eq!(board.phase, Phase::Flop, "bet after check should not advance phase");
         // 次は A のターン
@@ -1613,13 +1625,13 @@ mod tests {
         // A check
         board_check(&mut board, &mut deck).unwrap();
         // B bet 100
-        board_bet(&mut board, 100, &mut deck).unwrap();
+        board_bet(&mut board, 100, &mut deck, 1).unwrap();
         assert_eq!(board.phase, Phase::Flop);
         assert_eq!(board.current_turn, 1); // A のターン
         assert!(!board.players[1].has_acted, "A's has_acted reset after B bet");
 
         // A raise 200（B のベットに対してリレイズ）
-        board_raise(&mut board, 200, &mut deck).unwrap();
+        board_raise(&mut board, 200, &mut deck, 1).unwrap();
         // フェーズは Flop のまま（B が応答していないため）
         assert_eq!(board.phase, Phase::Flop, "raise should not advance phase");
         assert_eq!(board.current_turn, 2, "turn should be B's");
@@ -1673,7 +1685,7 @@ mod tests {
         assert_eq!(board.current_turn, 0); // BTN のターン
 
         // BTN bet 100
-        board_bet(&mut board, 100, &mut deck).unwrap();
+        board_bet(&mut board, 100, &mut deck, 1).unwrap();
         // フェーズは Flop のまま
         assert_eq!(board.phase, Phase::Flop, "bet should not advance phase in heads-up");
         // 次は BB のターン
@@ -2014,7 +2026,7 @@ mod tests {
         };
         let mut deck = Vec::new();
 
-        let result = board_raise(&mut board, 150, &mut deck);
+        let result = board_raise(&mut board, 150, &mut deck, 1);
         assert!(result.is_err(), "raise to 150 should be rejected when min raise is 200");
     }
 
@@ -2056,7 +2068,7 @@ mod tests {
         };
         let mut deck = Vec::new();
 
-        let result = board_raise(&mut board, 200, &mut deck);
+        let result = board_raise(&mut board, 200, &mut deck, 1);
         assert!(result.is_ok(), "raise to 200 should be accepted (min raise)");
         assert_eq!(board.current_bet, 200);
     }
@@ -2101,7 +2113,7 @@ mod tests {
         };
         let mut deck = Vec::new();
 
-        let result = board_raise(&mut board, 150, &mut deck);
+        let result = board_raise(&mut board, 150, &mut deck, 1);
         assert!(result.is_ok(), "all-in raise below min should be allowed");
         assert!(board.players[0].is_all_in);
     }
@@ -2146,12 +2158,12 @@ mod tests {
         };
         let mut deck = Vec::new();
 
-        board_bet(&mut board, 200, &mut deck).unwrap();
+        board_bet(&mut board, 200, &mut deck, 1).unwrap();
         assert_eq!(board.current_bet, 200, "current_bet should equal bet amount");
         assert_eq!(board.last_raise_size, 200, "last_raise_size should equal bet amount (regression: was 0)");
 
         // 次の raise の min_raise_to = 200 + 200 = 400 → raise to=300 は拒否されるべき
-        let result = board_raise(&mut board, 300, &mut deck);
+        let result = board_raise(&mut board, 300, &mut deck, 1);
         assert!(result.is_err(), "raise to 300 should be rejected (min raise=400)");
     }
 
@@ -2341,5 +2353,175 @@ mod tests {
         let names = vec!["Alice".into(), "Bob".into()];
         let result = start_game(settings, names, 0);
         assert!(result.is_ok(), "42949 * 100 = 4294900 should not overflow u32");
+    }
+
+    // ================================================================
+    // Bug 3: min_chip 倍数制約の検証
+    // ================================================================
+
+    /// board_bet で min_chip=10 の倍数でない amount=15 → エラー。
+    #[test]
+    fn board_bet_rejects_non_multiple_of_min_chip() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 1000, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 0 },
+                Player { position: 1, name: "B".into(), stack: 1000, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 0 },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        let result = board_bet(&mut board, 15, &mut deck, 10);
+        assert!(result.is_err(), "bet of 15 should be rejected when min_chip=10");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("min_chip"), "error message should mention min_chip");
+    }
+
+    /// board_bet で min_chip=10 の倍数である amount=20 → 成功。
+    #[test]
+    fn board_bet_accepts_multiple_of_min_chip() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let community = vec![
+            Card { suit: Suit::Club, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 1000, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 0 },
+                Player { position: 1, name: "B".into(), stack: 1000, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 0 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        let result = board_bet(&mut board, 20, &mut deck, 10);
+        assert!(result.is_ok(), "bet of 20 should be accepted when min_chip=10");
+        assert_eq!(board.current_bet, 20);
+    }
+
+    /// board_raise で min_chip=10 の倍数でない amount=15 → エラー。
+    #[test]
+    fn board_raise_rejects_non_multiple_of_min_chip() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 10,
+            last_raise_size: 10,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 1000, hand: Some(hand_a),
+                         bet_in_round: 10, has_folded: false, is_all_in: false, has_acted: false, total_invested: 10 },
+                Player { position: 1, name: "B".into(), stack: 1000, hand: Some(hand_b),
+                         bet_in_round: 10, has_folded: false, is_all_in: false, has_acted: true, total_invested: 10 },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::PreFlop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        // to=15 は min_chip=10 の倍数ではない → エラー（min raise 検証より先に実行される）
+        let result = board_raise(&mut board, 15, &mut deck, 10);
+        assert!(result.is_err(), "raise to 15 should be rejected when min_chip=10");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("min_chip"), "error message should mention min_chip");
+    }
+
+    /// board_raise で min_chip=10 の倍数である amount=20 → 成功。
+    #[test]
+    fn board_raise_accepts_multiple_of_min_chip() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let community = vec![
+            Card { suit: Suit::Club, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 10,
+            last_raise_size: 10,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 1000, hand: Some(hand_a),
+                         bet_in_round: 10, has_folded: false, is_all_in: false, has_acted: false, total_invested: 10 },
+                Player { position: 1, name: "B".into(), stack: 1000, hand: Some(hand_b),
+                         bet_in_round: 10, has_folded: false, is_all_in: false, has_acted: true, total_invested: 10 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        // to=20 は min_chip=10 の倍数かつ min raise (10+10=20) を満たす → 成功
+        let result = board_raise(&mut board, 20, &mut deck, 10);
+        assert!(result.is_ok(), "raise to 20 should be accepted when min_chip=10");
+        assert_eq!(board.current_bet, 20);
     }
 }
