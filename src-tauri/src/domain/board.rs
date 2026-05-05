@@ -1072,6 +1072,11 @@ pub fn board_bet(
 }
 
 pub fn board_call(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+    if board.current_bet == 0 {
+        return Err(BoardError::InvalidAction(
+            "コール対象のベットがありません".into(),
+        ));
+    }
     board.apply_action(
         |p, current_bet| {
             let already = p.bet_in_round;
@@ -4637,6 +4642,23 @@ mod tests {
         let msg = result.unwrap_err().to_string();
         assert!(
             msg.contains("ゲーム続行不可"),
+            "エラーメッセージが想定外: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn board_call_no_bet_returns_error() {
+        let (mut board, mut deck) = make_board();
+        board.current_bet = 0;
+        let result = board_call(&mut board, &mut deck);
+        assert!(
+            result.is_err(),
+            "current_bet=0 のとき board_call はエラーを返すべき"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("コール対象のベットがありません"),
             "エラーメッセージが想定外: {}",
             msg
         );
