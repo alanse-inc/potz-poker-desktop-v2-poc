@@ -268,6 +268,52 @@ impl TexasHoldemBoard {
             .collect();
 
         if active.is_empty() {
+            // hand が None のままショーダウンに到達した場合のフォールバック:
+            // フォールドしていない全プレイヤーにポットを均等分割する。
+            // 端数はディーラー左回りの最初のプレイヤーが受け取る。
+            let eligible: Vec<usize> = self
+                .players
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| !p.has_folded)
+                .map(|(i, _)| i)
+                .collect();
+
+            if eligible.is_empty() {
+                // 全員フォールド（通常は apply_action で処理済みのため到達しない）
+                return;
+            }
+
+            eprintln!(
+                "[WARN] resolve_showdown: all active players have hand=None; \
+                 distributing pot equally among {} non-folded player(s)",
+                eligible.len()
+            );
+
+            // ディーラー左回り順でソート（dealer_position の次から）
+            let dealer_pos = self.dealer_position;
+            let n = self.players.len();
+            let dealer_idx = self
+                .players
+                .iter()
+                .position(|p| p.position == dealer_pos)
+                .unwrap_or(0);
+            let mut ordered: Vec<usize> = eligible.clone();
+            // dealer_idx の「次」から始まる左回り順（dealer 自身は末尾）
+            ordered.sort_by_key(|&i| (i + n - dealer_idx - 1) % n);
+
+            let total = self.total_pot();
+            let count = ordered.len() as u32;
+            let share = total / count;
+            let remainder = total % count;
+
+            for (i, &widx) in ordered.iter().enumerate() {
+                let extra = if i == 0 { remainder } else { 0 };
+                self.players[widx].stack += share + extra;
+            }
+            self.pots.clear();
+            self.pots.push(Pot { amount: 0 });
+            self.winners = ordered.iter().map(|&i| self.players[i].position).collect();
             return;
         }
 
@@ -1172,5 +1218,172 @@ mod tests {
             board_via_start.players[1].hand,
             board_via_with_stacks.players[1].hand,
         );
+    }
+
+    // ---- resolve_showdown フォールバック（BUG-O）テスト ----
+
+    /// 全プレイヤーが hand=None でフォールドしていない → ポットが均等分割される。
+    #[test]
+    fn resolve_showdown_fallback_all_hand_none_equal_split() {
+        // 3 人 / dealer=0 / pot=300 / hand をすべて None にする
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 1, name: "B".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 2, name: "C".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 300 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // 300 / 3 = 100 ずつ
+        assert_eq!(board.players[0].stack, 100);
+        assert_eq!(board.players[1].stack, 100);
+        assert_eq!(board.players[2].stack, 100);
+        assert_eq!(board.total_pot(), 0);
+        // winners は 3 人全員
+        assert_eq!(board.winners.len(), 3);
+    }
+
+    /// 全プレイヤーが hand=None でポットに端数がある場合、dealer 左回りの最初が端数を受け取る。
+    #[test]
+    fn resolve_showdown_fallback_remainder_goes_to_dealer_left() {
+        // 3 人 / dealer=0 / pot=301
+        // dealer 左回り: dealer_idx=0 → 次は idx=1 (position=1)
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 1, name: "B".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 2, name: "C".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 301 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // 301 / 3 = 100 余り 1 → 端数はディーラー左回りの最初（dealer_idx=0 の次は idx=1）
+        let total_stack: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total_stack, 301);
+        assert_eq!(board.total_pot(), 0);
+        // dealer_idx=0 の次から順: idx=1 が端数 1 を受け取る → stack=101
+        assert_eq!(board.players[1].stack, 101);
+        assert_eq!(board.players[2].stack, 100);
+        assert_eq!(board.players[0].stack, 100);
+    }
+
+    /// 1 人だけ hand=None（他はフォールド） → その 1 人がポット全額を受け取る。
+    #[test]
+    fn resolve_showdown_fallback_single_hand_none_player_wins_all() {
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 500, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 1, name: "B".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true },
+                Player { position: 2, name: "C".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        assert_eq!(board.players[0].stack, 700); // 500 + 200
+        assert_eq!(board.players[1].stack, 0);
+        assert_eq!(board.players[2].stack, 0);
+        assert_eq!(board.total_pot(), 0);
+        assert_eq!(board.winners, vec![0]);
+    }
+
+    /// 一部プレイヤーが hand=Some → hand がある人だけで手役評価（既存挙動は変わらない）。
+    #[test]
+    fn resolve_showdown_partial_hand_none_uses_hand_holders_only() {
+        use super::super::card::{Card, CardValue, Suit};
+
+        // プレイヤー 0: hand=Some（強い手） / プレイヤー 1: hand=None / プレイヤー 2: hand=Some（弱い手）
+        // community_cards で 5 枚揃う状況を作る
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+            Card { suit: Suit::Club, value: CardValue::Five },
+            Card { suit: Suit::Spade, value: CardValue::Seven },
+        ];
+        let hand_strong: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Diamond, value: CardValue::Ace },
+        ];
+        let hand_weak: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::Eight },
+            Card { suit: Suit::Heart, value: CardValue::Nine },
+        ];
+
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 0, hand: Some(hand_strong),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 1, name: "B".into(), stack: 0, hand: None,
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                Player { position: 2, name: "C".into(), stack: 0, hand: Some(hand_weak),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 300 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // hand=Some を持つプレイヤー 0（AA ペア＋ストレート）が勝利
+        // hand=None のプレイヤー 1 はフォールバックには入らない（active が空でないため）
+        assert_eq!(board.total_pot(), 0);
+        // 勝者は position=0 か position=2 のどちらか（手役評価による）
+        // いずれにせよ position=1（hand=None）は winners に入らない
+        assert!(!board.winners.contains(&1));
     }
 }
