@@ -337,7 +337,7 @@ fn seed_from_hand_number(hand_number: u32) -> u64 {
         .wrapping_add(0x1234_5678_9ABC_DEF0)
 }
 
-/// ゲームを開始してボードを返す。
+/// ゲームを開始してボードを返す。hand_number=1 で開始する。
 pub fn start_game(
     settings: GameSettings,
     player_names: Vec<String>,
@@ -357,21 +357,7 @@ pub fn start_game(
     }
 
     let initial_stack = settings.small_blind * 100;
-
-    let mut players: Vec<Player> = player_names
-        .into_iter()
-        .enumerate()
-        .map(|(i, name)| Player {
-            position: i as u8,
-            name,
-            stack: initial_stack,
-            hand: None,
-            bet_in_round: 0,
-            has_folded: false,
-            is_all_in: false,
-            has_acted: false,
-        })
-        .collect();
+    let stacks: Vec<u32> = vec![initial_stack; n];
 
     let sb_pos = if n == 2 { dealer } else { (dealer + 1) % n as u8 };
     let bb_pos = if n == 2 {
@@ -380,76 +366,7 @@ pub fn start_game(
         (dealer + 2) % n as u8
     };
 
-    // SB
-    let sb_idx = sb_pos as usize;
-    let sb_amount = settings.small_blind.min(players[sb_idx].stack);
-    players[sb_idx].stack -= sb_amount;
-    players[sb_idx].bet_in_round = sb_amount;
-    if players[sb_idx].stack == 0 {
-        players[sb_idx].is_all_in = true;
-    }
-
-    // BB
-    let bb_idx = bb_pos as usize;
-    let bb_amount = settings.big_blind.min(players[bb_idx].stack);
-    players[bb_idx].stack -= bb_amount;
-    players[bb_idx].bet_in_round = bb_amount;
-    if players[bb_idx].stack == 0 {
-        players[bb_idx].is_all_in = true;
-    }
-
-    let current_bet = bb_amount;
-
-    // 最初のアクションは UTG（BB の次）
-    let utg_pos = if n <= 2 {
-        dealer  // heads-up: dealer(SB) がプリフロップで先攻
-    } else {
-        (bb_pos + 1) % n as u8
-    };
-
-    let mut deck = shuffled_deck(seed_from_hand_number(1));
-
-    // 各プレイヤーに 2 枚配る（デッキ末尾から）
-    for p in &mut players {
-        let c1 = deck.pop().unwrap();
-        let c2 = deck.pop().unwrap();
-        p.hand = Some([c1, c2]);
-    }
-
-    let mut board = TexasHoldemBoard {
-        hand_number: 1,
-        dealer_position: dealer,
-        sb_position: sb_pos,
-        bb_position: bb_pos,
-        current_turn: utg_pos,
-        current_bet,
-        players,
-        community_cards: Vec::new(),
-        pots: vec![Pot { amount: 0 }],
-        phase: Phase::PreFlop,
-        winners: Vec::new(),
-    };
-
-    // deck は board 内部で都度生成するので、ここでは破棄。
-    // 実装の簡略化のため、deck はボード外部で管理する代わりに
-    // phase advance 時に hand_number ベースの seed で再生成する。
-    // ただし preflop 時点で配り済みのカードは除外する必要がある。
-    // 簡略版として: board は dealt カードを保持し、次フェーズで残デッキを使う。
-    // ここでは board に deck を埋め込まない構造のため、
-    // advance_phase に渡す deck を InnerState で管理する。
-    // → board への deck 埋め込みをしない設計に合わせ、
-    //   advance_phase は外部から deck を受け取る形（BoardWithDeck ラッパーで対応）。
-    // ただし本 PoC では board.deck を隠しフィールドとして持たせる形に変更。
-
-    // deck を board に保存するため、dealt cards を除外した残デッキを保持する。
-    // 既に pop した分（players * 2枚）は deck から消えている。
-    board.pots = vec![Pot { amount: 0 }];
-
-    // deck を board 内にシリアライズせず、state 側で管理する。
-    // advance_phase は &mut Vec<Card> を受け取るため、
-    // state.deck として持つ。
-
-    Ok(board)
+    start_game_with_stacks(settings, player_names, stacks, 1, dealer, sb_pos, bb_pos)
 }
 
 /// 次のゲームへ進む（dealer をシフト）。
@@ -1183,5 +1100,63 @@ mod tests {
         let result = board_expose(&mut board, community_card, burn_card);
         // community_cards が空でないので "before any community card" エラーが先に出る
         assert!(result.is_err());
+    }
+
+    // ---- seed / shuffle テスト ----
+
+    /// 異なる hand_number で start_game を呼んだ際にシャッフル結果が異なることを検証する。
+    #[test]
+    fn different_hand_numbers_produce_different_shuffles() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+
+        // hand_number=1 での start_game（内部委譲）
+        let board1 = start_game(settings.clone(), names.clone(), 0).unwrap();
+        assert_eq!(board1.hand_number, 1);
+
+        // hand_number=2 での start_game_with_stacks（next_game 経由）
+        let (board2, _) = next_game(&board1, &settings).unwrap();
+        assert_eq!(board2.hand_number, 2);
+
+        // hand_number が異なるので、配られた手札が異なるはず
+        let hand1_p0 = board1.players[0].hand.unwrap();
+        let hand2_p0 = board2.players[0].hand.unwrap();
+        assert_ne!(
+            hand1_p0, hand2_p0,
+            "hand_number=1 と hand_number=2 で同じ手札が配られた（seed が固定されている可能性）"
+        );
+    }
+
+    /// start_game の seed が hand_number=1 と対応していることを確認する。
+    /// つまり start_game と、hand_number=1 を明示的に渡した start_game_with_stacks が同じ結果を返す。
+    #[test]
+    fn start_game_uses_hand_number_1_seed() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+
+        let board_via_start = start_game(settings.clone(), names.clone(), 0).unwrap();
+        let stacks = vec![settings.small_blind * 100; 3];
+        let board_via_with_stacks =
+            start_game_with_stacks(settings.clone(), names.clone(), stacks, 1, 0, 1, 2).unwrap();
+
+        // 同じ hand_number=1 で同じシャッフル結果になるはず
+        assert_eq!(
+            board_via_start.players[0].hand,
+            board_via_with_stacks.players[0].hand,
+        );
+        assert_eq!(
+            board_via_start.players[1].hand,
+            board_via_with_stacks.players[1].hand,
+        );
     }
 }
