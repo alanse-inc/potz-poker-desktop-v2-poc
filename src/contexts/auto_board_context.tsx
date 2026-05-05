@@ -80,6 +80,7 @@ export function AutoBoardProvider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | null = null;
 
     listen<{ board: AutoModeBoard | null }>(AUTO_BOARD_UPDATED_EVENT, (e) => {
+      if (cancelled) return;
       setBoardState(e.payload.board);
     })
       .then((fn) => {

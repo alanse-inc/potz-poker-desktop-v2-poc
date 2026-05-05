@@ -29,6 +29,9 @@ use tauri::{Emitter, Manager};
 // 定数
 // ---------------------------------------------------------------------------
 
+/// event_history の最大保持件数
+const MAX_EVENT_HISTORY: usize = 200;
+
 /// ボーレート (115200 bps)
 #[cfg(not(test))]
 const BAUD_RATE: u32 = 115_200;
@@ -479,6 +482,9 @@ pub fn apply_card_placed(
         },
     }).unwrap_or_default();
     guard.event_history.push(event_json);
+    if guard.event_history.len() > MAX_EVENT_HISTORY {
+        guard.event_history.remove(0);
+    }
 
     // board_updated を emit してフロントエンドの BoardContext を更新する
     #[cfg(not(test))]
@@ -859,6 +865,34 @@ mod tests {
 
         assert!(!state.serial_connected);
         assert!(state.serial_port_name.is_none());
+    }
+
+    // ---- Bug 3: event_history の上限管理 ----
+
+    #[test]
+    fn event_history_caps_at_max() {
+        let mut state = make_state_with_board();
+
+        for i in 0..250_usize {
+            state.event_history.push(format!("event_{}", i));
+            if state.event_history.len() > super::MAX_EVENT_HISTORY {
+                state.event_history.remove(0);
+            }
+        }
+
+        assert!(
+            state.event_history.len() <= super::MAX_EVENT_HISTORY,
+            "event_history must not exceed MAX_EVENT_HISTORY={}, got {}",
+            super::MAX_EVENT_HISTORY,
+            state.event_history.len(),
+        );
+        assert_eq!(state.event_history.len(), super::MAX_EVENT_HISTORY);
+        // 最新 (249) が残り、最古 (49) が先頭にあること
+        assert_eq!(state.event_history[0], "event_50");
+        assert_eq!(
+            state.event_history[super::MAX_EVENT_HISTORY - 1],
+            "event_249"
+        );
     }
 
     /// InnerState の serial_connected / serial_port_name は並行アクセスに対して安全であること。

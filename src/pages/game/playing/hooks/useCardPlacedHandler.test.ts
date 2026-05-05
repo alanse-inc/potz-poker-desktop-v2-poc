@@ -137,6 +137,36 @@ describe("useCardPlacedHandler", () => {
     expect(result.current.eventHistory).toHaveLength(0);
   });
 
+  it("clearEventHistory 後に同一イベントを再送しても新規イベントとして処理される", async () => {
+    const { result } = renderHook(() => useCardPlacedHandler());
+
+    const payload = {
+      rfid: "A1B2C3D4E5F678",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+
+    // 1回目スキャン
+    await act(async () => {
+      await onCardPlacedCb?.(payload);
+    });
+    expect(result.current.eventHistory).toHaveLength(1);
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
+
+    // クリア
+    act(() => {
+      result.current.clearEventHistory();
+    });
+    expect(result.current.eventHistory).toHaveLength(0);
+
+    // 同一イベントを再送 → ref もクリアされているため重複とみなされず処理される
+    await act(async () => {
+      await onCardPlacedCb?.(payload);
+    });
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(2);
+    expect(result.current.eventHistory).toHaveLength(1);
+  });
+
   it("logs error when listener registration fails (setup rejects)", async () => {
     const consoleError = vi
       .spyOn(console, "error")

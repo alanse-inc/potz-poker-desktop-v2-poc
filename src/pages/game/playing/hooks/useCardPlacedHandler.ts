@@ -101,5 +101,10 @@ export function useCardPlacedHandler() {
     };
   }, []);
 
-  return { eventHistory, clearEventHistory: () => setEventHistory([]) };
+  const clearEventHistory = useCallback(() => {
+    eventHistoryRef.current = [];
+    setEventHistory([]);
+  }, []);
+
+  return { eventHistory, clearEventHistory };
 }

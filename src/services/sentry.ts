@@ -10,9 +10,13 @@ import * as Sentry from "@sentry/react";
  *   セッション状態変更時に動的に設定されます
  * - Sentry.setUser({ id: user.sub }) でログイン中のユーザー情報が全エラーに付与されます
  */
+
+/** DSN が設定されているかどうか（Sentry 連携が有効か） */
+export const isSentryEnabled = Boolean(import.meta.env.VITE_SENTRY_DSN);
+
 export const initializeSentry = () => {
   // Sentry初期化
-  if (import.meta.env.VITE_SENTRY_DSN) {
+  if (isSentryEnabled) {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
       enabled:
@@ -28,7 +32,7 @@ export const initializeSentry = () => {
           blockAllMedia: false,
         }),
       ],
-      tracesSampleRate: 1.0,
+      tracesSampleRate: import.meta.env.MODE === "production" ? 0.1 : 1.0,
       replaysSessionSampleRate: 0.1,
       replaysOnErrorSampleRate: 1.0,
     });

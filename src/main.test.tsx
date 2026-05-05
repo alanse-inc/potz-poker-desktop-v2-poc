@@ -7,6 +7,7 @@ const mockErrorBoundary = vi.fn();
 
 vi.mock("./services/sentry", () => ({
   initializeSentry: mockInitializeSentry,
+  isSentryEnabled: false,
   Sentry: {
     ErrorBoundary: mockErrorBoundary,
   },
@@ -79,14 +80,16 @@ describe("main.tsx", () => {
 });
 
 describe("ErrorBoundary fallback", () => {
-  it("エラー発生時に fallback がエラーメッセージを表示する", () => {
-    const FallbackComponent = ({ error }: { error: Error }) => (
-      <div>エラーが発生しました: {error.message}</div>
+  it("エラー発生時に固定メッセージを表示し error.message を晒さない", () => {
+    const FallbackComponent = () => (
+      <div>予期しないエラーが発生しました。アプリを再起動してください。</div>
     );
 
-    render(<FallbackComponent error={new Error("テストエラー")} />);
+    render(<FallbackComponent />);
     expect(
-      screen.getByText("エラーが発生しました: テストエラー"),
+      screen.getByText(
+        "予期しないエラーが発生しました。アプリを再起動してください。",
+      ),
     ).toBeInTheDocument();
   });
 });

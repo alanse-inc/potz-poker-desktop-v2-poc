@@ -14,7 +14,7 @@ import { SessionProvider } from "./contexts/session_context";
 import { TelopProvider } from "./contexts/telop_context";
 import { mainRouter } from "./routes";
 import { initMixpanel } from "./services/analytics";
-import { initializeSentry, Sentry } from "./services/sentry";
+import { initializeSentry, isSentryEnabled, Sentry } from "./services/sentry";
 
 initializeSentry();
 initMixpanel();
@@ -27,10 +27,10 @@ const root = createRoot(rootElement);
 root.render(
   <StrictMode>
     <ErrorBoundary
-      fallback={({ error }: { error: Error }) => (
-        <div>エラーが発生しました: {error.message}</div>
+      fallback={() => (
+        <div>予期しないエラーが発生しました。アプリを再起動してください。</div>
       )}
-      showDialog
+      showDialog={isSentryEnabled}
     >
       <AuthProvider>
         <SessionProvider>
