@@ -39,20 +39,9 @@ where
     }
 
     // board と deck を取り出して mut 参照を渡す
-    // Option::as_mut → *Option でフィールドアクセスするのでそれぞれ別々に借用
-    // SAFETY: b と d は InnerState の異なるフィールドなので、
-    // raw pointer を使って同時 mut 参照を取得する。
-    // これは Rust の borrow checker が構造体の異なるフィールドを
-    // 同時 mut 借用できないことへの回避策。
-    #[allow(clippy::match_single_binding)]
-    let (board_ref, deck_ref) = {
-        let s = &mut *inner;
-        let b = s.board.as_mut().ok_or_else(|| BoardError::GameNotStarted.to_string())?;
-        let d = &mut s.deck;
-        let b_ptr: *mut TexasHoldemBoard = b as *mut _;
-        let d_ptr: *mut Vec<Card> = d as *mut _;
-        unsafe { (&mut *b_ptr, &mut *d_ptr) }
-    };
+    let (board_ref, deck_ref) = inner
+        .split_board_and_deck()
+        .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
 
     action_fn(board_ref, deck_ref).map_err(|e| e.to_string())?;
 

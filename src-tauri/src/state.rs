@@ -75,6 +75,13 @@ impl InnerState {
         let id = self.current_deck_id.clone()?;
         self.decks.iter_mut().find(|d| d.id == id)
     }
+
+    /// `board` と `deck` への独立した可変参照を同時に取り出す。
+    /// `board` が `None` の場合は `None` を返す。
+    pub fn split_board_and_deck(&mut self) -> Option<(&mut TexasHoldemBoard, &mut Vec<Card>)> {
+        let board = self.board.as_mut()?;
+        Some((board, &mut self.deck))
+    }
 }
 
 impl Default for InnerState {

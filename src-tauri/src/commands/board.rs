@@ -180,14 +180,9 @@ pub fn set_community_card(
         }
 
         // board と deck を取り出して mut 参照を渡す
-        let (board_ref, deck_ref) = {
-            let s = &mut *inner;
-            let b = s.board.as_mut().ok_or_else(|| BoardError::GameNotStarted.to_string())?;
-            let d = &mut s.deck;
-            let b_ptr: *mut TexasHoldemBoard = b as *mut _;
-            let d_ptr: *mut Vec<Card> = d as *mut _;
-            unsafe { (&mut *b_ptr, &mut *d_ptr) }
-        };
+        let (board_ref, deck_ref) = inner
+            .split_board_and_deck()
+            .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
 
         domain_set_community_card(board_ref, locate_number, card, deck_ref)
             .map_err(|e| e.to_string())?;
