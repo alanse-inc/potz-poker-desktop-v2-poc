@@ -207,8 +207,6 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
 
   // Tauri の serial_status_updated イベントを購読してデバイス接続変化に対応
   useEffect(() => {
-    if (!operator) return;
-
     let unlistenFn: (() => void) | null = null;
     let cancelled = false;
 
@@ -250,7 +248,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unlistenFn?.();
     };
-  }, [operator]);
+  }, []);
 
   // operator 取得済み + gameTable 未取得の間、定期的にデバイス接続を確認するポーリング
   useEffect(() => {
