@@ -114,8 +114,10 @@ mod tests {
 
     #[test]
     fn telop_state_mode_reflects_changed_telop_id() {
-        let mut state = InnerState::default();
-        state.telop_id = "classic".to_string();
+        let state = InnerState {
+            telop_id: "classic".to_string(),
+            ..InnerState::default()
+        };
         let telop_state = state.telop_state();
         assert_eq!(telop_state.mode, "classic");
     }

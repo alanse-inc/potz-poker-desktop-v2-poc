@@ -188,10 +188,11 @@ mod tests {
     }
 
     fn make_mapping(id: &str, name: &str) -> RfidCardMapping {
-        let mut m = RfidCardMapping::default();
-        m.id = id.to_string();
-        m.name = name.to_string();
-        m
+        RfidCardMapping {
+            id: id.to_string(),
+            name: name.to_string(),
+            ..RfidCardMapping::default()
+        }
     }
 
     /// レガシー移行で current_deck_id が設定されたあと、
