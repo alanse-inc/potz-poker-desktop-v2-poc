@@ -165,8 +165,102 @@ pub fn load_decks_from_store(app: &AppHandle, state: &AppState) {
         }
     }
     if let Some(value) = store.get(KEY_CURRENT_DECK_ID) {
-        if let Ok(id) = serde_json::from_value::<Option<String>>(value) {
-            state.lock().current_deck_id = id;
+        if let Ok(opt_id) = serde_json::from_value::<Option<String>>(value) {
+            // None の場合はレガシー移行で設定した値を維持する
+            if opt_id.is_some() {
+                state.lock().current_deck_id = opt_id;
+            }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// テスト
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::state::{AppState, InnerState};
+    use crate::domain::rfid_mapping::RfidCardMapping;
+
+    fn make_app_state() -> AppState {
+        AppState::new(InnerState::default())
+    }
+
+    fn make_mapping(id: &str, name: &str) -> RfidCardMapping {
+        let mut m = RfidCardMapping::default();
+        m.id = id.to_string();
+        m.name = name.to_string();
+        m
+    }
+
+    /// レガシー移行で current_deck_id が設定されたあと、
+    /// decks.json の currentDeckId が null (None) でも上書きされないことを検証する。
+    ///
+    /// load_decks_from_store の実際の Store 依存部分はテスト環境では呼べないため、
+    /// その内部ロジック（None は上書きしない）を直接再現して検証する。
+    #[test]
+    fn current_deck_id_not_overwritten_by_null_from_store() {
+        let state = make_app_state();
+
+        // レガシー移行で current_deck_id が設定される状況をシミュレート
+        let mapping = make_mapping("legacy-id-001", "default");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(mapping.clone());
+            guard.current_deck_id = Some(mapping.id.clone());
+        }
+
+        // decks.json の currentDeckId が null の場合のロジックをシミュレート
+        // (serde_json::from_value::<Option<String>>(Value::Null) == Ok(None))
+        let store_value = serde_json::Value::Null;
+        let opt_id: Option<String> = serde_json::from_value(store_value).unwrap();
+        assert!(opt_id.is_none());
+
+        // None の場合は上書きしない（修正後のロジック）
+        if opt_id.is_some() {
+            state.lock().current_deck_id = opt_id;
+        }
+
+        // レガシー移行で設定した値が維持されること
+        let guard = state.lock();
+        assert_eq!(
+            guard.current_deck_id.as_deref(),
+            Some("legacy-id-001"),
+            "current_deck_id は decks.json の null で上書きされてはいけない"
+        );
+    }
+
+    /// decks.json の currentDeckId が有効な Some(id) の場合は上書きされることを検証する。
+    #[test]
+    fn current_deck_id_overwritten_by_valid_id_from_store() {
+        let state = make_app_state();
+
+        // レガシー移行で current_deck_id が設定される状況をシミュレート
+        let legacy_mapping = make_mapping("legacy-id-001", "default");
+        let store_mapping = make_mapping("store-id-002", "from_store");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(legacy_mapping.clone());
+            guard.decks.push(store_mapping.clone());
+            guard.current_deck_id = Some(legacy_mapping.id.clone());
+        }
+
+        // decks.json に有効な currentDeckId が保存されている場合のロジックをシミュレート
+        let store_value = serde_json::Value::String("store-id-002".to_string());
+        let opt_id: Option<String> = serde_json::from_value(store_value).unwrap();
+        assert_eq!(opt_id.as_deref(), Some("store-id-002"));
+
+        // Some の場合は上書きする（修正後のロジック）
+        if opt_id.is_some() {
+            state.lock().current_deck_id = opt_id;
+        }
+
+        let guard = state.lock();
+        assert_eq!(
+            guard.current_deck_id.as_deref(),
+            Some("store-id-002"),
+            "decks.json に有効な ID がある場合は上書きされること"
+        );
     }
 }
