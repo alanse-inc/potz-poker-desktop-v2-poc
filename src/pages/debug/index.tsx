@@ -4,13 +4,40 @@ import toast from "react-hot-toast";
 import { useNavigate } from "react-router";
 import { api } from "../../api/client";
 import type {
+  CardPosition,
+  CardValue,
   GameSettings,
   RfidCardMapping,
   SerialStatus,
+  Suit,
   TexasHoldemBoard,
 } from "../../types";
 import { RoundButton } from "../../ui/button/round_button";
 import { BasicPage } from "../../ui/page/basic";
+
+const SUITS: ReadonlyArray<Suit> = ["spade", "heart", "diamond", "club"];
+const SUIT_LABELS: Record<Suit, string> = {
+  spade: "♠ spade",
+  heart: "♥ heart",
+  diamond: "♦ diamond",
+  club: "♣ club",
+};
+const VALUES: ReadonlyArray<CardValue> = [
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "T",
+  "J",
+  "Q",
+  "K",
+  "A",
+];
+type PositionType = CardPosition["type"];
 
 type DebugSnapshot = {
   board: TexasHoldemBoard | null;
@@ -59,6 +86,15 @@ export function Debug() {
     })),
   );
   const [isSmokeRunning, setIsSmokeRunning] = useState(false);
+
+  const [dealSuit, setDealSuit] = useState<Suit>("spade");
+  const [dealValue, setDealValue] = useState<CardValue>("A");
+  const [dealPositionType, setDealPositionType] =
+    useState<PositionType>("playerHand");
+  const [dealSeat, setDealSeat] = useState<number>(0);
+  const [dealSlot, setDealSlot] = useState<number>(0);
+  const [dealRfid, setDealRfid] = useState<string>("");
+  const [isDealing, setIsDealing] = useState(false);
 
   const fetchSnapshot = async () => {
     setIsLoading(true);
@@ -160,6 +196,41 @@ export function Debug() {
     }
   };
 
+  const handleDealCard = async () => {
+    let position: CardPosition;
+    if (dealPositionType === "playerHand") {
+      position = { type: "playerHand", seat: dealSeat };
+    } else if (dealPositionType === "communityCard") {
+      position = { type: "communityCard", slot: dealSlot };
+    } else {
+      position = { type: "burnCard" };
+    }
+    const rfid =
+      dealRfid.trim() !== ""
+        ? dealRfid.trim()
+        : `DEBUG_${dealSuit}_${dealValue}_${Date.now()}`;
+    setIsDealing(true);
+    try {
+      await api.rfid.applyCardPlaced(
+        rfid,
+        { suit: dealSuit, value: dealValue },
+        position,
+      );
+      const positionLabel =
+        position.type === "playerHand"
+          ? `seat ${position.seat}`
+          : position.type === "communityCard"
+            ? `community ${position.slot}`
+            : "burn";
+      toast.success(`${dealValue} of ${dealSuit} → ${positionLabel}`);
+      void fetchSnapshot();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "カード配布失敗");
+    } finally {
+      setIsDealing(false);
+    }
+  };
+
   return (
     <BasicPage scrollable>
       <div className="flex w-full max-w-3xl flex-col gap-6 p-8">
@@ -256,6 +327,115 @@ export function Debug() {
               className="flex h-10 items-center justify-center rounded-lg bg-orange-600 px-4 font-semibold text-sm text-white transition-colors hover:bg-orange-700"
             >
               card_placed テスト発火
+            </button>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="font-bold text-gray-400 text-sm uppercase">
+            手動カード配布
+          </h2>
+          <div className="flex flex-col gap-3 rounded-lg bg-gray-900 p-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-gray-300 text-xs">
+                <span>SUIT</span>
+                <select
+                  value={dealSuit}
+                  onChange={(e) => setDealSuit(e.target.value as Suit)}
+                  className="h-9 rounded bg-gray-800 px-2 text-sm text-white"
+                >
+                  {SUITS.map((s) => (
+                    <option key={s} value={s}>
+                      {SUIT_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-gray-300 text-xs">
+                <span>VALUE</span>
+                <select
+                  value={dealValue}
+                  onChange={(e) => setDealValue(e.target.value as CardValue)}
+                  className="h-9 rounded bg-gray-800 px-2 text-sm text-white"
+                >
+                  {VALUES.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label className="flex flex-col gap-1 text-gray-300 text-xs">
+              <span>POSITION</span>
+              <select
+                value={dealPositionType}
+                onChange={(e) =>
+                  setDealPositionType(e.target.value as PositionType)
+                }
+                className="h-9 rounded bg-gray-800 px-2 text-sm text-white"
+              >
+                <option value="playerHand">playerHand (seat)</option>
+                <option value="communityCard">communityCard (slot)</option>
+                <option value="burnCard">burnCard</option>
+              </select>
+            </label>
+
+            {dealPositionType === "playerHand" && (
+              <label className="flex flex-col gap-1 text-gray-300 text-xs">
+                <span>SEAT (0-8)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={8}
+                  value={dealSeat}
+                  onChange={(e) =>
+                    setDealSeat(
+                      Math.max(0, Math.min(8, Number(e.target.value) || 0)),
+                    )
+                  }
+                  className="h-9 rounded bg-gray-800 px-2 text-sm text-white"
+                />
+              </label>
+            )}
+
+            {dealPositionType === "communityCard" && (
+              <label className="flex flex-col gap-1 text-gray-300 text-xs">
+                <span>SLOT (0-4)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={4}
+                  value={dealSlot}
+                  onChange={(e) =>
+                    setDealSlot(
+                      Math.max(0, Math.min(4, Number(e.target.value) || 0)),
+                    )
+                  }
+                  className="h-9 rounded bg-gray-800 px-2 text-sm text-white"
+                />
+              </label>
+            )}
+
+            <label className="flex flex-col gap-1 text-gray-300 text-xs">
+              <span>RFID (空欄なら自動採番)</span>
+              <input
+                type="text"
+                value={dealRfid}
+                onChange={(e) => setDealRfid(e.target.value)}
+                placeholder="DEBUG_xxx"
+                className="h-9 rounded bg-gray-800 px-2 text-sm text-white"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handleDealCard}
+              disabled={isDealing}
+              className="flex h-10 items-center justify-center rounded-lg bg-primary px-4 font-semibold text-black text-sm transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isDealing ? "配布中..." : "配布する"}
             </button>
           </div>
         </section>

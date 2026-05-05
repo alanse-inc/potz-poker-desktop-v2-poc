@@ -200,4 +200,89 @@ describe("Debug", () => {
       expect(screen.getByText("backend down")).toBeInTheDocument();
     });
   });
+
+  describe("手動カード配布", () => {
+    it("初期表示で playerHand seat 0 / spade A が選択されている", async () => {
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("手動カード配布")).toBeInTheDocument();
+      });
+      expect(screen.getByLabelText("SUIT")).toHaveValue("spade");
+      expect(screen.getByLabelText("VALUE")).toHaveValue("A");
+      expect(screen.getByLabelText("POSITION")).toHaveValue("playerHand");
+      expect(screen.getByLabelText("SEAT (0-8)")).toHaveValue(0);
+    });
+
+    it("playerHand 配布で applyCardPlaced が seat 指定で呼ばれる", async () => {
+      const user = userEvent.setup();
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("手動カード配布")).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByLabelText("VALUE"), "K");
+      await user.clear(screen.getByLabelText("SEAT (0-8)"));
+      await user.type(screen.getByLabelText("SEAT (0-8)"), "3");
+      await user.click(screen.getByRole("button", { name: "配布する" }));
+      await waitFor(() => {
+        expect(api.rfid.applyCardPlaced).toHaveBeenCalledWith(
+          expect.stringMatching(/^DEBUG_spade_K_/),
+          { suit: "spade", value: "K" },
+          { type: "playerHand", seat: 3 },
+        );
+      });
+    });
+
+    it("communityCard 選択時は SLOT 入力が表示される", async () => {
+      const user = userEvent.setup();
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("手動カード配布")).toBeInTheDocument();
+      });
+      await user.selectOptions(
+        screen.getByLabelText("POSITION"),
+        "communityCard",
+      );
+      expect(screen.getByLabelText("SLOT (0-4)")).toBeInTheDocument();
+      expect(screen.queryByLabelText("SEAT (0-8)")).not.toBeInTheDocument();
+    });
+
+    it("burnCard 選択時は SEAT/SLOT 入力が非表示", async () => {
+      const user = userEvent.setup();
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("手動カード配布")).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByLabelText("POSITION"), "burnCard");
+      expect(screen.queryByLabelText("SEAT (0-8)")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("SLOT (0-4)")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "配布する" }));
+      await waitFor(() => {
+        expect(api.rfid.applyCardPlaced).toHaveBeenCalledWith(
+          expect.any(String),
+          { suit: "spade", value: "A" },
+          { type: "burnCard" },
+        );
+      });
+    });
+
+    it("RFID を入力すると指定値で applyCardPlaced が呼ばれる", async () => {
+      const user = userEvent.setup();
+      renderDebug();
+      await waitFor(() => {
+        expect(screen.getByText("手動カード配布")).toBeInTheDocument();
+      });
+      await user.type(
+        screen.getByLabelText("RFID (空欄なら自動採番)"),
+        "MY_TAG_001",
+      );
+      await user.click(screen.getByRole("button", { name: "配布する" }));
+      await waitFor(() => {
+        expect(api.rfid.applyCardPlaced).toHaveBeenCalledWith(
+          "MY_TAG_001",
+          { suit: "spade", value: "A" },
+          { type: "playerHand", seat: 0 },
+        );
+      });
+    });
+  });
 });
