@@ -150,6 +150,7 @@ function derivePosition(
     if (diff === 8) return "HJ";
     if (diff === 9) return "CO";
   }
+  console.error(`derivePosition: unexpected diff value: ${diff}`);
   return "UTG";
 }
 
