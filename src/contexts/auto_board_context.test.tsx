@@ -14,6 +14,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn().mockResolvedValue(undefined),
 }));
 
+// @tauri-apps/api/webviewWindow のモック
+const MY_WINDOW_LABEL = "main";
+vi.mock("@tauri-apps/api/webviewWindow", () => ({
+  getCurrentWebviewWindow: vi.fn(() => ({ label: MY_WINDOW_LABEL })),
+}));
+
 // モック後にインポート
 const { listen, emit } = await import("@tauri-apps/api/event");
 
@@ -88,6 +94,7 @@ describe("AutoBoardProvider", () => {
     await waitFor(() => {
       expect(emit).toHaveBeenCalledWith(AUTO_BOARD_UPDATED_EVENT, {
         board,
+        source: MY_WINDOW_LABEL,
       });
     });
   });
@@ -120,6 +127,7 @@ describe("AutoBoardProvider", () => {
     await waitFor(() => {
       expect(emit).toHaveBeenCalledWith(AUTO_BOARD_UPDATED_EVENT, {
         board: null,
+        source: MY_WINDOW_LABEL,
       });
     });
   });
@@ -134,9 +142,9 @@ describe("AutoBoardProvider", () => {
     });
   });
 
-  it("listen イベント受信で board state が更新される", async () => {
+  it("listen イベント受信で board state が更新される（別ウィンドウからのイベント）", async () => {
     let capturedCb:
-      | ((e: { payload: { board: AutoModeBoard | null } }) => void)
+      | ((e: { payload: { board: AutoModeBoard | null; source?: string } }) => void)
       | undefined;
 
     vi.mocked(listen).mockImplementation(async (_event, cb) => {
@@ -152,7 +160,7 @@ describe("AutoBoardProvider", () => {
 
     const updatedBoard = makeBoard({ handNumber: 99 });
     act(() => {
-      capturedCb?.({ payload: { board: updatedBoard } });
+      capturedCb?.({ payload: { board: updatedBoard, source: "other-window" } });
     });
 
     await waitFor(() => {
@@ -160,12 +168,38 @@ describe("AutoBoardProvider", () => {
     });
   });
 
-  it("listen イベント受信で null が来ると board が null になる", async () => {
+  it("listen イベント受信で自ウィンドウからのイベントは無視される", async () => {
+    let capturedCb:
+      | ((e: { payload: { board: AutoModeBoard | null; source?: string } }) => void)
+      | undefined;
+
+    vi.mocked(listen).mockImplementation(async (_event, cb) => {
+      capturedCb = cb as typeof capturedCb;
+      return () => {};
+    });
+
+    const { result } = renderHook(() => useAutoBoard(), { wrapper });
+
+    await waitFor(() => {
+      expect(listen).toHaveBeenCalledTimes(1);
+    });
+
+    const updatedBoard = makeBoard({ handNumber: 99 });
+    act(() => {
+      // 自ウィンドウ (MY_WINDOW_LABEL) から来たイベントは無視される
+      capturedCb?.({ payload: { board: updatedBoard, source: MY_WINDOW_LABEL } });
+    });
+
+    // board は初期値 null のまま変わらない
+    expect(result.current.board).toBeNull();
+  });
+
+  it("listen イベント受信で null が来ると board が null になる（別ウィンドウからのイベント）", async () => {
     const initialBoard = makeBoard();
     localStorage.setItem("auto_mode_board", JSON.stringify(initialBoard));
 
     let capturedCb:
-      | ((e: { payload: { board: AutoModeBoard | null } }) => void)
+      | ((e: { payload: { board: AutoModeBoard | null; source?: string } }) => void)
       | undefined;
 
     vi.mocked(listen).mockImplementation(async (_event, cb) => {
@@ -180,7 +214,7 @@ describe("AutoBoardProvider", () => {
     });
 
     act(() => {
-      capturedCb?.({ payload: { board: null } });
+      capturedCb?.({ payload: { board: null, source: "other-window" } });
     });
 
     await waitFor(() => {
