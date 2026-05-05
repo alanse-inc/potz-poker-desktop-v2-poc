@@ -565,6 +565,24 @@ pub fn start_game(
         ));
     }
 
+    // 空文字チェック
+    for name in &player_names {
+        if name.trim().is_empty() {
+            return Err(BoardError::InvalidAction(
+                "player name must not be empty".into(),
+            ));
+        }
+    }
+    // 重複チェック (trim 後で比較)
+    let mut seen = std::collections::HashSet::new();
+    for name in &player_names {
+        if !seen.insert(name.trim()) {
+            return Err(BoardError::InvalidAction(
+                "duplicate player names are not allowed".into(),
+            ));
+        }
+    }
+
     let initial_stack = settings
         .small_blind
         .checked_mul(100)
@@ -4245,5 +4263,73 @@ mod tests {
         let (new_board, _) = result.unwrap();
         assert_eq!(new_board.dealer_position, 1);
         assert_eq!(new_board.hand_number, 2);
+    }
+
+    // ================================================================
+    // Bug 2 fix: start_game が空文字・重複名をリジェクトすること
+    // ================================================================
+
+    #[test]
+    fn start_game_rejects_empty_player_name() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "invalid action: player name must not be empty"
+        );
+    }
+
+    #[test]
+    fn start_game_rejects_whitespace_only_player_name() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "   ".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "invalid action: player name must not be empty"
+        );
+    }
+
+    #[test]
+    fn start_game_rejects_duplicate_player_names() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Alice".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "invalid action: duplicate player names are not allowed"
+        );
+    }
+
+    #[test]
+    fn start_game_accepts_valid_player_names() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let result = start_game(settings, names, 0);
+        assert!(result.is_ok());
     }
 }
