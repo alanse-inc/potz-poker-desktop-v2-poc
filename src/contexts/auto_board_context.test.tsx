@@ -144,7 +144,9 @@ describe("AutoBoardProvider", () => {
 
   it("listen イベント受信で board state が更新される（別ウィンドウからのイベント）", async () => {
     let capturedCb:
-      | ((e: { payload: { board: AutoModeBoard | null; source?: string } }) => void)
+      | ((e: {
+          payload: { board: AutoModeBoard | null; source?: string };
+        }) => void)
       | undefined;
 
     vi.mocked(listen).mockImplementation(async (_event, cb) => {
@@ -160,7 +162,9 @@ describe("AutoBoardProvider", () => {
 
     const updatedBoard = makeBoard({ handNumber: 99 });
     act(() => {
-      capturedCb?.({ payload: { board: updatedBoard, source: "other-window" } });
+      capturedCb?.({
+        payload: { board: updatedBoard, source: "other-window" },
+      });
     });
 
     await waitFor(() => {
@@ -170,7 +174,9 @@ describe("AutoBoardProvider", () => {
 
   it("listen イベント受信で自ウィンドウからのイベントは無視される", async () => {
     let capturedCb:
-      | ((e: { payload: { board: AutoModeBoard | null; source?: string } }) => void)
+      | ((e: {
+          payload: { board: AutoModeBoard | null; source?: string };
+        }) => void)
       | undefined;
 
     vi.mocked(listen).mockImplementation(async (_event, cb) => {
@@ -187,7 +193,9 @@ describe("AutoBoardProvider", () => {
     const updatedBoard = makeBoard({ handNumber: 99 });
     act(() => {
       // 自ウィンドウ (MY_WINDOW_LABEL) から来たイベントは無視される
-      capturedCb?.({ payload: { board: updatedBoard, source: MY_WINDOW_LABEL } });
+      capturedCb?.({
+        payload: { board: updatedBoard, source: MY_WINDOW_LABEL },
+      });
     });
 
     // board は初期値 null のまま変わらない
@@ -199,7 +207,9 @@ describe("AutoBoardProvider", () => {
     localStorage.setItem("auto_mode_board", JSON.stringify(initialBoard));
 
     let capturedCb:
-      | ((e: { payload: { board: AutoModeBoard | null; source?: string } }) => void)
+      | ((e: {
+          payload: { board: AutoModeBoard | null; source?: string };
+        }) => void)
       | undefined;
 
     vi.mocked(listen).mockImplementation(async (_event, cb) => {
