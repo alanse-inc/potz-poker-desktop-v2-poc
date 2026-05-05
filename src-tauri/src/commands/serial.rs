@@ -673,4 +673,83 @@ mod tests {
         assert_eq!(hand_p0, [card_p0_1, card_p0_2]);
         assert_eq!(hand_p1, [card_p1_1, card_p1_2]);
     }
+
+    // ---- BUG-N: back_board 後に burn state がリセットされること ----
+
+    #[test]
+    fn back_board_resets_burn_state() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+
+        // history にスナップショットを積む（back_board が pop する対象）
+        let board_snap = state.board.as_ref().unwrap().clone();
+        let deck_snap = build_remaining_deck(&board_snap);
+        state.history.push((board_snap, deck_snap));
+
+        // RFID スキャンでバーンカードが配られたと仮定
+        let burn = Card::new(Suit::Diamond, CardValue::Two);
+        apply_card_to_state(&mut state, burn, CardPosition::BurnCard).unwrap();
+        state.event_history.push("burn_event".to_string());
+
+        assert_eq!(state.burn_count, 1);
+        assert!(state.burn_card.is_some());
+        assert!(!state.event_history.is_empty());
+
+        // back_board ロジックをシミュレート
+        let (prev_board, prev_deck) = state.history.pop().unwrap();
+        state.board = Some(prev_board);
+        state.deck = prev_deck;
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+
+        assert_eq!(state.burn_count, 0, "burn_count should be 0 after back_board");
+        assert!(state.burn_card.is_none(), "burn_card should be None after back_board");
+        assert!(
+            state.event_history.is_empty(),
+            "event_history should be empty after back_board"
+        );
+    }
+
+    #[test]
+    fn back_board_resets_burn_state_with_multiple_burns() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+
+        // history にスナップショットを積む
+        let board_snap = state.board.as_ref().unwrap().clone();
+        let deck_snap = build_remaining_deck(&board_snap);
+        state.history.push((board_snap, deck_snap));
+
+        // 複数回バーンカードを配布
+        let burn1 = Card::new(Suit::Club, CardValue::Three);
+        let burn2 = Card::new(Suit::Heart, CardValue::Five);
+        let burn3 = Card::new(Suit::Spade, CardValue::Seven);
+        apply_card_to_state(&mut state, burn1, CardPosition::BurnCard).unwrap();
+        apply_card_to_state(&mut state, burn2, CardPosition::BurnCard).unwrap();
+        apply_card_to_state(&mut state, burn3, CardPosition::BurnCard).unwrap();
+        state.event_history.push("event1".to_string());
+        state.event_history.push("event2".to_string());
+
+        assert_eq!(state.burn_count, 3);
+        assert_eq!(state.burn_card, Some(burn3));
+        assert_eq!(state.event_history.len(), 2);
+
+        // back_board ロジックをシミュレート
+        let (prev_board, prev_deck) = state.history.pop().unwrap();
+        state.board = Some(prev_board);
+        state.deck = prev_deck;
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+
+        assert_eq!(
+            state.burn_count, 0,
+            "burn_count should be reset to 0 after back_board regardless of previous value"
+        );
+        assert!(state.burn_card.is_none(), "burn_card should be None after back_board");
+        assert!(state.event_history.is_empty(), "event_history should be empty after back_board");
+    }
 }

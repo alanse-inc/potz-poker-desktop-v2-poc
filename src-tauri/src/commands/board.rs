@@ -106,6 +106,9 @@ pub fn back_board(
 
     inner.board = Some(prev_board.clone());
     inner.deck = prev_deck;
+    inner.burn_count = 0;
+    inner.burn_card = None;
+    inner.event_history.clear();
 
     let _ = app.emit(BOARD_UPDATED, &prev_board);
     Ok(prev_board)
