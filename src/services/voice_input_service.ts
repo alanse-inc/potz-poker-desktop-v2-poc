@@ -332,6 +332,7 @@ export class VoiceInputService {
   // ---------------------------------------------------------------------------
 
   private connectWebSocket(apiKey: string, stream: MediaStream): void {
+    if (this.intentionallyStopped) return;
     if (this.ws) {
       this.ws.onopen = null;
       this.ws.onmessage = null;
