@@ -8,16 +8,29 @@
 import type { AutoModePlayer, TexasHoldemPosition } from "./types";
 
 /**
- * BTN から順にポジションを割り当てる配列 (3人以上用)
+ * BTN から順にポジションを割り当てる配列 (3〜9人用 / 10人用)
  * インデックス 0 = BTN, 1 = SB, 2 = BB, ...
  */
-const POSITION_ORDER: TexasHoldemPosition[] = [
+const POSITION_ORDER_9: TexasHoldemPosition[] = [
   "btn",
   "sb",
   "bb",
   "utg",
   "utg_plus_1",
   "utg_plus_2",
+  "mp",
+  "hj",
+  "co",
+];
+
+const POSITION_ORDER_10: TexasHoldemPosition[] = [
+  "btn",
+  "sb",
+  "bb",
+  "utg",
+  "utg_plus_1",
+  "utg_plus_2",
+  "utg_plus_3",
   "mp",
   "hj",
   "co",
@@ -126,9 +139,10 @@ export function assignPositions(
   }
 
   // 3人以上: BTN から順にポジションを割り当て
+  const positionOrder = n >= 10 ? POSITION_ORDER_10 : POSITION_ORDER_9;
   return sorted.map((p, i) => {
     const offset = (i - btnIndex + n) % n;
-    const pos: TexasHoldemPosition | undefined = POSITION_ORDER[offset];
+    const pos: TexasHoldemPosition | undefined = positionOrder[offset];
     return { ...p, position: pos ?? null };
   });
 }

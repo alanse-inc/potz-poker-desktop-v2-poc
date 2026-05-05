@@ -164,6 +164,36 @@ describe("assignPositions", () => {
       "co",
     ]);
   });
+
+  it("10人の場合全員のポジションが null でない", () => {
+    const players = Array.from({ length: 10 }, (_, i) =>
+      makePlayer({ id: `p${i + 1}`, seat: i + 1 }),
+    );
+    const result = assignPositions(players, "p1");
+    for (const p of result) {
+      expect(p.position).not.toBeNull();
+    }
+  });
+
+  it("10人の場合ポジション順が正しい", () => {
+    const players = Array.from({ length: 10 }, (_, i) =>
+      makePlayer({ id: `p${i + 1}`, seat: i + 1 }),
+    );
+    const result = assignPositions(players, "p1");
+    const positions = result.map((p) => p.position);
+    expect(positions).toEqual([
+      "btn",
+      "sb",
+      "bb",
+      "utg",
+      "utg_plus_1",
+      "utg_plus_2",
+      "utg_plus_3",
+      "mp",
+      "hj",
+      "co",
+    ]);
+  });
 });
 
 describe("determineNextButtonPlayerId", () => {
