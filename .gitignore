@@ -12,3 +12,6 @@ src-tauri/gen
 .vite
 .env.local
 .env.*.local
+
+# Claude Code worktrees (subagent isolation)
+.claude/worktrees/
