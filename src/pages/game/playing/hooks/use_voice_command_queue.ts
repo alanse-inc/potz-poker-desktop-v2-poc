@@ -307,15 +307,8 @@ export function useVoiceCommandQueue(
         }
 
         if (canChangeRound(latestBoard)) {
-          trackClientSideError(
-            "[VoiceCommandQueue] autoFoldUntilSeat: ラウンド遷移待機中にシート指定コマンドを受信。処理を中断",
-            {
-              context: {
-                targetSeat,
-                currentTurn: latestBoard.currentTurn,
-                phase: latestBoard.phase,
-              },
-            },
+          warnVoiceAction(
+            `ラウンドが完了したため、シート ${targetSeat} へのフォールド自動進行を中断しました`,
           );
           return null;
         }
