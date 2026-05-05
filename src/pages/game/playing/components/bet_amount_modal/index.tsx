@@ -6,6 +6,7 @@ type Props = {
   minAmount: number;
   maxAmount: number;
   bigBlind: number;
+  minChip?: number;
   potAmount?: number;
   onCancel: () => void;
   onConfirm: (amount: number) => void;
@@ -16,6 +17,7 @@ export function BetAmountModal({
   minAmount,
   maxAmount,
   bigBlind,
+  minChip,
   potAmount,
   onCancel,
   onConfirm,
@@ -39,10 +41,12 @@ export function BetAmountModal({
     numeric <= 0;
 
   const presets = useMemo(() => {
+    const roundToMinChip = (v: number) =>
+      minChip && minChip > 0 ? Math.round(v / minChip) * minChip : v;
     const items = [
       { label: "MIN", value: minAmount },
-      { label: "2BB", value: bigBlind * 2 },
-      { label: "3BB", value: bigBlind * 3 },
+      { label: "2BB", value: roundToMinChip(bigBlind * 2) },
+      { label: "3BB", value: roundToMinChip(bigBlind * 3) },
       ...(potAmount !== undefined &&
       potAmount >= minAmount &&
       potAmount <= maxAmount
@@ -61,7 +65,7 @@ export function BetAmountModal({
       seen.add(p.value);
       return true;
     });
-  }, [minAmount, maxAmount, bigBlind, potAmount]);
+  }, [minAmount, maxAmount, bigBlind, minChip, potAmount]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

@@ -380,6 +380,7 @@ export function GamePlaying() {
           minAmount={confirmType === "BET" ? minBet : minRaise}
           maxAmount={me.stack + me.betInRound}
           bigBlind={bigBlindAmount}
+          minChip={gameSettings?.minChip ?? undefined}
           potAmount={potRaiseAmount}
           onCancel={() => setConfirmType(null)}
           onConfirm={handleConfirmAmount}

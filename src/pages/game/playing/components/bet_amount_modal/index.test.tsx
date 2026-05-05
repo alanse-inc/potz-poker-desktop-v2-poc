@@ -95,6 +95,46 @@ describe("BetAmountModal", () => {
     expect(potButton).toHaveTextContent("200");
   });
 
+  it("minChip 指定時に 2BB が minChip の倍数に丸められる", async () => {
+    const user = userEvent.setup();
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={1}
+        maxAmount={10000}
+        bigBlind={150}
+        minChip={100}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton");
+    await user.click(screen.getByRole("button", { name: /^2BB/ }));
+    // 150 * 2 = 300 → round(300/100)*100 = 300
+    expect((input as HTMLInputElement).value).toBe("300");
+  });
+
+  it("minChip 指定時に 3BB が minChip の倍数に丸められる", async () => {
+    const user = userEvent.setup();
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={1}
+        maxAmount={10000}
+        bigBlind={150}
+        minChip={100}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton");
+    await user.click(screen.getByRole("button", { name: /^3BB/ }));
+    // 150 * 3 = 450 → round(450/100)*100 = 500
+    expect((input as HTMLInputElement).value).toBe("500");
+  });
+
   it("小数値を手入力すると実行ボタンが disabled になる", async () => {
     const user = userEvent.setup();
     render(
