@@ -34,7 +34,7 @@ export type HandRank =
   | "full_house"
   | "four_of_a_kind"
   | "straight_flush"
-  | "royal_flush";
+  | "royal_straight_flush";
 
 export type CreateHandPlayerRequest = {
   playerId: string;
