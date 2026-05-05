@@ -103,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const clientRef = useRef<Auth0Client | null>(null);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unmountedRef = useRef(false);
 
   const getClient = useCallback(async (): Promise<Auth0Client | null> => {
     if (!isAuth0Configured()) return null;
@@ -192,13 +193,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("auto_mode_board");
     Sentry.setUser(null);
     resetMixpanel();
-    setSession({ isAuthenticated: false });
+    if (!unmountedRef.current) {
+      setSession({ isAuthenticated: false });
+    }
     if (reloadTimerRef.current !== null) {
       clearTimeout(reloadTimerRef.current);
     }
     reloadTimerRef.current = setTimeout(() => {
       reloadTimerRef.current = null;
-      window.location.reload();
+      if (!unmountedRef.current) {
+        window.location.reload();
+      }
     }, 100);
   }, [getClient]);
 
@@ -292,6 +297,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => clearInterval(intervalId);
   }, [session?.isAuthenticated, refresh]);
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true;
+      if (reloadTimerRef.current !== null) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <AuthContext.Provider

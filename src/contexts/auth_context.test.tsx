@@ -526,3 +526,71 @@ describe("useAuth を AuthProvider 外で使う", () => {
     );
   });
 });
+
+describe("logout() – タイマー管理 (Bug 5)", () => {
+  beforeEach(() => {
+    resetClientMocks();
+    vi.stubEnv("VITE_AUTH0_DOMAIN", "test.auth0.com");
+    vi.stubEnv("VITE_AUTH0_CLIENT_ID", "test-client-id");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  test("logout を複数回呼んでも window.location.reload が 1 回しか呼ばれない", async () => {
+    const reloadMock = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { reload: reloadMock },
+      writable: true,
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isInitializing).toBe(false);
+    });
+
+    vi.useFakeTimers();
+
+    await act(async () => {
+      await result.current.logout();
+      await result.current.logout();
+    });
+
+    act(() => {
+      vi.runAllTimers();
+    });
+
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("unmount 後は reload タイマー発火しても window.location.reload が呼ばれない", async () => {
+    const reloadMock = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { reload: reloadMock },
+      writable: true,
+    });
+
+    const { result, unmount } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isInitializing).toBe(false);
+    });
+
+    vi.useFakeTimers();
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    unmount();
+
+    act(() => {
+      vi.runAllTimers();
+    });
+
+    expect(reloadMock).not.toHaveBeenCalled();
+  });
+});
