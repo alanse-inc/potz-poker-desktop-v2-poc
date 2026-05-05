@@ -27,9 +27,9 @@ export const DEFAULT_ENDPOINTING_MS = 200;
 
 // Audio Processing
 export const MIC_GAIN = 1.0;
-export const COMPRESSOR_THRESHOLD_DB = 0;
-export const COMPRESSOR_KNEE_DB = 0;
-export const COMPRESSOR_RATIO = 1;
+export const COMPRESSOR_THRESHOLD_DB = -24;
+export const COMPRESSOR_KNEE_DB = 30;
+export const COMPRESSOR_RATIO = 4;
 export const COMPRESSOR_ATTACK_S = 0.003;
 export const COMPRESSOR_RELEASE_S = 0.1;
 export const AUDIO_PROCESSOR_BUFFER_SIZE = 4096;
