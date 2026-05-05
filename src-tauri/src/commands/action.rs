@@ -31,7 +31,9 @@ where
         let deck_snap = inner.deck.clone();
         let burn_count_snap = inner.burn_count;
         let burn_card_snap = inner.burn_card;
-        inner.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        inner
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
         if inner.history.len() > MAX_HISTORY {
             let excess = inner.history.len() - MAX_HISTORY;
             inner.history.drain(0..excess);
@@ -59,30 +61,23 @@ pub fn bet(
     amount: u32,
 ) -> Result<TexasHoldemBoard, String> {
     let min_chip = state.lock().settings.min_chip;
-    run_action(&app, &state, move |board, deck| board_bet(board, amount, deck, min_chip))
+    run_action(&app, &state, move |board, deck| {
+        board_bet(board, amount, deck, min_chip)
+    })
 }
 
 #[tauri::command]
-pub fn call(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<TexasHoldemBoard, String> {
+pub fn call(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
     run_action(&app, &state, board_call)
 }
 
 #[tauri::command]
-pub fn check(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<TexasHoldemBoard, String> {
+pub fn check(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
     run_action(&app, &state, board_check)
 }
 
 #[tauri::command]
-pub fn fold(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<TexasHoldemBoard, String> {
+pub fn fold(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
     run_action(&app, &state, board_fold)
 }
 
@@ -93,13 +88,12 @@ pub fn raise(
     amount: u32,
 ) -> Result<TexasHoldemBoard, String> {
     let min_chip = state.lock().settings.min_chip;
-    run_action(&app, &state, move |board, deck| board_raise(board, amount, deck, min_chip))
+    run_action(&app, &state, move |board, deck| {
+        board_raise(board, amount, deck, min_chip)
+    })
 }
 
 #[tauri::command]
-pub fn allin(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<TexasHoldemBoard, String> {
+pub fn allin(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
     run_action(&app, &state, board_allin)
 }

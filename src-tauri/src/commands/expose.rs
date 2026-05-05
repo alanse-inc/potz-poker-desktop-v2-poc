@@ -13,22 +13,14 @@ use tauri::{AppHandle, Emitter, State};
 pub fn expose(app: AppHandle, expose_card: Card, state: State<AppState>) -> Result<Card, String> {
     let (burn_card, board_snapshot): (Card, TexasHoldemBoard) = {
         let mut guard = state.lock();
-        let burn_card = guard
-            .burn_card
-            .ok_or_else(|| "no burn card".to_string())?;
+        let burn_card = guard.burn_card.ok_or_else(|| "no burn card".to_string())?;
         {
-            let board = guard
-                .board
-                .as_mut()
-                .ok_or_else(|| "no board".to_string())?;
+            let board = guard.board.as_mut().ok_or_else(|| "no board".to_string())?;
             crate::domain::board::board_expose(board, expose_card, burn_card)
                 .map_err(|e| e.to_string())?;
         }
         guard.deck.retain(|c| c != &burn_card);
-        let board_snapshot = guard
-            .board
-            .clone()
-            .ok_or_else(|| "no board".to_string())?;
+        let board_snapshot = guard.board.clone().ok_or_else(|| "no board".to_string())?;
         (burn_card, board_snapshot)
     }; // lock を解放してから emit
 
@@ -38,7 +30,7 @@ pub fn expose(app: AppHandle, expose_card: Card, state: State<AppState>) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::board::{build_remaining_deck, board_expose, GameSettings, start_game};
+    use crate::domain::board::{board_expose, build_remaining_deck, start_game, GameSettings};
     use crate::domain::card::{Card, CardValue, Suit};
     use crate::state::InnerState;
 

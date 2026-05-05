@@ -112,15 +112,15 @@ pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
     } // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, Option::<TexasHoldemBoard>::None);
-    let _ = app.emit(INITIAL_BOARD_UPDATED, Option::<TexasHoldemInitialBoard>::None);
+    let _ = app.emit(
+        INITIAL_BOARD_UPDATED,
+        Option::<TexasHoldemInitialBoard>::None,
+    );
     Ok(())
 }
 
 #[tauri::command]
-pub fn back_board(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<TexasHoldemBoard, String> {
+pub fn back_board(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
     let prev_board = {
         let mut inner = state.lock();
         let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = inner
@@ -175,7 +175,9 @@ pub fn set_community_card(
             let deck_snap = inner.deck.clone();
             let burn_count_snap = inner.burn_count;
             let burn_card_snap = inner.burn_card;
-            inner.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            inner
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
             if inner.history.len() > MAX_HISTORY {
                 let excess = inner.history.len() - MAX_HISTORY;
                 inner.history.drain(0..excess);
@@ -401,15 +403,16 @@ mod tests {
         };
 
         // back_board で復元されるべき値を history に push
-        state.history.push((board.clone(), deck.clone(), 3, Some(burn_card)));
+        state
+            .history
+            .push((board.clone(), deck.clone(), 3, Some(burn_card)));
 
         // 現在の burn_count / burn_card を別の値にしておく
         state.burn_count = 0;
         state.burn_card = None;
 
         // back_board 相当の復元処理
-        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) =
-            state.history.pop().unwrap();
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = state.history.pop().unwrap();
         state.board = Some(prev_board);
         state.deck = prev_deck;
         state.burn_count = prev_burn_count;

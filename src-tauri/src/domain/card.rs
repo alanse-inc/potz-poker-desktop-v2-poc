@@ -115,7 +115,9 @@ impl<'de> Deserialize<'de> for CardValue {
             "A" => Ok(Self::Ace),
             other => Err(serde::de::Error::unknown_variant(
                 other,
-                &["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"],
+                &[
+                    "2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A",
+                ],
             )),
         }
     }

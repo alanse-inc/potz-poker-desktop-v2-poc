@@ -180,8 +180,8 @@ pub fn load_decks_from_store(app: &AppHandle, state: &AppState) {
 
 #[cfg(test)]
 mod tests {
-    use crate::state::{AppState, InnerState};
     use crate::domain::rfid_mapping::RfidCardMapping;
+    use crate::state::{AppState, InnerState};
 
     fn make_app_state() -> AppState {
         AppState::new(InnerState::default())

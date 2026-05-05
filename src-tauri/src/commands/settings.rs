@@ -146,7 +146,10 @@ mod tests {
     fn validate_settings_rejects_bb_equal_to_sb() {
         let result = validate_settings(&make_settings(100, 100, 100));
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Big blind must be greater than small blind");
+        assert_eq!(
+            result.unwrap_err(),
+            "Big blind must be greater than small blind"
+        );
     }
 
     #[test]

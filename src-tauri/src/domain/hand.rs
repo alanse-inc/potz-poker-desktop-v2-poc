@@ -47,7 +47,9 @@ pub fn evaluate_hand(cards: &[Card]) -> EvaluatedHand {
                         best = Some(match best {
                             None => candidate,
                             Some(ref prev) => {
-                                if compare_evaluated(&candidate, prev) == std::cmp::Ordering::Greater {
+                                if compare_evaluated(&candidate, prev)
+                                    == std::cmp::Ordering::Greater
+                                {
                                     candidate
                                 } else {
                                     prev.clone()
@@ -193,7 +195,10 @@ fn evaluate_five(cards: &[Card]) -> EvaluatedHand {
         }
         _ => {
             // High card: counts は既に降順
-            let kickers = counts.iter().map(|(v, _)| numeric_to_card_value(*v)).collect();
+            let kickers = counts
+                .iter()
+                .map(|(v, _)| numeric_to_card_value(*v))
+                .collect();
             EvaluatedHand {
                 rank: HandRank::HighCard,
                 kickers,
@@ -232,35 +237,65 @@ mod tests {
 
     #[test]
     fn high_card() {
-        let cards = [c(Spade, Two), c(Heart, Four), c(Diamond, Six), c(Club, Eight), c(Spade, Ten)];
+        let cards = [
+            c(Spade, Two),
+            c(Heart, Four),
+            c(Diamond, Six),
+            c(Club, Eight),
+            c(Spade, Ten),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::HighCard);
     }
 
     #[test]
     fn one_pair() {
-        let cards = [c(Spade, Two), c(Heart, Two), c(Diamond, Six), c(Club, Eight), c(Spade, Ten)];
+        let cards = [
+            c(Spade, Two),
+            c(Heart, Two),
+            c(Diamond, Six),
+            c(Club, Eight),
+            c(Spade, Ten),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::OnePair);
     }
 
     #[test]
     fn two_pair() {
-        let cards = [c(Spade, Two), c(Heart, Two), c(Diamond, Six), c(Club, Six), c(Spade, Ten)];
+        let cards = [
+            c(Spade, Two),
+            c(Heart, Two),
+            c(Diamond, Six),
+            c(Club, Six),
+            c(Spade, Ten),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::TwoPair);
     }
 
     #[test]
     fn three_of_a_kind() {
-        let cards = [c(Spade, Two), c(Heart, Two), c(Diamond, Two), c(Club, Six), c(Spade, Ten)];
+        let cards = [
+            c(Spade, Two),
+            c(Heart, Two),
+            c(Diamond, Two),
+            c(Club, Six),
+            c(Spade, Ten),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::ThreeOfAKind);
     }
 
     #[test]
     fn straight() {
-        let cards = [c(Spade, Three), c(Heart, Four), c(Diamond, Five), c(Club, Six), c(Spade, Seven)];
+        let cards = [
+            c(Spade, Three),
+            c(Heart, Four),
+            c(Diamond, Five),
+            c(Club, Six),
+            c(Spade, Seven),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::Straight);
         assert_eq!(e.kickers[0], Seven);
@@ -268,7 +303,13 @@ mod tests {
 
     #[test]
     fn wheel_straight_a2345() {
-        let cards = [c(Spade, Ace), c(Heart, Two), c(Diamond, Three), c(Club, Four), c(Spade, Five)];
+        let cards = [
+            c(Spade, Ace),
+            c(Heart, Two),
+            c(Diamond, Three),
+            c(Club, Four),
+            c(Spade, Five),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::Straight);
         assert_eq!(e.kickers[0], Five);
@@ -276,35 +317,65 @@ mod tests {
 
     #[test]
     fn flush() {
-        let cards = [c(Spade, Two), c(Spade, Four), c(Spade, Six), c(Spade, Eight), c(Spade, King)];
+        let cards = [
+            c(Spade, Two),
+            c(Spade, Four),
+            c(Spade, Six),
+            c(Spade, Eight),
+            c(Spade, King),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::Flush);
     }
 
     #[test]
     fn full_house() {
-        let cards = [c(Spade, King), c(Heart, King), c(Diamond, King), c(Club, Two), c(Spade, Two)];
+        let cards = [
+            c(Spade, King),
+            c(Heart, King),
+            c(Diamond, King),
+            c(Club, Two),
+            c(Spade, Two),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::FullHouse);
     }
 
     #[test]
     fn four_of_a_kind() {
-        let cards = [c(Spade, Ace), c(Heart, Ace), c(Diamond, Ace), c(Club, Ace), c(Spade, King)];
+        let cards = [
+            c(Spade, Ace),
+            c(Heart, Ace),
+            c(Diamond, Ace),
+            c(Club, Ace),
+            c(Spade, King),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::FourOfAKind);
     }
 
     #[test]
     fn straight_flush() {
-        let cards = [c(Heart, Five), c(Heart, Six), c(Heart, Seven), c(Heart, Eight), c(Heart, Nine)];
+        let cards = [
+            c(Heart, Five),
+            c(Heart, Six),
+            c(Heart, Seven),
+            c(Heart, Eight),
+            c(Heart, Nine),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::StraightFlush);
     }
 
     #[test]
     fn royal_straight_flush() {
-        let cards = [c(Club, Ten), c(Club, Jack), c(Club, Queen), c(Club, King), c(Club, Ace)];
+        let cards = [
+            c(Club, Ten),
+            c(Club, Jack),
+            c(Club, Queen),
+            c(Club, King),
+            c(Club, Ace),
+        ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::RoyalStraightFlush);
     }
@@ -313,8 +384,13 @@ mod tests {
     fn seven_card_best_hand() {
         // 7 枚渡しても最強役が取れる
         let cards = [
-            c(Club, Ace), c(Club, King), c(Club, Queen), c(Club, Jack), c(Club, Ten),
-            c(Spade, Two), c(Heart, Three),
+            c(Club, Ace),
+            c(Club, King),
+            c(Club, Queen),
+            c(Club, Jack),
+            c(Club, Ten),
+            c(Spade, Two),
+            c(Heart, Three),
         ];
         let e = evaluate_hand(&cards);
         assert_eq!(e.rank, HandRank::RoyalStraightFlush);

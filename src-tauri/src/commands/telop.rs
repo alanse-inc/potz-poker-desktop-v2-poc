@@ -1,6 +1,8 @@
 //! テロップウィンドウ制御と状態管理の commands。
 
-use crate::events::{TELOP_BACKGROUND_COLOR_UPDATED, TELOP_CURRENT_SCREEN_UPDATED, TELOP_ID_UPDATED, TELOP_UPDATED};
+use crate::events::{
+    TELOP_BACKGROUND_COLOR_UPDATED, TELOP_CURRENT_SCREEN_UPDATED, TELOP_ID_UPDATED, TELOP_UPDATED,
+};
 use crate::state::{AppState, TelopState};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_store::StoreExt;
@@ -18,12 +20,16 @@ pub fn open_telop_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(&app, TELOP_LABEL, tauri::WebviewUrl::App("telop.html".into()))
-        .title("Telop")
-        .inner_size(800.0, 200.0)
-        .resizable(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    WebviewWindowBuilder::new(
+        &app,
+        TELOP_LABEL,
+        tauri::WebviewUrl::App("telop.html".into()),
+    )
+    .title("Telop")
+    .inner_size(800.0, 200.0)
+    .resizable(true)
+    .build()
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -221,7 +227,10 @@ mod tests {
     fn set_telop_current_screen_updates_state() {
         let state = make_state();
         state.lock().telop_current_screen = Some("playing".to_string());
-        assert_eq!(state.lock().telop_current_screen, Some("playing".to_string()));
+        assert_eq!(
+            state.lock().telop_current_screen,
+            Some("playing".to_string())
+        );
     }
 
     #[test]

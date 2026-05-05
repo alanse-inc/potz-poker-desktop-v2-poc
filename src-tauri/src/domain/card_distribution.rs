@@ -80,7 +80,11 @@ fn sort_by_clockwise_distance(players: &[&Player], start_seat: u8, total: u8) ->
 
 /// 全プレイヤーに初期カード（2枚）が配られているか確認。
 fn are_all_players_dealt(board: &TexasHoldemBoard) -> bool {
-    let receivable: Vec<&Player> = board.players.iter().filter(|p| is_card_receivable(p)).collect();
+    let receivable: Vec<&Player> = board
+        .players
+        .iter()
+        .filter(|p| is_card_receivable(p))
+        .collect();
     if receivable.is_empty() {
         return true;
     }
@@ -138,7 +142,11 @@ pub fn determine_next_card_position(
 fn determine_next_player_card_position(
     board: &TexasHoldemBoard,
 ) -> Result<CardPosition, CardDistributionError> {
-    let receivable: Vec<&Player> = board.players.iter().filter(|p| is_card_receivable(p)).collect();
+    let receivable: Vec<&Player> = board
+        .players
+        .iter()
+        .filter(|p| is_card_receivable(p))
+        .collect();
 
     if receivable.is_empty() {
         return Err(CardDistributionError::NoCardReceivablePlayers);
@@ -208,7 +216,7 @@ fn determine_next_community_card_position(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::board::{GameSettings, start_game};
+    use crate::domain::board::{start_game, GameSettings};
 
     fn make_board_3p() -> TexasHoldemBoard {
         let settings = GameSettings {
