@@ -31,7 +31,7 @@ export function BetAmountModal({
 
   const numeric = Number(value);
   const isInvalid =
-    !Number.isFinite(numeric) ||
+    !Number.isInteger(numeric) ||
     numeric < minAmount ||
     numeric > maxAmount ||
     numeric <= 0;

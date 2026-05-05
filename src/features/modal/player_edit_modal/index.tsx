@@ -35,6 +35,10 @@ export function PlayerEditModal({
       toast.error("スタックは 0 以上の数値を入力してください");
       return;
     }
+    if (stackNum > 10_000_000) {
+      toast.error("スタックは 10,000,000 以下の値を入力してください");
+      return;
+    }
     setIsSaving(true);
     try {
       await api.board.updatePlayer({

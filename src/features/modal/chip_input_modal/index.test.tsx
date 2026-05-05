@@ -87,4 +87,26 @@ describe("ChipInputModal", () => {
     await user.click(screen.getByText("キャンセル"));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it("小数値を入力すると決定ボタンが disabled になる", async () => {
+    const user = userEvent.setup();
+    setup();
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "1.5");
+
+    expect(screen.getByText("決定")).toBeDisabled();
+  });
+
+  it("全角数字を入力すると決定ボタンが disabled になる", async () => {
+    const user = userEvent.setup();
+    setup();
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "１００");
+
+    expect(screen.getByText("決定")).toBeDisabled();
+  });
 });

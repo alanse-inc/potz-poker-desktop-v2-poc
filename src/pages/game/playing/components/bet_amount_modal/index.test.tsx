@@ -58,4 +58,25 @@ describe("BetAmountModal", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^3BB/ })).toBeInTheDocument();
   });
+
+  it("小数値を手入力すると実行ボタンが disabled になる", async () => {
+    const user = userEvent.setup();
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={1}
+        maxAmount={10000}
+        bigBlind={200}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input);
+    await user.type(input, "300.5");
+
+    const confirmButton = screen.getByRole("button", { name: /BET を実行/ });
+    expect(confirmButton).toBeDisabled();
+  });
 });

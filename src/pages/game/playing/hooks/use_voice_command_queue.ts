@@ -63,12 +63,18 @@ export function useVoiceCommandQueue(
 
   const waitForBoardUpdate = useCallback(
     (prevBoard: TexasHoldemBoard): Promise<boolean> => {
+      const prevHandNumber = prevBoard.handNumber;
+      const prevPhase = prevBoard.phase;
       return new Promise((resolve) => {
         let elapsed = 0;
         const interval = setInterval(() => {
           elapsed += 100;
           const current = boardRef.current;
-          if (current && current !== prevBoard) {
+          if (
+            current &&
+            (current.handNumber !== prevHandNumber ||
+              current.phase !== prevPhase)
+          ) {
             clearInterval(interval);
             resolve(true);
           }

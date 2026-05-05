@@ -670,6 +670,51 @@ describe("useVoiceCommandQueue", () => {
     });
   });
 
+  describe("waitForBoardUpdate - 値比較", () => {
+    it("phase が変わればキューが継続される", async () => {
+      const board = buildMockBoard({ phase: "pre_flop", handNumber: 1 });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      vi.mocked(api.action.call).mockImplementation(async () => {
+        const newBoard = buildMockBoard({ phase: "flop", handNumber: 1 });
+        boardRef.current = newBoard;
+        return newBoard;
+      });
+
+      result.current.enqueue(buildCommand({ action: "call" }));
+      result.current.enqueue(buildCommand({ action: "fold" }));
+
+      await vi.runAllTimersAsync();
+
+      expect(api.action.call).toHaveBeenCalledTimes(1);
+      expect(api.action.fold).toHaveBeenCalledTimes(1);
+    });
+
+    it("handNumber も phase も同じであればタイムアウトしてキューが中断される", async () => {
+      const board = buildMockBoard({ phase: "pre_flop", handNumber: 1 });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // boardRef.current を変更しない（handNumber も phase も同じまま）
+      vi.mocked(api.action.call).mockResolvedValue(board);
+
+      result.current.enqueue(buildCommand({ action: "call" }));
+      result.current.enqueue(buildCommand({ action: "fold" }));
+
+      await vi.runAllTimersAsync();
+
+      expect(api.action.call).toHaveBeenCalledTimes(1);
+      expect(api.action.fold).not.toHaveBeenCalled();
+    });
+  });
+
   describe("enqueue での check-around streetAtCapture 記録", () => {
     it("check-around コマンドにboardのフェーズがstreetAtCaptureとして記録される", async () => {
       const board = buildMockBoard({

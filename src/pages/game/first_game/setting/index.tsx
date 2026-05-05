@@ -156,6 +156,11 @@ export function FirstGameSetting() {
   const handleGameStart = async () => {
     if (!isStartable) return;
 
+    if (smallBlind >= bigBlind) {
+      toast.error("SB は BB より小さくしてください");
+      return;
+    }
+
     // BTN が選択されているか確認
     const dealerIndex = players.findIndex((p) => p?.isDealer);
     if (dealerIndex === -1) {
