@@ -121,7 +121,7 @@ pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
 
 #[tauri::command]
 pub fn back_board(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
-    let prev_board = {
+    let (prev_board, initial_board) = {
         let mut inner = state.lock();
         let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = inner
             .history
@@ -134,10 +134,11 @@ pub fn back_board(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHol
         inner.burn_card = prev_burn_card;
         inner.event_history.clear();
 
-        prev_board
+        (prev_board, inner.initial_board.clone())
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &prev_board);
+    let _ = app.emit(INITIAL_BOARD_UPDATED, &initial_board);
     Ok(prev_board)
 }
 
