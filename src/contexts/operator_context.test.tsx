@@ -106,21 +106,21 @@ describe("OperatorProvider", () => {
     );
   });
 
-  it("listen('serial_status_updated') が呼ばれる（operator が非 null の場合）", async () => {
-    // operator が取得できる状態をシミュレートするには isSignedIn=true が必要
-    // テスト環境では auth0 未設定のため isSignedIn=false → listen は呼ばれない
-    // このテストは listen の呼ばれないことを確認する
+  it("listen('serial_status_updated') は mount 時に operator の有無に関わらず呼ばれる", async () => {
+    // Bug 6 fix: operator=null でもデバイス接続変化を検知できるよう
+    // mount 時に必ず listen を 1 回登録する
     const { result } = renderHook(() => useOperator(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.isLoadingOperator).toBe(false);
     });
 
-    // isSignedIn=false のため operator=null → listen は呼ばれない
-    expect(listen).not.toHaveBeenCalledWith(
-      "serial_status_updated",
-      expect.anything(),
-    );
+    await waitFor(() => {
+      expect(listen).toHaveBeenCalledWith(
+        "serial_status_updated",
+        expect.anything(),
+      );
+    });
   });
 
   it("pollDeviceConnection と serial_status_updated が同時発火しても loadGameTable は 1 回のみ呼ばれる", async () => {
@@ -146,33 +146,29 @@ describe("OperatorProvider", () => {
   });
 
   it("serial_status_updated リスナーは loadGameTable 実行中に再登録されない", async () => {
-    // listen が呼ばれた回数を追跡する
-    // isLoadingGameTable が deps に含まれている場合、loadGameTable 呼び出しで
-    // true→false と変化するたびに listen が再実行される
-    // この修正後は operator が変わらない限り listen は 1 回のみ呼ばれるべき
-
-    // operator を持つ状態をシミュレート: invoke の呼び出しシーケンスを制御
+    // Bug 6 fix 後: deps=[] のため listen は mount 時に 1 回のみ登録され、
+    // loadGameTable を何度呼んでも再登録されないことを確認する。
     let listenCallCount = 0;
     vi.mocked(listen).mockImplementation((_event, _handler) => {
       listenCallCount++;
       return Promise.resolve(() => {});
     });
 
-    // operator は null のまま（isSignedIn=false）なので listen は呼ばれない
     const { result } = renderHook(() => useOperator(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.isLoadingOperator).toBe(false);
     });
 
-    // operator=null のため listen は 0 回
-    expect(listenCallCount).toBe(0);
+    // mount 時に 1 回登録される
+    await waitFor(() => {
+      expect(listenCallCount).toBe(1);
+    });
 
-    // loadGameTable を複数回呼んでも listen 回数が増えないことを確認
-    // (operator=null の場合は loadGameTable 自体が何もしないので追加呼び出しなし)
+    // loadGameTable を複数回呼んでも listen は 1 回のまま
     await result.current.loadGameTable("table-1");
     await result.current.loadGameTable("table-2");
 
-    expect(listenCallCount).toBe(0);
+    expect(listenCallCount).toBe(1);
   });
 });
