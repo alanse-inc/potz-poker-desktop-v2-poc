@@ -5,18 +5,23 @@ use crate::domain::board::{
     evaluate_player_hand as domain_evaluate_player_hand, next_game,
     remove_player as domain_remove_player, set_community_card as domain_set_community_card,
     start_game as domain_start_game, update_player as domain_update_player, GameSettings,
-    TexasHoldemBoard,
+    TexasHoldemBoard, TexasHoldemInitialBoard,
 };
 use crate::domain::card::Card;
 use crate::domain::hand::EvaluatedHand;
 use crate::error::BoardError;
-use crate::events::BOARD_UPDATED;
+use crate::events::{BOARD_UPDATED, INITIAL_BOARD_UPDATED};
 use crate::state::{AppState, MAX_HISTORY};
 use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub fn get_board(state: State<'_, AppState>) -> Option<TexasHoldemBoard> {
     state.lock().board.clone()
+}
+
+#[tauri::command]
+pub fn get_initial_board(state: State<'_, AppState>) -> Option<TexasHoldemInitialBoard> {
+    state.lock().initial_board.clone()
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -41,12 +46,14 @@ pub fn start_game(
     let board = domain_start_game(settings.clone(), player_names, dealer_position)
         .map_err(|e| e.to_string())?;
     let deck = build_remaining_deck(&board);
+    let initial_board = TexasHoldemInitialBoard::from_board(&board, settings.clone());
 
     {
         let mut inner = state.lock();
         inner.settings = settings;
         inner.history.clear();
         inner.board = Some(board.clone());
+        inner.initial_board = Some(initial_board.clone());
         inner.deck = deck;
         inner.burn_count = 0;
         inner.burn_card = None;
@@ -54,6 +61,7 @@ pub fn start_game(
     } // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &board);
+    let _ = app.emit(INITIAL_BOARD_UPDATED, &initial_board);
     Ok(board)
 }
 
@@ -92,6 +100,7 @@ pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
     {
         let mut inner = state.lock();
         inner.board = None;
+        inner.initial_board = None;
         inner.deck.clear();
         inner.history.clear();
         inner.burn_count = 0;
@@ -100,6 +109,7 @@ pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
     } // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, Option::<TexasHoldemBoard>::None);
+    let _ = app.emit(INITIAL_BOARD_UPDATED, Option::<TexasHoldemInitialBoard>::None);
     Ok(())
 }
 

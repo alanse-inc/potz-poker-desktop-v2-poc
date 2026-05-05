@@ -1,6 +1,6 @@
 //! グローバルアプリケーション状態。Arc<Mutex<InnerState>> で管理する。
 
-use crate::domain::board::{GameSettings, TexasHoldemBoard};
+use crate::domain::board::{GameSettings, TexasHoldemBoard, TexasHoldemInitialBoard};
 use crate::domain::card::Card;
 use crate::domain::rfid_mapping::RfidCardMapping;
 use parking_lot::Mutex;
@@ -22,6 +22,9 @@ pub struct TelopState {
 
 pub struct InnerState {
     pub board: Option<TexasHoldemBoard>,
+    /// `start_game` 時に保存するゲーム開始直後のスナップショット。
+    /// `get_initial_board` コマンドで返す。`reset_board` 時に None にリセット。
+    pub initial_board: Option<TexasHoldemInitialBoard>,
     /// board に対応するデッキ（community cards 配布用）。
     pub deck: Vec<Card>,
     pub settings: GameSettings,
@@ -78,6 +81,7 @@ impl Default for InnerState {
     fn default() -> Self {
         Self {
             board: None,
+            initial_board: None,
             deck: Vec::new(),
             settings: GameSettings::default(),
             telop_color: "#1a1a2e".to_string(),

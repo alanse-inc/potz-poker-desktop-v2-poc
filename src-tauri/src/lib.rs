@@ -8,8 +8,8 @@ pub mod state;
 
 use commands::action::{allin, bet, call, check, fold, raise};
 use commands::board::{
-    add_player, back_board, evaluate_player_hand, get_board, get_remaining_deck, move_next_game,
-    remove_player, reset_board, set_community_card, start_game, update_player,
+    add_player, back_board, evaluate_player_hand, get_board, get_initial_board, get_remaining_deck,
+    move_next_game, remove_player, reset_board, set_community_card, start_game, update_player,
 };
 use commands::deck::{
     choose_deck, delete_deck, get_all_decks, get_current_deck, get_deck_by_id,
@@ -42,6 +42,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // board
             get_board,
+            get_initial_board,
             start_game,
             move_next_game,
             reset_board,

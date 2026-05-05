@@ -59,6 +59,29 @@ impl Default for GameSettings {
     }
 }
 
+/// ゲーム開始時のボード状態スナップショット。
+/// `start_game` 呼び出し直後に InnerState に保存し、`get_initial_board` で返す。
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TexasHoldemInitialBoard {
+    pub hand_number: u32,
+    pub dealer_position: u8,
+    pub players: Vec<Player>,
+    pub settings: GameSettings,
+}
+
+impl TexasHoldemInitialBoard {
+    /// `TexasHoldemBoard` と `GameSettings` からスナップショットを生成する。
+    pub fn from_board(board: &TexasHoldemBoard, settings: GameSettings) -> Self {
+        Self {
+            hand_number: board.hand_number,
+            dealer_position: board.dealer_position,
+            players: board.players.clone(),
+            settings,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TexasHoldemBoard {

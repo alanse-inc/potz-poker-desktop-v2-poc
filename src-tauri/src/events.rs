@@ -18,3 +18,5 @@ pub const TELOP_ID_UPDATED: &str = "telop_id_updated";
 pub const TELOP_BACKGROUND_COLOR_UPDATED: &str = "telop_background_color_updated";
 /// テロップ現在画面状態が変わったとき。
 pub const TELOP_CURRENT_SCREEN_UPDATED: &str = "telop_current_screen_updated";
+/// ゲーム開始時の初期ボードスナップショットが更新されたとき。
+pub const INITIAL_BOARD_UPDATED: &str = "initial_board_updated";
