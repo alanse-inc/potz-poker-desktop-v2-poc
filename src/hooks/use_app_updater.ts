@@ -43,6 +43,7 @@ export function useAppUpdater() {
   }, []);
 
   const startUpdate = useCallback(async () => {
+    if (import.meta.env.DEV) return;
     try {
       const update = await check();
       if (!update?.available) return;
