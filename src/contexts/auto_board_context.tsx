@@ -39,8 +39,8 @@ function saveToStorage(board: AutoModeBoard | null): void {
     } else {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(board));
     }
-  } catch {
-    // ストレージ書き込み失敗は無視
+  } catch (e) {
+    console.error("[AutoBoard] localStorage write failed:", e);
   }
 }
 
