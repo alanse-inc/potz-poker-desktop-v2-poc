@@ -641,6 +641,18 @@ fn start_game_with_stacks(
             "both SB and BB have stack 0; at least one must have chips to post blinds".into(),
         ));
     }
+    if stacks[sb_pos as usize] == 0 {
+        tracing::warn!(
+            "SB at pos {} has stack 0; player will be forced all-in on blind post",
+            sb_pos
+        );
+    }
+    if stacks[bb_pos as usize] == 0 {
+        tracing::warn!(
+            "BB at pos {} has stack 0; player will be forced all-in on blind post",
+            bb_pos
+        );
+    }
 
     let mut players: Vec<Player> = player_names
         .into_iter()
