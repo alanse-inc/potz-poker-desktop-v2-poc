@@ -208,17 +208,19 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
 
     listen<SerialStatus>("serial_status_updated", (event) => {
       const status = event.payload;
-      if (
-        status.connected &&
-        status.portName &&
-        !isLoadingGameTableRef.current
-      ) {
-        loadGameTable(status.portName).catch((error) => {
-          console.error(
-            "[OperatorContext] loadGameTable failed in serial_status_updated handler",
-            error,
-          );
-        });
+      if (status.connected && status.portName) {
+        if (isLoadingGameTableRef.current) return;
+        isLoadingGameTableRef.current = true;
+        loadGameTable(status.portName)
+          .catch((error) => {
+            console.error(
+              "[OperatorContext] loadGameTable failed in serial_status_updated handler",
+              error,
+            );
+          })
+          .finally(() => {
+            isLoadingGameTableRef.current = false;
+          });
       } else if (!status.connected) {
         setGameTable(null);
       }
@@ -253,10 +255,17 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
         clearInterval(intervalId);
         return;
       }
+      if (isLoadingGameTableRef.current) return;
+      isLoadingGameTableRef.current = true;
       retryCount++;
-      const tableId = await fetchSerialStatus();
-      if (!tableId || isLoadingGameTableRef.current) return;
-      await loadGameTable(tableId);
+      try {
+        const tableId = await fetchSerialStatus();
+        if (tableId) {
+          await loadGameTable(tableId);
+        }
+      } finally {
+        isLoadingGameTableRef.current = false;
+      }
     };
 
     const intervalId = setInterval(() => {

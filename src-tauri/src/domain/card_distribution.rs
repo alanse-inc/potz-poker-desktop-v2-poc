@@ -6,7 +6,7 @@
 //! 元実装の "auto mode / manual mode" 分岐は省き、
 //! v2 のボード構造に直接対応する形に移植する。
 
-use crate::domain::board::{Player, TexasHoldemBoard};
+use crate::domain::board::{Phase, Player, TexasHoldemBoard};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -32,6 +32,8 @@ pub enum CardDistributionError {
     AllPlayersDealt,
     #[error("no more community cards to deal")]
     NoMoreCommunityCards,
+    #[error("game is over, no more cards expected")]
+    GameOver,
 }
 
 /// カードを受け取れるプレイヤーかどうか。
@@ -114,6 +116,10 @@ pub fn determine_next_card_position(
     board: &TexasHoldemBoard,
     burn_count: u8,
 ) -> Result<CardPosition, CardDistributionError> {
+    if board.phase == Phase::Showdown {
+        return Err(CardDistributionError::GameOver);
+    }
+
     // プレイヤーへのカード配布が完了しているか確認
     if !are_all_players_dealt(board) {
         return determine_next_player_card_position(board);
@@ -386,6 +392,17 @@ mod tests {
         }
         let result = determine_next_card_position(&board, 3);
         assert!(result.is_err());
+    }
+
+    // ---- Showdown 後の拒否 ----
+
+    #[test]
+    fn determine_next_card_position_rejects_after_showdown() {
+        let mut board = make_board_3p();
+        use crate::domain::board::Phase;
+        board.phase = Phase::Showdown;
+        let result = determine_next_card_position(&board, 0);
+        assert!(matches!(result, Err(CardDistributionError::GameOver)));
     }
 
     // ---- ONE BIG パターン ----

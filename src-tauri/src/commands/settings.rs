@@ -11,6 +11,29 @@ const KEY_BIG_BLIND: &str = "bigBlind";
 const KEY_MIN_CHIP: &str = "minChip";
 const KEY_BB_ANTE: &str = "bbAnte";
 
+/// 読み込んだ設定値を正規化する。
+/// - sb < 1 なら 100
+/// - bb < 1 なら 200
+/// - bb < sb なら sb * 2
+/// - min_chip < 1 なら sb
+pub fn sanitize_settings(sb: u32, bb: u32, min_chip: u32, bb_ante: bool) -> GameSettings {
+    let sb = if sb < 1 { 100 } else { sb };
+    let bb = if bb < 1 {
+        200
+    } else if bb < sb {
+        sb * 2
+    } else {
+        bb
+    };
+    let min_chip = if min_chip < 1 { sb } else { min_chip };
+    GameSettings {
+        small_blind: sb,
+        big_blind: bb,
+        min_chip,
+        bb_ante,
+    }
+}
+
 #[tauri::command]
 pub fn load_game_settings(
     app: AppHandle,
@@ -38,15 +61,52 @@ pub fn load_game_settings(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let settings = GameSettings {
-        small_blind: sb,
-        big_blind: bb,
-        min_chip,
-        bb_ante,
-    };
+    let settings = sanitize_settings(sb, bb, min_chip, bb_ante);
 
     state.lock().settings = settings.clone();
     Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_game_settings_normalizes_zero_small_blind() {
+        let s = sanitize_settings(0, 200, 100, false);
+        assert_eq!(s.small_blind, 100);
+        assert_eq!(s.big_blind, 200);
+        assert_eq!(s.min_chip, 100);
+    }
+
+    #[test]
+    fn load_game_settings_normalizes_zero_big_blind() {
+        let s = sanitize_settings(100, 0, 100, false);
+        assert_eq!(s.small_blind, 100);
+        assert_eq!(s.big_blind, 200);
+    }
+
+    #[test]
+    fn load_game_settings_normalizes_bb_less_than_sb() {
+        let s = sanitize_settings(200, 100, 50, false);
+        assert_eq!(s.small_blind, 200);
+        assert_eq!(s.big_blind, 400); // sb * 2
+    }
+
+    #[test]
+    fn load_game_settings_normalizes_zero_min_chip() {
+        let s = sanitize_settings(100, 200, 0, false);
+        assert_eq!(s.min_chip, 100); // sb
+    }
+
+    #[test]
+    fn load_game_settings_valid_values_unchanged() {
+        let s = sanitize_settings(50, 100, 25, true);
+        assert_eq!(s.small_blind, 50);
+        assert_eq!(s.big_blind, 100);
+        assert_eq!(s.min_chip, 25);
+        assert!(s.bb_ante);
+    }
 }
 
 #[tauri::command]
