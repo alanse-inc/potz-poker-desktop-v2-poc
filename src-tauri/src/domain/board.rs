@@ -387,10 +387,7 @@ impl TexasHoldemBoard {
             .unwrap_or(0);
         let dealer_left_key = |i: usize| (i + n - dealer_idx - 1) % n;
 
-        // 各プレイヤーの手役を評価（active = has_hand のプレイヤー）
-        // active のフィルタ条件（!has_folded && hand.is_some()）と
-        // evals のフィルタ条件（active から hand? で取り出す）は同一のため、
-        // active が非空であれば evals も必ず非空になる。
+        // 各プレイヤーの手役を評価（community_cards が不足している場合は None を返す）。
         let evals: Vec<(usize, EvaluatedHand)> = active
             .iter()
             .filter_map(|&idx| {
@@ -399,14 +396,13 @@ impl TexasHoldemBoard {
                 let mut all_cards: Vec<Card> = self.community_cards.clone();
                 all_cards.push(hole[0]);
                 all_cards.push(hole[1]);
+                // community_cards 不足で 5 枚未満のときは手役評価をスキップ
+                if all_cards.len() < 5 {
+                    return None;
+                }
                 Some((idx, evaluate_hand(&all_cards)))
             })
             .collect();
-
-        debug_assert!(
-            !evals.is_empty(),
-            "active is non-empty so evals must be non-empty"
-        );
 
         // サイドポット計算:
         // 各プレイヤーの total_invested をしきい値として使いポットを切り分ける。
