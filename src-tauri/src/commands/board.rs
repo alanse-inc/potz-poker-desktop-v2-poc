@@ -232,9 +232,12 @@ pub fn update_player(
 
 fn calculate_initial_stack(board: &TexasHoldemBoard, fallback_big_blind: u32) -> u32 {
     if board.players.is_empty() {
-        fallback_big_blind * 100
+        fallback_big_blind.saturating_mul(100)
     } else {
-        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        let total: u32 = board
+            .players
+            .iter()
+            .fold(0u32, |acc, p| acc.saturating_add(p.stack));
         total / board.players.len() as u32
     }
 }
@@ -528,5 +531,43 @@ mod tests {
 
         assert!(set_result.is_err());
         assert_eq!(inner.history.len(), history_len_before);
+    }
+
+    #[test]
+    fn calculate_initial_stack_no_overflow_with_large_fallback() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+        board.players.clear();
+
+        // u32::MAX / 100 + 1 を渡してもパニックしないこと
+        let large_bb = u32::MAX / 100 + 1;
+        let stack = calculate_initial_stack(&board, large_bb);
+        assert_eq!(stack, u32::MAX);
+    }
+
+    #[test]
+    fn calculate_initial_stack_no_overflow_with_large_player_stacks() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+
+        // 全プレイヤーの stack を u32::MAX / 2 にしても合計がラップしないこと
+        let large_stack = u32::MAX / 2;
+        for p in &mut board.players {
+            p.stack = large_stack;
+        }
+        let stack = calculate_initial_stack(&board, 100);
+        assert_eq!(stack, large_stack);
     }
 }
