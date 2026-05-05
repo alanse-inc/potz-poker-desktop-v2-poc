@@ -104,7 +104,9 @@ function derivePosition(
   if (pos === board.sbPosition) return "SB";
   if (pos === board.bbPosition) return "BB";
 
-  const sorted = [...activePlayers].sort((a, b) => a.position - b.position);
+  // dealer がスタック0で activePlayers から除外されている場合でも
+  // ポジション計算はシーティング順序に基づくため board.players（全 seated players）を使う
+  const sorted = [...board.players].sort((a, b) => a.position - b.position);
   const dealerIdx = sorted.findIndex(
     (p) => p.position === board.dealerPosition,
   );

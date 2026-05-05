@@ -754,6 +754,152 @@ describe("mapShowdownBoardToCreateHandRequest", () => {
         expect.soft(p3?.position).toBe("CO");
       }
     });
+
+    test("dealer がスタック0で activePlayers から除外されたとき、正しいポジション名が返ること", async () => {
+      // 6人ゲーム: 席 0(dealer, stack=0), 1(SB), 2(BB), 3(UTG), 4(HJ), 5(CO)
+      // dealer(席0) の initialBoard スタックが 0 のため activePlayers から除外される
+      // activePlayers = [席1, 席2, 席3, 席4, 席5] の5人
+      // board.players には dealer も含まれているため、sorted で dealer を正しく参照できる
+      const players = [
+        makePlayer({ position: 0, stack: 0 }), // dealer: stack=0 → 除外
+        makePlayer({ position: 1, stack: 1000 }),
+        makePlayer({ position: 2, stack: 1000 }),
+        makePlayer({ position: 3, stack: 1000 }),
+        makePlayer({ position: 4, stack: 1000 }),
+        makePlayer({ position: 5, stack: 1000 }),
+      ];
+      const board: TexasHoldemBoard = {
+        handNumber: 1,
+        dealerPosition: 0,
+        sbPosition: 1,
+        bbPosition: 2,
+        currentTurn: 1,
+        currentBet: 0,
+        players,
+        communityCards: [],
+        pots: [{ amount: 0 }],
+        phase: "showdown",
+        winners: [],
+      };
+      const handContext: HandContext = {
+        initialBoard: {
+          players: [
+            { id: "0", stack: 0 }, // dealer は stack=0
+            { id: "1", stack: 1000 },
+            { id: "2", stack: 1000 },
+            { id: "3", stack: 1000 },
+            { id: "4", stack: 1000 },
+            { id: "5", stack: 1000 },
+          ],
+        },
+        gameStartedAt: "2024-01-01T12:00:00Z",
+        actionHistory: [],
+        sidePots: [],
+      };
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // activePlayers = [席1, 席2, 席3, 席4, 席5] (5人)
+        // board.players (全員) でソート: [0, 1, 2, 3, 4, 5]
+        // dealer(席0) → dealerIdx=0
+        // 席1 → diff=1 → SB (sbPosition で先に確定)
+        // 席2 → diff=2 → BB (bbPosition で先に確定)
+        // 席3 → diff=3 → totalPlayers=5 → UTG
+        // 席4 → diff=4 → totalPlayers=5 → CO
+        // 席5 → diff=5 → totalPlayers=5 → UTG (fallthrough, but 5人では diff=5 は未定義 → "UTG")
+        const p1 = result.value.players.find((p) => p.seatPosition === 1);
+        const p2 = result.value.players.find((p) => p.seatPosition === 2);
+        const p3 = result.value.players.find((p) => p.seatPosition === 3);
+        const p4 = result.value.players.find((p) => p.seatPosition === 4);
+        const p5 = result.value.players.find((p) => p.seatPosition === 5);
+        expect.soft(p1?.position).toBe("SB");
+        expect.soft(p2?.position).toBe("BB");
+        expect.soft(p3?.position).toBe("UTG");
+        expect.soft(p4?.position).toBe("CO");
+        // dealer(席0) は activePlayers に含まれないため players には存在しない
+        expect(
+          result.value.players.find((p) => p.seatPosition === 0),
+        ).toBeUndefined();
+        // 席5は5人テーブルでdiff=5 → UTGにfallthrough
+        expect.soft(p5?.position).toBe("UTG");
+      }
+    });
+
+    test("dealer がスタック0で除外 (6人着席, dealer=0): diff が正しく計算されること", async () => {
+      // 6人着席 (activePlayers=5, board.players=6)
+      // dealer(席0) stack=0 → 除外
+      // 残り5人: [1(SB), 2(BB), 3, 4, 5]
+      // totalPlayers=5 なので diff=3→UTG, diff=4→CO
+      // board.players=[0,1,2,3,4,5] でソートして dealer=席0 → dealerIdx=0
+      // 席3: idx=3 in board.players sorted, diff=(3-0+6)%6=3 → UTG ✓
+      // 席4: idx=4, diff=(4-0+6)%6=4 → CO ✓
+      const players = [
+        makePlayer({ position: 0, stack: 0 }), // dealer: 除外
+        makePlayer({ position: 1, stack: 1000 }),
+        makePlayer({ position: 2, stack: 1000 }),
+        makePlayer({ position: 3, stack: 1000 }),
+        makePlayer({ position: 4, stack: 1000 }),
+        makePlayer({ position: 5, stack: 1000 }),
+      ];
+      const board: TexasHoldemBoard = {
+        handNumber: 2,
+        dealerPosition: 0,
+        sbPosition: 1,
+        bbPosition: 2,
+        currentTurn: 3,
+        currentBet: 0,
+        players,
+        communityCards: [],
+        pots: [{ amount: 0 }],
+        phase: "showdown",
+        winners: [],
+      };
+      const handContext: HandContext = {
+        initialBoard: {
+          players: [
+            { id: "0", stack: 0 },
+            { id: "1", stack: 1000 },
+            { id: "2", stack: 1000 },
+            { id: "3", stack: 1000 },
+            { id: "4", stack: 1000 },
+            { id: "5", stack: 1000 },
+          ],
+        },
+        gameStartedAt: "2024-01-01T12:00:00Z",
+        actionHistory: [],
+        sidePots: [],
+      };
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        const p3 = result.value.players.find((p) => p.seatPosition === 3);
+        const p4 = result.value.players.find((p) => p.seatPosition === 4);
+        expect.soft(p3?.position).toBe("UTG");
+        expect.soft(p4?.position).toBe("CO");
+      }
+    });
   });
 
   test("initialBoard が null の場合は fallback startingStack を使うこと", async () => {
