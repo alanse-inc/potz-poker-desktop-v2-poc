@@ -41,13 +41,18 @@ where
     }
 
     // board と deck を取り出して mut 参照を渡す
-    let (board_ref, deck_ref) = inner
-        .split_board_and_deck()
-        .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+    let action_result = {
+        let (board_ref, deck_ref) = inner
+            .split_board_and_deck()
+            .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+        let r = action_fn(board_ref, deck_ref);
+        r.map(|_| board_ref.clone())
+    };
 
-    action_fn(board_ref, deck_ref).map_err(|e| e.to_string())?;
-
-    let result = board_ref.clone();
+    if action_result.is_err() {
+        inner.history.pop(); // エラー時はスナップショットをロールバック
+    }
+    let result = action_result.map_err(|e| e.to_string())?;
     drop(inner); // Mutex lock を解放してから emit する
 
     let _ = app.emit(BOARD_UPDATED, &result);
@@ -96,4 +101,54 @@ pub fn raise(
 #[tauri::command]
 pub fn allin(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHoldemBoard, String> {
     run_action(&app, &state, board_allin)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::board::{start_game, GameSettings};
+    use crate::state::InnerState;
+
+    fn make_inner_state() -> InnerState {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        InnerState {
+            board: Some(board),
+            settings,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn run_action_error_does_not_grow_history() {
+        let mut inner = make_inner_state();
+        let history_len_before = inner.history.len();
+
+        // action が常にエラーを返すクロージャで run_action 相当のロジックを再現
+        let board_snap = inner.board.as_ref().unwrap().clone();
+        let deck_snap = inner.deck.clone();
+        let burn_count_snap = inner.burn_count;
+        let burn_card_snap = inner.burn_card;
+        inner
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if inner.history.len() > MAX_HISTORY {
+            let excess = inner.history.len() - MAX_HISTORY;
+            inner.history.drain(0..excess);
+        }
+
+        // エラーが発生した場合のロールバック
+        let result: Result<(), BoardError> = Err(BoardError::GameNotStarted);
+        if result.is_err() {
+            inner.history.pop();
+        }
+
+        assert_eq!(inner.history.len(), history_len_before);
+    }
 }

@@ -185,14 +185,18 @@ pub fn set_community_card(
         }
 
         // board と deck を取り出して mut 参照を渡す
-        let (board_ref, deck_ref) = inner
-            .split_board_and_deck()
-            .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+        let set_result = {
+            let (board_ref, deck_ref) = inner
+                .split_board_and_deck()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+            let r = domain_set_community_card(board_ref, locate_number, card, deck_ref);
+            r.map(|_| board_ref.clone())
+        };
 
-        domain_set_community_card(board_ref, locate_number, card, deck_ref)
-            .map_err(|e| e.to_string())?;
-
-        board_ref.clone()
+        if set_result.is_err() {
+            inner.history.pop(); // エラー時はスナップショットをロールバック
+        }
+        set_result.map_err(|e| e.to_string())?
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &result);
@@ -470,5 +474,59 @@ mod tests {
         assert_eq!(stored.dealer_position, new_board.dealer_position);
         // 最初の initial_board とはディーラー位置が異なること（次のゲームにシフト）
         assert_ne!(stored.dealer_position, first_initial_board.dealer_position);
+    }
+
+    #[test]
+    fn set_community_card_error_does_not_grow_history() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+
+        let mut inner = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            settings,
+            ..Default::default()
+        };
+
+        let history_len_before = inner.history.len();
+
+        // set_community_card 相当のロジック: push してからエラー時に pop
+        let board_snap = inner.board.as_ref().unwrap().clone();
+        let deck_snap = inner.deck.clone();
+        let burn_count_snap = inner.burn_count;
+        let burn_card_snap = inner.burn_card;
+        inner
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if inner.history.len() > MAX_HISTORY {
+            let excess = inner.history.len() - MAX_HISTORY;
+            inner.history.drain(0..excess);
+        }
+
+        // locate_number=99 は無効 → エラーになる
+        let set_result = {
+            let (board_ref, deck_ref) = inner.split_board_and_deck().unwrap();
+            let r = domain_set_community_card(
+                board_ref,
+                99,
+                Card::new(Suit::Spade, CardValue::Ace),
+                deck_ref,
+            );
+            r.map(|_| board_ref.clone())
+        };
+
+        if set_result.is_err() {
+            inner.history.pop();
+        }
+
+        assert!(set_result.is_err());
+        assert_eq!(inner.history.len(), history_len_before);
     }
 }
