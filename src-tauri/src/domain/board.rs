@@ -425,6 +425,7 @@ impl TexasHoldemBoard {
         let mut prev_threshold: u32 = 0;
         let total_pot_before = self.total_pot();
         let mut distributed: u32 = 0;
+        let mut carry_over: u32 = 0;
 
         for &threshold in &thresholds {
             let level_amount = threshold - prev_threshold;
@@ -433,7 +434,7 @@ impl TexasHoldemBoard {
                 .iter()
                 .filter(|&&ti| ti > prev_threshold)
                 .count() as u32;
-            let pot_amount = level_amount.saturating_mul(contributors);
+            let pot_amount = level_amount.saturating_mul(contributors).saturating_add(carry_over);
 
             // このポットの勝者候補: total_invested >= threshold かつ has_folded でない
             let eligible_for_pot: Vec<usize> = (0..self.players.len())
@@ -441,10 +442,12 @@ impl TexasHoldemBoard {
                 .collect();
 
             if eligible_for_pot.is_empty() {
-                // 勝者候補なし（全員フォールド済み）→ 次のレベルへ持ち越し
+                // 勝者候補なし（全員フォールド済み）→ pot_amount を次のレベルへ持ち越し
+                carry_over = pot_amount;
                 prev_threshold = threshold;
                 continue;
             }
+            carry_over = 0;
 
             // eligible_for_pot の中で hand を持つプレイヤーのみ手役勝者候補
             let mut best_eval_pot: Option<(EvaluatedHand, Vec<usize>)> = None;
