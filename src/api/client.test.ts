@@ -138,19 +138,18 @@ describe("api.rfid", () => {
     expect(invoke).toHaveBeenCalledWith("get_rfid_card_mapping");
   });
 
-  it("registerCard(rfid, card) calls invoke('register_rfid_card', { rfid, card })", async () => {
+  it("registerCard(rfid, card) calls invoke('register_rfid_card', { args: { rfid, card } })", async () => {
     const card = { suit: "spade" as const, value: "A" as const };
     await api.rfid.registerCard("A1B2C3D4E5F678", card);
     expect(invoke).toHaveBeenCalledWith("register_rfid_card", {
-      rfid: "A1B2C3D4E5F678",
-      card,
+      args: { rfid: "A1B2C3D4E5F678", card },
     });
   });
 
-  it("unregisterCard(rfid) calls invoke('unregister_rfid_card', { rfid })", async () => {
+  it("unregisterCard(rfid) calls invoke('unregister_rfid_card', { args: { rfid } })", async () => {
     await api.rfid.unregisterCard("A1B2C3D4E5F678");
     expect(invoke).toHaveBeenCalledWith("unregister_rfid_card", {
-      rfid: "A1B2C3D4E5F678",
+      args: { rfid: "A1B2C3D4E5F678" },
     });
   });
 

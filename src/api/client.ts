@@ -81,9 +81,9 @@ export const api = {
   rfid: {
     getMapping: () => invoke<RfidCardMapping>("get_rfid_card_mapping"),
     registerCard: (rfid: string, card: Card) =>
-      invoke<RfidCardMapping>("register_rfid_card", { rfid, card }),
+      invoke<RfidCardMapping>("register_rfid_card", { args: { rfid, card } }),
     unregisterCard: (rfid: string) =>
-      invoke<RfidCardMapping>("unregister_rfid_card", { rfid }),
+      invoke<RfidCardMapping>("unregister_rfid_card", { args: { rfid } }),
     setRegisterMode: (enabled: boolean) =>
       invoke<void>("set_register_mode", { enabled }),
     getSerialStatus: () => invoke<SerialStatus>("get_serial_status"),
