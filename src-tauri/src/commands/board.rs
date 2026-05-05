@@ -280,13 +280,41 @@ pub fn add_player(
     let result = {
         let mut inner = state.lock();
         let fallback_big_blind = inner.settings.big_blind;
-        let board = inner
-            .board
-            .as_mut()
-            .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
-        let initial_stack = calculate_initial_stack(board, fallback_big_blind);
-        domain_add_player(board, name, initial_stack).map_err(|e| e.to_string())?;
-        board.clone()
+
+        // snapshot を history に保存
+        {
+            let board_snap = inner
+                .board
+                .as_ref()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?
+                .clone();
+            let deck_snap = inner.deck.clone();
+            let burn_count_snap = inner.burn_count;
+            let burn_card_snap = inner.burn_card;
+            inner
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if inner.history.len() > MAX_HISTORY {
+                let excess = inner.history.len() - MAX_HISTORY;
+                inner.history.drain(0..excess);
+            }
+        }
+
+        let add_result = {
+            let board = inner
+                .board
+                .as_mut()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+            let initial_stack = calculate_initial_stack(board, fallback_big_blind);
+            domain_add_player(board, name, initial_stack)
+                .map_err(|e| e.to_string())
+                .map(|_| board.clone())
+        };
+
+        if add_result.is_err() {
+            inner.history.pop(); // エラー時はスナップショットをロールバック
+        }
+        add_result?
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &result);
@@ -301,12 +329,40 @@ pub fn remove_player(
 ) -> Result<TexasHoldemBoard, String> {
     let result = {
         let mut inner = state.lock();
-        let board = inner
-            .board
-            .as_mut()
-            .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
-        domain_remove_player(board, position).map_err(|e| e.to_string())?;
-        board.clone()
+
+        // snapshot を history に保存
+        {
+            let board_snap = inner
+                .board
+                .as_ref()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?
+                .clone();
+            let deck_snap = inner.deck.clone();
+            let burn_count_snap = inner.burn_count;
+            let burn_card_snap = inner.burn_card;
+            inner
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if inner.history.len() > MAX_HISTORY {
+                let excess = inner.history.len() - MAX_HISTORY;
+                inner.history.drain(0..excess);
+            }
+        }
+
+        let remove_result = {
+            let board = inner
+                .board
+                .as_mut()
+                .ok_or_else(|| BoardError::GameNotStarted.to_string())?;
+            domain_remove_player(board, position)
+                .map_err(|e| e.to_string())
+                .map(|_| board.clone())
+        };
+
+        if remove_result.is_err() {
+            inner.history.pop(); // エラー時はスナップショットをロールバック
+        }
+        remove_result?
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &result);
@@ -744,6 +800,163 @@ mod tests {
 
         // update_player 前の状態に戻っていること
         assert_eq!(inner.board.as_ref().unwrap().players[0].name, "Alice");
+        assert!(inner.history.is_empty());
+    }
+
+    // ================================================================
+    // Bug 3 fix: add_player / remove_player が history に保存すること
+    // ================================================================
+
+    #[test]
+    fn add_player_pushes_snapshot_to_history_and_back_board_restores() {
+        use crate::domain::board::add_player as domain_add_player;
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        // add_player は Showdown フェーズのみ許可
+        board.phase = crate::domain::board::Phase::Showdown;
+        let deck = build_remaining_deck(&board);
+        let player_count_before = board.players.len();
+
+        let mut inner = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            settings: settings.clone(),
+            ..Default::default()
+        };
+
+        // add_player 相当のロジック: snapshot push → 操作
+        {
+            let board_snap = inner.board.as_ref().unwrap().clone();
+            let deck_snap = inner.deck.clone();
+            let burn_count_snap = inner.burn_count;
+            let burn_card_snap = inner.burn_card;
+            inner
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if inner.history.len() > MAX_HISTORY {
+                let excess = inner.history.len() - MAX_HISTORY;
+                inner.history.drain(0..excess);
+            }
+        }
+
+        let add_result = {
+            let board_ref = inner.board.as_mut().unwrap();
+            let initial_stack = calculate_initial_stack(board_ref, settings.big_blind);
+            domain_add_player(board_ref, "Charlie".into(), initial_stack).map(|_| board_ref.clone())
+        };
+        if add_result.is_err() {
+            inner.history.pop();
+        }
+
+        assert!(add_result.is_ok());
+        assert_eq!(inner.history.len(), 1);
+        assert_eq!(
+            inner.board.as_ref().unwrap().players.len(),
+            player_count_before + 1
+        );
+
+        // back_board 相当: history から復元
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = inner.history.pop().unwrap();
+        inner.board = Some(prev_board);
+        inner.deck = prev_deck;
+        inner.burn_count = prev_burn_count;
+        inner.burn_card = prev_burn_card;
+
+        // add_player 前のプレイヤー数に戻っていること
+        assert_eq!(
+            inner.board.as_ref().unwrap().players.len(),
+            player_count_before
+        );
+        assert!(inner.history.is_empty());
+    }
+
+    #[test]
+    fn remove_player_pushes_snapshot_to_history_and_back_board_restores() {
+        use crate::domain::board::remove_player as domain_remove_player;
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Charlie".into()];
+        let mut board = start_game(settings.clone(), names, 0).unwrap();
+        // remove_player は Showdown フェーズのみ許可
+        board.phase = crate::domain::board::Phase::Showdown;
+        let deck = build_remaining_deck(&board);
+        let player_count_before = board.players.len();
+
+        let mut inner = InnerState {
+            board: Some(board.clone()),
+            deck: deck.clone(),
+            settings,
+            ..Default::default()
+        };
+
+        // remove_player 相当のロジック: snapshot push → 操作
+        {
+            let board_snap = inner.board.as_ref().unwrap().clone();
+            let deck_snap = inner.deck.clone();
+            let burn_count_snap = inner.burn_count;
+            let burn_card_snap = inner.burn_card;
+            inner
+                .history
+                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if inner.history.len() > MAX_HISTORY {
+                let excess = inner.history.len() - MAX_HISTORY;
+                inner.history.drain(0..excess);
+            }
+        }
+
+        let remove_result = {
+            let board_ref = inner.board.as_mut().unwrap();
+            // position 0 のプレイヤー (Alice) を削除
+            domain_remove_player(board_ref, 0).map(|_| board_ref.clone())
+        };
+        if remove_result.is_err() {
+            inner.history.pop();
+        }
+
+        assert!(remove_result.is_ok());
+        assert_eq!(inner.history.len(), 1);
+        assert_eq!(
+            inner.board.as_ref().unwrap().players.len(),
+            player_count_before - 1
+        );
+
+        // back_board 相当: history から復元
+        let (prev_board, prev_deck, prev_burn_count, prev_burn_card) = inner.history.pop().unwrap();
+        inner.board = Some(prev_board);
+        inner.deck = prev_deck;
+        inner.burn_count = prev_burn_count;
+        inner.burn_card = prev_burn_card;
+
+        // remove_player 前のプレイヤー数に戻っていること
+        assert_eq!(
+            inner.board.as_ref().unwrap().players.len(),
+            player_count_before
+        );
+        // Alice が復活していること
+        let player_names: Vec<&str> = inner
+            .board
+            .as_ref()
+            .unwrap()
+            .players
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert!(
+            player_names.contains(&"Alice"),
+            "Alice should be restored after back_board"
+        );
         assert!(inner.history.is_empty());
     }
 }
