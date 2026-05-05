@@ -62,9 +62,20 @@ export function SelectExposeCardModal({ onClose, onConfirmed }: Props) {
   const [remainingKeys, setRemainingKeys] = useState<Set<string> | null>(null);
 
   useEffect(() => {
-    api.board.getRemainingDeck().then((remaining) => {
-      setRemainingKeys(new Set(remaining.map(cardKey)));
-    });
+    let cancelled = false;
+    api.board
+      .getRemainingDeck()
+      .then((remaining) => {
+        if (!cancelled) {
+          setRemainingKeys(new Set(remaining.map(cardKey)));
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("[SelectExposeCardModal] getRemainingDeck failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const cards = allCards();

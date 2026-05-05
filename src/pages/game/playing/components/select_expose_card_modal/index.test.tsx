@@ -159,4 +159,20 @@ describe("SelectExposeCardModal", () => {
     });
     expect(onConfirmed).not.toHaveBeenCalled();
   });
+
+  it("getRemainingDeck が reject しても未処理 rejection にならない", async () => {
+    vi.mocked(api.board.getRemainingDeck).mockReset();
+    vi.mocked(api.board.getRemainingDeck).mockRejectedValue(
+      new Error("deck error"),
+    );
+    expect(() =>
+      render(
+        <SelectExposeCardModal onClose={onClose} onConfirmed={onConfirmed} />,
+      ),
+    ).not.toThrow();
+    // Promise の reject が伝播しないことを waitFor で確認
+    await waitFor(() => {
+      expect(api.board.getRemainingDeck).toHaveBeenCalledTimes(1);
+    });
+  });
 });
