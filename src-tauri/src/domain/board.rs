@@ -186,13 +186,21 @@ impl TexasHoldemBoard {
 
         match self.phase {
             Phase::Flop => {
+                let _ = deck.pop(); // burn card
                 for _ in 0..3 {
                     if let Some(card) = deck.pop() {
                         self.community_cards.push(card);
                     }
                 }
             }
-            Phase::Turn | Phase::River => {
+            Phase::Turn => {
+                let _ = deck.pop(); // burn card
+                if let Some(card) = deck.pop() {
+                    self.community_cards.push(card);
+                }
+            }
+            Phase::River => {
+                let _ = deck.pop(); // burn card
                 if let Some(card) = deck.pop() {
                     self.community_cards.push(card);
                 }
@@ -2547,5 +2555,159 @@ mod tests {
         let result = board_raise(&mut board, 20, &mut deck, 10);
         assert!(result.is_ok(), "raise to 20 should be accepted when min_chip=10");
         assert_eq!(board.current_bet, 20);
+    }
+
+    // ================================================================
+    // Bug 7: advance_phase でのバーンカード消費
+    // ================================================================
+
+    /// PreFlop → Flop 遷移でバーンカード 1 枚が消費されること。
+    #[test]
+    fn advance_phase_burns_one_card_before_flop() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let board = start_game(settings, names, 0).unwrap();
+        let mut deck = build_remaining_deck(&board);
+        let deck_size_before = deck.len();
+
+        let mut b = board.clone();
+        // PreFlop → Flop: バーン 1 枚 + フロップ 3 枚 = 4 枚消費
+        b.advance_phase(&mut deck);
+
+        assert_eq!(b.phase, Phase::Flop);
+        assert_eq!(b.community_cards.len(), 3, "flop should have 3 community cards");
+        assert_eq!(
+            deck.len(),
+            deck_size_before - 4,
+            "deck should shrink by 4 (1 burn + 3 flop) on PreFlop->Flop"
+        );
+    }
+
+    /// Flop → Turn 遷移でバーンカード 1 枚が消費されること。
+    #[test]
+    fn advance_phase_burns_one_card_before_turn() {
+        let hand_a = [
+            Card { suit: Suit::Spade, value: CardValue::Ace },
+            Card { suit: Suit::Heart, value: CardValue::King },
+        ];
+        let hand_b = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let flop = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 1, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: flop,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        // ターン用カードのデッキ (Vec::pop は末尾から取るので逆順で積む)
+        // pop() 順: Six (バーン) → Five (ターン)
+        let mut deck = vec![
+            Card { suit: Suit::Spade, value: CardValue::Five },  // ターンカード (先に積む)
+            Card { suit: Suit::Club, value: CardValue::Six },    // バーンカード (後に積む = 最初に pop)
+        ];
+        let deck_size_before = deck.len();
+
+        board.advance_phase(&mut deck);
+
+        assert_eq!(board.phase, Phase::Turn);
+        assert_eq!(board.community_cards.len(), 4, "turn should add 1 community card");
+        // バーン 1 枚 + ターン 1 枚 = 2 枚消費
+        assert_eq!(
+            deck.len(),
+            deck_size_before - 2,
+            "deck should shrink by 2 (1 burn + 1 turn) on Flop->Turn"
+        );
+        // ターンカードはバーン後に pop = Spade Five
+        assert_eq!(
+            board.community_cards[3],
+            Card { suit: Suit::Spade, value: CardValue::Five },
+            "turn card should be the card after burn"
+        );
+    }
+
+    /// Turn → River 遷移でバーンカード 1 枚が消費されること。
+    #[test]
+    fn advance_phase_burns_one_card_before_river() {
+        let hand_a = [
+            Card { suit: Suit::Spade, value: CardValue::Ace },
+            Card { suit: Suit::Heart, value: CardValue::King },
+        ];
+        let hand_b = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let four_cards = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+            Card { suit: Suit::Club, value: CardValue::Five },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 1, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: four_cards,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Turn,
+            winners: vec![],
+        };
+        // リバー用デッキ (Vec::pop は末尾から取るので逆順で積む)
+        // pop() 順: Eight (バーン) → Seven (リバー)
+        let mut deck = vec![
+            Card { suit: Suit::Heart, value: CardValue::Seven },  // リバーカード (先に積む)
+            Card { suit: Suit::Spade, value: CardValue::Eight },  // バーンカード (後に積む = 最初に pop)
+        ];
+        let deck_size_before = deck.len();
+
+        board.advance_phase(&mut deck);
+
+        assert_eq!(board.phase, Phase::River);
+        assert_eq!(board.community_cards.len(), 5, "river should add 1 community card");
+        // バーン 1 枚 + リバー 1 枚 = 2 枚消費
+        assert_eq!(
+            deck.len(),
+            deck_size_before - 2,
+            "deck should shrink by 2 (1 burn + 1 river) on Turn->River"
+        );
+        // リバーカードはバーン後に pop = Heart Seven
+        assert_eq!(
+            board.community_cards[4],
+            Card { suit: Suit::Heart, value: CardValue::Seven },
+            "river card should be the card after burn"
+        );
     }
 }
