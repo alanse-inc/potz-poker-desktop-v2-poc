@@ -27,6 +27,9 @@ pub struct Player {
     pub is_all_in: bool,
     /// 現ラウンドでアクション（bet/call/check/fold/raise/allin）を実行済みか。
     pub has_acted: bool,
+    /// このハンドで累計投入したチップ額（サイドポット計算用）。フェーズをまたいでリセットしない。
+    #[serde(default)]
+    pub total_invested: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -198,7 +201,9 @@ impl TexasHoldemBoard {
         // borrow split: clone player, apply, write back
         let current_bet = self.current_bet;
         let mut player = self.players[idx].clone();
+        let bet_before = player.bet_in_round;
         f(&mut player, current_bet)?;
+        player.total_invested += player.bet_in_round.saturating_sub(bet_before);
         player.has_acted = true;
         self.players[idx] = player;
 
@@ -233,6 +238,21 @@ impl TexasHoldemBoard {
             self.pots.push(Pot { amount: 0 });
             return Ok(());
         }
+
+        // bet/raise 後に is_round_complete を評価する前に current_bet を暫定更新する。
+        // これにより bet/raise した直後に古い current_bet で即 true 判定されることを防ぐ。
+        let max_bet_in_round = self.players.iter().map(|p| p.bet_in_round).max().unwrap_or(0);
+        let new_current_bet = self.current_bet.max(max_bet_in_round);
+        if new_current_bet > self.current_bet {
+            // ベット/レイズが発生した場合、他のアクティブプレイヤーの has_acted をリセットする。
+            // これにより先行チェック済みプレイヤーがベットに応答できるようになる。
+            for i in 0..self.players.len() {
+                if i != idx && !self.players[i].has_folded && !self.players[i].is_all_in {
+                    self.players[i].has_acted = false;
+                }
+            }
+        }
+        self.current_bet = new_current_bet;
 
         if self.is_round_complete() {
             self.advance_phase(deck);
@@ -317,51 +337,142 @@ impl TexasHoldemBoard {
             return;
         }
 
-        // 各プレイヤーの手役を評価
-        let mut best_eval: Option<(EvaluatedHand, Vec<usize>)> = None;
-        for &idx in &active {
-            let p = &self.players[idx];
-            let hole = match p.hand {
-                Some(h) => h,
-                None => continue,
-            };
-            let mut all_cards: Vec<Card> = self.community_cards.clone();
-            all_cards.push(hole[0]);
-            all_cards.push(hole[1]);
-            let eval = evaluate_hand(&all_cards);
+        // dealer-left ordering ヘルパー: dealer の左隣から始まる順序でソートするキーを返す。
+        let n = self.players.len();
+        let dealer_pos = self.dealer_position;
+        let dealer_idx = self
+            .players
+            .iter()
+            .position(|p| p.position == dealer_pos)
+            .unwrap_or(0);
+        let dealer_left_key = |i: usize| (i + n - dealer_idx - 1) % n;
 
-            best_eval = Some(match best_eval {
-                None => (eval, vec![idx]),
-                Some((prev_eval, mut winners)) => {
-                    let ord = compare_evaluated(&eval, &prev_eval);
-                    match ord {
-                        std::cmp::Ordering::Greater => (eval, vec![idx]),
-                        std::cmp::Ordering::Equal => {
-                            winners.push(idx);
-                            (prev_eval, winners)
-                        }
-                        std::cmp::Ordering::Less => (prev_eval, winners),
-                    }
-                }
-            });
+        // 各プレイヤーの手役を評価（active = has_hand のプレイヤー）
+        let evals: Vec<(usize, EvaluatedHand)> = active
+            .iter()
+            .filter_map(|&idx| {
+                let p = &self.players[idx];
+                let hole = p.hand?;
+                let mut all_cards: Vec<Card> = self.community_cards.clone();
+                all_cards.push(hole[0]);
+                all_cards.push(hole[1]);
+                Some((idx, evaluate_hand(&all_cards)))
+            })
+            .collect();
+
+        if evals.is_empty() {
+            return;
         }
 
-        if let Some((_eval, winner_indices)) = best_eval {
-            let total = self.total_pot();
-            let share = total / winner_indices.len() as u32;
-            let remainder = total % winner_indices.len() as u32;
+        // サイドポット計算:
+        // 各プレイヤーの total_invested をしきい値として使いポットを切り分ける。
+        let total_invested: Vec<u32> = self.players.iter().map(|p| p.total_invested).collect();
+        let mut thresholds: Vec<u32> = total_invested.clone();
+        thresholds.sort_unstable();
+        thresholds.dedup();
+        // 0 は除く
+        thresholds.retain(|&t| t > 0);
+        if thresholds.is_empty() {
+            // total_invested が全員 0 のとき（ゲーム開始直後のエッジケース）
+            // pots の合計を均等分割する
+            thresholds.push(1);
+        }
 
-            for (i, &widx) in winner_indices.iter().enumerate() {
+        let mut all_winner_positions: Vec<u8> = Vec::new();
+        let mut prev_threshold: u32 = 0;
+        let total_pot_before = self.total_pot();
+        let mut distributed: u32 = 0;
+
+        for &threshold in &thresholds {
+            let level_amount = threshold - prev_threshold;
+            // このレベルに参加しているプレイヤー数（prev_threshold より多く投入したプレイヤー）
+            let contributors = total_invested.iter().filter(|&&ti| ti > prev_threshold).count() as u32;
+            let pot_amount = level_amount * contributors;
+
+            // このポットの勝者候補: total_invested >= threshold かつ has_folded でない
+            let eligible_for_pot: Vec<usize> = (0..self.players.len())
+                .filter(|&i| total_invested[i] >= threshold && !self.players[i].has_folded)
+                .collect();
+
+            if eligible_for_pot.is_empty() {
+                // 勝者候補なし（全員フォールド済み）→ 次のレベルへ持ち越し
+                prev_threshold = threshold;
+                continue;
+            }
+
+            // eligible_for_pot の中で hand を持つプレイヤーのみ手役勝者候補
+            let mut best_eval_pot: Option<(EvaluatedHand, Vec<usize>)> = None;
+            for &idx in &eligible_for_pot {
+                if let Some((_, eval)) = evals.iter().find(|(i, _)| *i == idx) {
+                    best_eval_pot = Some(match best_eval_pot {
+                        None => (eval.clone(), vec![idx]),
+                        Some((prev_eval, mut winners)) => {
+                            let ord = compare_evaluated(eval, &prev_eval);
+                            match ord {
+                                std::cmp::Ordering::Greater => (eval.clone(), vec![idx]),
+                                std::cmp::Ordering::Equal => {
+                                    winners.push(idx);
+                                    (prev_eval, winners)
+                                }
+                                std::cmp::Ordering::Less => (prev_eval, winners),
+                            }
+                        }
+                    });
+                }
+            }
+
+            // hand を持つ勝者がいない場合は eligible 全員で均等分割（フォールバック）
+            let pot_winners: Vec<usize> = if let Some((_, w)) = best_eval_pot {
+                w
+            } else {
+                eligible_for_pot.clone()
+            };
+
+            // dealer-left ordering でソート
+            let mut ordered_winners = pot_winners.clone();
+            ordered_winners.sort_by_key(|&i| dealer_left_key(i));
+
+            let share = pot_amount / ordered_winners.len() as u32;
+            let remainder = pot_amount % ordered_winners.len() as u32;
+
+            for (i, &widx) in ordered_winners.iter().enumerate() {
                 let extra = if i == 0 { remainder } else { 0 };
                 self.players[widx].stack += share + extra;
+                distributed += share + extra;
+                let pos = self.players[widx].position;
+                if !all_winner_positions.contains(&pos) {
+                    all_winner_positions.push(pos);
+                }
             }
-            self.pots.clear();
-            self.pots.push(Pot { amount: 0 });
-            self.winners = winner_indices
-                .iter()
-                .map(|&i| self.players[i].position)
-                .collect();
+
+            prev_threshold = threshold;
         }
+
+        // total_invested が 0 のプレイヤーがポットに入れていない場合など、
+        // 端数が残っていたら dealer-left の最初の非フォールドプレイヤーに渡す。
+        let undistributed = total_pot_before.saturating_sub(distributed);
+        if undistributed > 0 {
+            let mut leftover_candidates: Vec<usize> = (0..self.players.len())
+                .filter(|&i| !self.players[i].has_folded)
+                .collect();
+            leftover_candidates.sort_by_key(|&i| dealer_left_key(i));
+            if let Some(&widx) = leftover_candidates.first() {
+                self.players[widx].stack += undistributed;
+                let pos = self.players[widx].position;
+                if !all_winner_positions.contains(&pos) {
+                    all_winner_positions.push(pos);
+                }
+            }
+        }
+
+        self.pots.clear();
+        self.pots.push(Pot { amount: 0 });
+        // winners を dealer-left ordering でソート
+        all_winner_positions.sort_by_key(|&pos| {
+            let idx = self.players.iter().position(|p| p.position == pos).unwrap_or(0);
+            dealer_left_key(idx)
+        });
+        self.winners = all_winner_positions;
     }
 }
 
@@ -473,6 +584,7 @@ fn start_game_with_stacks(
             has_folded: false,
             is_all_in: false,
             has_acted: false,
+            total_invested: 0,
         })
         .collect();
 
@@ -480,6 +592,7 @@ fn start_game_with_stacks(
     let sb_amount = settings.small_blind.min(players[sb_idx].stack);
     players[sb_idx].stack -= sb_amount;
     players[sb_idx].bet_in_round = sb_amount;
+    players[sb_idx].total_invested = sb_amount;
     if players[sb_idx].stack == 0 {
         players[sb_idx].is_all_in = true;
     }
@@ -488,6 +601,7 @@ fn start_game_with_stacks(
     let bb_amount = settings.big_blind.min(players[bb_idx].stack);
     players[bb_idx].stack -= bb_amount;
     players[bb_idx].bet_in_round = bb_amount;
+    players[bb_idx].total_invested = bb_amount;
     if players[bb_idx].stack == 0 {
         players[bb_idx].is_all_in = true;
     }
@@ -632,6 +746,7 @@ pub fn add_player(
         has_folded: true,
         is_all_in: false,
         has_acted: true,
+        total_invested: 0,
     });
     Ok(())
 }
@@ -752,6 +867,21 @@ pub fn board_fold(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result<
 }
 
 pub fn board_raise(board: &mut TexasHoldemBoard, to: u32, deck: &mut Vec<Card>) -> Result<(), BoardError> {
+    // min raise validation: to >= current_bet + last_raise_size（all-in 例外あり）
+    {
+        let min_raise_to = board.current_bet.saturating_add(board.last_raise_size);
+        let p_idx = board
+            .current_player_idx()
+            .ok_or_else(|| BoardError::InvalidAction("current player not found".into()))?;
+        let p = &board.players[p_idx];
+        let all_in_total = p.stack + p.bet_in_round;
+        if to < min_raise_to && to != all_in_total {
+            return Err(BoardError::InvalidAction(format!(
+                "raise must be at least {} (or all-in {}); got {}",
+                min_raise_to, all_in_total, to
+            )));
+        }
+    }
     let prev_bet = board.current_bet;
     board.apply_action(
         |p, current_bet| {
@@ -1236,11 +1366,11 @@ mod tests {
             last_raise_size: 0,
             players: vec![
                 Player { position: 0, name: "A".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
                 Player { position: 1, name: "B".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
                 Player { position: 2, name: "C".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
             ],
             community_cards: vec![],
             pots: vec![Pot { amount: 300 }],
@@ -1274,11 +1404,11 @@ mod tests {
             last_raise_size: 0,
             players: vec![
                 Player { position: 0, name: "A".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
                 Player { position: 1, name: "B".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 101 },
                 Player { position: 2, name: "C".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
             ],
             community_cards: vec![],
             pots: vec![Pot { amount: 301 }],
@@ -1311,11 +1441,11 @@ mod tests {
             last_raise_size: 0,
             players: vec![
                 Player { position: 0, name: "A".into(), stack: 500, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 200 },
                 Player { position: 1, name: "B".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true, total_invested: 0 },
                 Player { position: 2, name: "C".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true, total_invested: 0 },
             ],
             community_cards: vec![],
             pots: vec![Pot { amount: 200 }],
@@ -1365,11 +1495,11 @@ mod tests {
             last_raise_size: 0,
             players: vec![
                 Player { position: 0, name: "A".into(), stack: 0, hand: Some(hand_strong),
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
                 Player { position: 1, name: "B".into(), stack: 0, hand: None,
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
                 Player { position: 2, name: "C".into(), stack: 0, hand: Some(hand_weak),
-                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true },
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
             ],
             community_cards: community,
             pots: vec![Pot { amount: 300 }],
@@ -1385,5 +1515,604 @@ mod tests {
         // 勝者は position=0 か position=2 のどちらか（手役評価による）
         // いずれにせよ position=1（hand=None）は winners に入らない
         assert!(!board.winners.contains(&1));
+    }
+
+    // ================================================================
+    // Bug 1: apply_action 内 is_round_complete の current_bet 古値問題
+    // ================================================================
+
+    /// 3人ゲーム（1人フォールド後の flop）: A check → B bet → フェーズは Flop のまま。
+    #[test]
+    fn bet_does_not_advance_phase_in_two_active_players() {
+        use super::super::card::{Card, CardValue, Suit};
+        // 3 人、dealer=0, SB=1, BB=2。SB が fold 後 flop 状態を作る。
+        // flop の current_turn = dealer 左の最初のアクティブ = pos=1 (SB)
+        // SB が fold、BB だけ残るが、ここでは A=pos1, B=pos2 で 2 人残す。
+        // pos=0 がフォールド済み、pos=1(A) check, pos=2(B) bet の順
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::King },
+            Card { suit: Suit::Heart, value: CardValue::Queen },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Spade, value: CardValue::Nine },
+            Card { suit: Suit::Club, value: CardValue::Eight },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1, // A のターン
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "X".into(), stack: 900, hand: None,
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 1, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 2, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 300 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new(); // deck は空でも ok（advance_phase で pop するが Flop 後は不要）
+
+        // A: check
+        board_check(&mut board, &mut deck).unwrap();
+        assert_eq!(board.current_turn, 2); // B のターンへ
+        assert_eq!(board.phase, Phase::Flop); // まだ Flop
+
+        // B: bet 100
+        board_bet(&mut board, 100, &mut deck).unwrap();
+        // bet 後もフェーズは Flop のまま（A が応答していないため）
+        assert_eq!(board.phase, Phase::Flop, "bet after check should not advance phase");
+        // 次は A のターン
+        assert_eq!(board.current_turn, 1, "turn should go back to A");
+        // A の has_acted が false にリセットされている
+        assert!(!board.players[1].has_acted, "A's has_acted should be false after B bet");
+    }
+
+    /// 3人ゲーム（1人フォールド後の flop）: A check → B bet → A raise → フェーズは Flop のまま（B 未応答）。
+    #[test]
+    fn raise_does_not_advance_phase_in_two_active_players() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::King },
+            Card { suit: Suit::Heart, value: CardValue::Queen },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Spade, value: CardValue::Nine },
+            Card { suit: Suit::Club, value: CardValue::Eight },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "X".into(), stack: 900, hand: None,
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 1, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 2, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 300 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        // A check
+        board_check(&mut board, &mut deck).unwrap();
+        // B bet 100
+        board_bet(&mut board, 100, &mut deck).unwrap();
+        assert_eq!(board.phase, Phase::Flop);
+        assert_eq!(board.current_turn, 1); // A のターン
+        assert!(!board.players[1].has_acted, "A's has_acted reset after B bet");
+
+        // A raise 200（B のベットに対してリレイズ）
+        board_raise(&mut board, 200, &mut deck).unwrap();
+        // フェーズは Flop のまま（B が応答していないため）
+        assert_eq!(board.phase, Phase::Flop, "raise should not advance phase");
+        assert_eq!(board.current_turn, 2, "turn should be B's");
+        assert!(!board.players[2].has_acted, "B's has_acted should be false after A raise");
+    }
+
+    /// ヘッズアップ flop: BB check → BTN bet → フェーズは Flop のまま。
+    #[test]
+    fn heads_up_flop_bet_does_not_advance_phase() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let hand_btn: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::King },
+            Card { suit: Suit::Heart, value: CardValue::Queen },
+        ];
+        let hand_bb: [Card; 2] = [
+            Card { suit: Suit::Spade, value: CardValue::Nine },
+            Card { suit: Suit::Club, value: CardValue::Eight },
+        ];
+        // ヘッズアップ: dealer=BTN=pos0, BB=pos1
+        // flop の current_turn は dealer の次(dealer 自身) = pos1(BB) → dealer left = pos0?
+        // next_active_position_after(dealer=0) の次 = pos1(BB)
+        // ヘッズアップ flop: SB/BTN が先にアクション
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0, // ヘッズアップ: dealer=SB=BTN=pos0
+            bb_position: 1,
+            current_turn: 1, // BB が先（flop では dealer 左から）
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "BTN".into(), stack: 900, hand: Some(hand_btn),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 1, name: "BB".into(), stack: 900, hand: Some(hand_bb),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        // BB check
+        board_check(&mut board, &mut deck).unwrap();
+        assert_eq!(board.current_turn, 0); // BTN のターン
+
+        // BTN bet 100
+        board_bet(&mut board, 100, &mut deck).unwrap();
+        // フェーズは Flop のまま
+        assert_eq!(board.phase, Phase::Flop, "bet should not advance phase in heads-up");
+        // 次は BB のターン
+        assert_eq!(board.current_turn, 1, "turn should be BB's");
+    }
+
+    // ================================================================
+    // Bug 2: サイドポット計算
+    // ================================================================
+
+    /// スタック 1000/400/200 の 3 人全員 all-in、200 のプレイヤーが最強ハンドで勝利。
+    /// short stack は 200×3=600 のみ受け取り、残り 600+400 は別の勝者へ。
+    #[test]
+    fn side_pot_short_stack_winner() {
+        use super::super::card::{Card, CardValue, Suit};
+        // コミュニティカード: 2s 3h 4d 5c 7s (ストレートになりやすい)
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+            Card { suit: Suit::Club, value: CardValue::Five },
+            Card { suit: Suit::Spade, value: CardValue::Seven },
+        ];
+        // p0 (short stack=200): AA → AA ペア + ストレートボードでロイヤルな役
+        //   コミュニティ: 2 3 4 5 7 + AA → ストレート (A2345) + AA で最強役はストレート or ペア
+        //   実際の手役: A 2 3 4 5 でストレート (wheel)
+        let hand_short: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Diamond, value: CardValue::Ace },
+        ];
+        // p1 (mid stack=400): K9 → ハイカード
+        let hand_mid: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::King },
+            Card { suit: Suit::Heart, value: CardValue::Nine },
+        ];
+        // p2 (big stack=1000): QJ → ハイカード
+        let hand_big: [Card; 2] = [
+            Card { suit: Suit::Spade, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+
+        // total_invested: p0=200, p1=400, p2=400（p2 は 1000 スタックだが 400 だけ投入）
+        // サイドポット計算:
+        // threshold=200: 200 * 3 = 600 → 勝者は p0（AA ストレート最強）→ p0 に 600
+        // threshold=400: (400-200) * 2 = 400 → 勝者は p1/p2 の中の最強。K9 vs QJ → p1(K9) に 400
+        // p2 は 1000-400=600 残スタック（投入なし分）
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 400,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "Short".into(), stack: 0, hand: Some(hand_short),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 200 },
+                Player { position: 1, name: "Mid".into(), stack: 0, hand: Some(hand_mid),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 400 },
+                Player { position: 2, name: "Big".into(), stack: 600, hand: Some(hand_big),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 400 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 1000 }], // 200+400+400
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // p0 は 600 のみ受け取る
+        assert_eq!(board.players[0].stack, 600, "short stack winner gets main pot only");
+        // p1 は 400 を受け取る（サイドポット）
+        assert_eq!(board.players[1].stack, 400, "mid stack player gets side pot");
+        // p2 は 600（元スタック）のみ
+        assert_eq!(board.players[2].stack, 600, "big stack player should not gain");
+        // チップ保全: 600+400+600 = 1600 = 200+400+1000
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total, 1600);
+    }
+
+    /// 2 人 all-in（1000/400）と 1 人フォールド（200）→ サイドポット分配。
+    #[test]
+    fn side_pot_main_and_one_side() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+            Card { suit: Suit::Club, value: CardValue::Five },
+            Card { suit: Suit::Spade, value: CardValue::Seven },
+        ];
+        let hand_big: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Diamond, value: CardValue::Ace },
+        ];
+        let hand_mid: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::King },
+            Card { suit: Suit::Heart, value: CardValue::Nine },
+        ];
+        // p0 (200 フォールド), p1 (400 allin), p2 (1000 allin)
+        // total_invested: p0=200, p1=400, p2=400（all-in max は p1 の 400）
+        // threshold=200: 200*3=600. 勝者候補(has_folded=false)=p1,p2。手役: p2(AA) > p1(K9) → p2 に 600
+        // threshold=400: (400-200)*2=400. 勝者候補=p1,p2（has_folded=false）。p2(AA) > p1(K9) → p2 に 400
+        // p2 total = 600 + 400 = 1000. p1 は 0.
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 400,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "Fold".into(), stack: 800, hand: None,
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true, total_invested: 200 },
+                Player { position: 1, name: "Mid".into(), stack: 0, hand: Some(hand_mid),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 400 },
+                Player { position: 2, name: "Big".into(), stack: 600, hand: Some(hand_big),
+                         bet_in_round: 0, has_folded: false, is_all_in: true, has_acted: true, total_invested: 400 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 1000 }], // 200+400+400
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // p2(AA) が全サイドポット勝者
+        assert_eq!(board.players[2].stack, 600 + 1000, "AA wins all eligible pots");
+        assert_eq!(board.players[1].stack, 0);
+        // チップ保全: p0.stack(800) + p1.stack(0) + p2.stack(600+1000) = 2400
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total, 2400);
+    }
+
+    /// 同ポット内で複数勝者のスプリット。
+    #[test]
+    fn side_pot_split_within_pot() {
+        use super::super::card::{Card, CardValue, Suit};
+        // コミュニティ: A K Q J T → ロイヤルストレートフラッシュボード
+        // 全員が同じ手役（ボードのみで決まる）→ スプリット
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+            Card { suit: Suit::Spade, value: CardValue::Queen },
+            Card { suit: Suit::Spade, value: CardValue::Jack },
+            Card { suit: Suit::Spade, value: CardValue::Ten },
+        ];
+        // 全員が low card を持つ（ボードに勝てない）→ 全員がロイヤルフラッシュでスプリット
+        let hand0: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Two },
+            Card { suit: Suit::Diamond, value: CardValue::Three },
+        ];
+        let hand1: [Card; 2] = [
+            Card { suit: Suit::Club, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Four },
+        ];
+        let hand2: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Two },
+            Card { suit: Suit::Club, value: CardValue::Five },
+        ];
+
+        // 3 人均等スプリット: pot=300, 各 total_invested=100
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 100,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "P0".into(), stack: 0, hand: Some(hand0),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 1, name: "P1".into(), stack: 0, hand: Some(hand1),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 2, name: "P2".into(), stack: 0, hand: Some(hand2),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 300 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // 300 / 3 = 100 ずつスプリット
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total, 300, "total chips preserved");
+        assert_eq!(board.total_pot(), 0);
+        // 全員が勝者
+        assert_eq!(board.winners.len(), 3);
+    }
+
+    /// ショーダウン後の全プレイヤー stack 合計 == 初期スタック合計。
+    #[test]
+    fn total_chips_preserved_after_showdown() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["A".into(), "B".into(), "C".into()];
+        let initial_stacks = vec![1000u32, 400, 200];
+        let board_start = start_game_with_stacks(
+            settings, names, initial_stacks.clone(), 1, 0, 1, 2,
+        ).unwrap();
+        let initial_total: u32 = initial_stacks.iter().sum();
+
+        let mut board = board_start;
+        let mut deck = build_remaining_deck(&board);
+
+        // 全員 all-in
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+        board_allin(&mut board, &mut deck).unwrap();
+
+        // Showdown に至っている
+        assert_eq!(board.phase, Phase::Showdown);
+
+        let final_total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(final_total, initial_total, "total chips must be preserved");
+    }
+
+    // ================================================================
+    // Bug 3: スプリットポット端数の dealer-left ordering
+    // ================================================================
+
+    /// dealer=2 の 4 人ゲームで position 0, 1, 3 が同点勝者、ポット 301 → 端数は dealer 左隣 position 3。
+    #[test]
+    fn split_pot_remainder_goes_to_dealer_left() {
+        use super::super::card::{Card, CardValue, Suit};
+        // コミュニティ: A K Q J T (スペード) → 全員ロイヤルストレートフラッシュ
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+            Card { suit: Suit::Spade, value: CardValue::Queen },
+            Card { suit: Suit::Spade, value: CardValue::Jack },
+            Card { suit: Suit::Spade, value: CardValue::Ten },
+        ];
+        let make_low_hand = |v1: CardValue, v2: CardValue| -> [Card; 2] {
+            [
+                Card { suit: Suit::Heart, value: v1 },
+                Card { suit: Suit::Diamond, value: v2 },
+            ]
+        };
+
+        // dealer=position 2 (idx=2)
+        // dealer-left ordering: (idx + n - dealer_idx - 1) % n
+        // n=4, dealer_idx=2
+        // idx=0: (0+4-2-1)%4 = 1
+        // idx=1: (1+4-2-1)%4 = 2
+        // idx=2: (2+4-2-1)%4 = 3  ← dealer 自身（最後）
+        // idx=3: (3+4-2-1)%4 = 0  ← dealer の左隣（最初に端数を受け取る）
+        // winner_indices = [0, 1, 3]（position 2 はフォールド）
+        // dealer-left 順: idx=3 が key=0 → 端数を受け取る
+        //
+        // total_invested: pos0=100, pos1=100, pos2=1(fold), pos3=100 → sum=301
+        // threshold=1: 1 * 4(ti>0) = 4。eligible=[p0,p1,p3]。4/3=1余1 → p3が2, p0が1, p1が1
+        // threshold=100: 99 * 3(ti>1) = 297。eligible=[p0,p1,p3]。297/3=99余0 → 各99
+        // p3 total = 2+99 = 101, p0 = 1+99 = 100, p1 = 1+99 = 100
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 2, // dealer は position=2
+            sb_position: 3,
+            bb_position: 0,
+            current_turn: 0,
+            current_bet: 100,
+            last_raise_size: 0,
+            players: vec![
+                Player { position: 0, name: "P0".into(), stack: 0, hand: Some(make_low_hand(CardValue::Two, CardValue::Three)),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 1, name: "P1".into(), stack: 0, hand: Some(make_low_hand(CardValue::Four, CardValue::Five)),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+                Player { position: 2, name: "P2".into(), stack: 0, hand: Some(make_low_hand(CardValue::Six, CardValue::Seven)),
+                         bet_in_round: 0, has_folded: true, is_all_in: false, has_acted: true, total_invested: 1 },
+                Player { position: 3, name: "P3".into(), stack: 0, hand: Some(make_low_hand(CardValue::Eight, CardValue::Nine)),
+                         bet_in_round: 0, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 301 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // 総チップ保全
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total, 301, "chips must be preserved");
+        assert_eq!(board.total_pot(), 0);
+
+        // dealer-left 順の最初(idx=3, position=3)が端数を受け取る
+        // p3: 101, p0: 100, p1: 100
+        assert_eq!(board.players[3].stack, 101, "P3 (dealer left) should get the remainder");
+        assert_eq!(board.players[0].stack, 100);
+        assert_eq!(board.players[1].stack, 100);
+    }
+
+    // ================================================================
+    // Bug 4: board_raise の minimum raise validation
+    // ================================================================
+
+    /// current_bet=100, last_raise_size=100, raise to=150 → エラー（min raise = 200）。
+    #[test]
+    fn raise_below_min_raise_is_rejected() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 100,
+            last_raise_size: 100,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 100, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 1, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 100, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::PreFlop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        let result = board_raise(&mut board, 150, &mut deck);
+        assert!(result.is_err(), "raise to 150 should be rejected when min raise is 200");
+    }
+
+    /// current_bet=100, last_raise_size=100, raise to=200 → Ok（ちょうど min raise）。
+    #[test]
+    fn raise_at_min_raise_is_accepted() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 100,
+            last_raise_size: 100,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 900, hand: Some(hand_a),
+                         bet_in_round: 100, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 1, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 100, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        let result = board_raise(&mut board, 200, &mut deck);
+        assert!(result.is_ok(), "raise to 200 should be accepted (min raise)");
+        assert_eq!(board.current_bet, 200);
+    }
+
+    /// スタック 50, current_bet=100, last_raise_size=100 → all-in 例外で raise to=150 は Ok。
+    #[test]
+    fn raise_below_min_raise_allowed_when_all_in() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card { suit: Suit::Spade, value: CardValue::Two },
+            Card { suit: Suit::Heart, value: CardValue::Three },
+            Card { suit: Suit::Diamond, value: CardValue::Four },
+        ];
+        let hand_a: [Card; 2] = [
+            Card { suit: Suit::Heart, value: CardValue::Ace },
+            Card { suit: Suit::Spade, value: CardValue::King },
+        ];
+        let hand_b: [Card; 2] = [
+            Card { suit: Suit::Diamond, value: CardValue::Queen },
+            Card { suit: Suit::Club, value: CardValue::Jack },
+        ];
+        // p0: bet_in_round=100, stack=50 → all_in_total = 100+50 = 150
+        // min_raise_to = 100+100 = 200 だが all-in 例外で 150 は ok
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 100,
+            last_raise_size: 100,
+            players: vec![
+                Player { position: 0, name: "A".into(), stack: 50, hand: Some(hand_a),
+                         bet_in_round: 100, has_folded: false, is_all_in: false, has_acted: false, total_invested: 100 },
+                Player { position: 1, name: "B".into(), stack: 900, hand: Some(hand_b),
+                         bet_in_round: 100, has_folded: false, is_all_in: false, has_acted: true, total_invested: 100 },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        let result = board_raise(&mut board, 150, &mut deck);
+        assert!(result.is_ok(), "all-in raise below min should be allowed");
+        assert!(board.players[0].is_all_in);
     }
 }
