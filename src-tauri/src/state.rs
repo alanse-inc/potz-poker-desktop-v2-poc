@@ -6,6 +6,10 @@ use crate::domain::rfid_mapping::RfidCardMapping;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+/// history Vec に保持するスナップショット数の上限。
+/// push 後にこの値を超えた場合は古いエントリを先入れ先出しで削除する。
+pub const MAX_HISTORY: usize = 50;
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

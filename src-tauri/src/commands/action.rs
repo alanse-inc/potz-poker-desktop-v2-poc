@@ -6,7 +6,7 @@ use crate::domain::board::{
 use crate::domain::card::Card;
 use crate::error::BoardError;
 use crate::events::BOARD_UPDATED;
-use crate::state::AppState;
+use crate::state::{AppState, MAX_HISTORY};
 use tauri::{AppHandle, Emitter, State};
 
 /// board と deck を取り出してアクションを適用するヘルパー。
@@ -32,6 +32,10 @@ where
         let burn_count_snap = inner.burn_count;
         let burn_card_snap = inner.burn_card;
         inner.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if inner.history.len() > MAX_HISTORY {
+            let excess = inner.history.len() - MAX_HISTORY;
+            inner.history.drain(0..excess);
+        }
     }
 
     // board と deck を取り出して mut 参照を渡す

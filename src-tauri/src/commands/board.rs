@@ -11,7 +11,7 @@ use crate::domain::card::Card;
 use crate::domain::hand::EvaluatedHand;
 use crate::error::BoardError;
 use crate::events::BOARD_UPDATED;
-use crate::state::AppState;
+use crate::state::{AppState, MAX_HISTORY};
 use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
@@ -163,6 +163,10 @@ pub fn set_community_card(
             let burn_count_snap = inner.burn_count;
             let burn_card_snap = inner.burn_card;
             inner.history.push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+            if inner.history.len() > MAX_HISTORY {
+                let excess = inner.history.len() - MAX_HISTORY;
+                inner.history.drain(0..excess);
+            }
         }
 
         // board と deck を取り出して mut 参照を渡す
@@ -268,7 +272,7 @@ mod tests {
     use super::*;
     use crate::domain::board::{start_game, GameSettings};
     use crate::domain::card::{Card, CardValue, Suit};
-    use crate::state::InnerState;
+    use crate::state::{InnerState, MAX_HISTORY};
 
     #[test]
     fn calculate_initial_stack_uses_average_when_players_exist() {
@@ -335,6 +339,34 @@ mod tests {
         let (_, _, snapped_count, snapped_card) = &state.history[0];
         assert_eq!(*snapped_count, 2);
         assert!(snapped_card.is_some());
+    }
+
+    #[test]
+    fn history_does_not_exceed_max_history_limit() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings, names, 0).unwrap();
+        let deck = build_remaining_deck(&board);
+
+        let mut state = InnerState::default();
+        state.board = Some(board.clone());
+        state.deck = deck.clone();
+
+        // MAX_HISTORY + 5 件 push して上限を超えることをシミュレート
+        for _ in 0..MAX_HISTORY + 5 {
+            state.history.push((board.clone(), deck.clone(), 0, None));
+            if state.history.len() > MAX_HISTORY {
+                let excess = state.history.len() - MAX_HISTORY;
+                state.history.drain(0..excess);
+            }
+        }
+
+        assert_eq!(state.history.len(), MAX_HISTORY);
     }
 
     #[test]
