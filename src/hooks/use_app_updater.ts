@@ -27,6 +27,9 @@ export function useAppUpdater() {
   const downloadedRef = useRef<number>(0);
 
   const checkForUpdates = useCallback(async () => {
+    // dev 環境では updater endpoints がプレースホルダー (example.com) のため
+    // HTTP リクエストが必ず失敗してログにエラーが出る。実運用ビルドのみで実行する。
+    if (import.meta.env.DEV) return;
     try {
       const update = await check();
       if (update?.available) {
