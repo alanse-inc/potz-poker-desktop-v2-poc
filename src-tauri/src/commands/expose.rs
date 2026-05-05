@@ -56,14 +56,18 @@ mod tests {
     fn expose_removes_burn_and_expose_card_from_deck() {
         let mut state = make_state_with_board();
         let burn_card = Card::new(Suit::Diamond, CardValue::Two);
-        // deck に burn_card と expose_card を確実に含める
+        // deck に burn_card を確実に含める
         if !state.deck.contains(&burn_card) {
             state.deck.push(burn_card);
         }
-        let expose_card = Card::new(Suit::Heart, CardValue::Three);
-        if !state.deck.contains(&expose_card) {
-            state.deck.push(expose_card);
-        }
+        // expose_card は deck の先頭（プレイヤーのハンドに含まれていないことが保証される）
+        // burn_card と異なるカードを deck から選ぶ
+        let expose_card = state
+            .deck
+            .iter()
+            .find(|&&c| c != burn_card)
+            .copied()
+            .expect("deck should have a card different from burn_card");
         let deck_len_before = state.deck.len();
         state.burn_card = Some(burn_card);
 

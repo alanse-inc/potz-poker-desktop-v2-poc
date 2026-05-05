@@ -585,6 +585,19 @@ pub fn start_game(
     start_game_with_stacks(settings, player_names, stacks, 1, dealer, sb_pos, bb_pos)
 }
 
+/// スタックが 0 でないプレイヤーの位置を from_pos の次から順に探す。
+/// 全員スタック 0 の場合は None を返す。
+fn next_non_zero_stack_pos(stacks: &[u32], from_pos: u8) -> Option<u8> {
+    let n = stacks.len();
+    for offset in 1..=n {
+        let pos = (from_pos as usize + offset) % n;
+        if stacks[pos] > 0 {
+            return Some(pos as u8);
+        }
+    }
+    None
+}
+
 /// 次のゲームへ進む（dealer をシフト）。
 pub fn next_game(
     prev: &TexasHoldemBoard,
@@ -592,24 +605,32 @@ pub fn next_game(
 ) -> Result<(TexasHoldemBoard, Vec<Card>), BoardError> {
     let n = prev.players.len();
     let new_dealer = (prev.dealer_position + 1) % n as u8;
-    let new_sb = if n == 2 {
-        new_dealer
+
+    // 前回のスタックを引き継ぐ
+    let stacks: Vec<u32> = prev.players.iter().map(|p| p.stack).collect();
+
+    // スタックが 0 のプレイヤーをスキップして SB/BB を決定する。
+    let (new_sb, new_bb) = if n == 2 {
+        // ヘッズアップ: dealer=SB, 相手=BB
+        let sb = new_dealer;
+        let bb = (new_dealer + 1) % n as u8;
+        (sb, bb)
     } else {
-        (new_dealer + 1) % n as u8
-    };
-    let new_bb = if n == 2 {
-        (new_dealer + 1) % n as u8
-    } else {
-        (new_dealer + 2) % n as u8
+        // SB は dealer の次でスタック 0 をスキップ
+        let sb = next_non_zero_stack_pos(&stacks, new_dealer).ok_or_else(|| {
+            BoardError::InvalidAction("all players have stack 0; cannot determine SB".into())
+        })?;
+        // BB は SB の次でスタック 0 をスキップ
+        let bb = next_non_zero_stack_pos(&stacks, sb).ok_or_else(|| {
+            BoardError::InvalidAction("only one player has chips; cannot determine BB".into())
+        })?;
+        (sb, bb)
     };
 
     // stack 0 のプレイヤーはバスト（ゲームから除外）しない簡略版。
     // そのまま継続（buy-in なし）。
     let names: Vec<String> = prev.players.iter().map(|p| p.name.clone()).collect();
     let new_settings = settings.clone();
-
-    // 前回のスタックを引き継ぐ
-    let stacks: Vec<u32> = prev.players.iter().map(|p| p.stack).collect();
 
     let board = start_game_with_stacks(
         new_settings,
@@ -4022,5 +4043,112 @@ mod tests {
         assert_eq!(board.players[1].bet_in_round, 200); // BB
                                                         // P3 (dealer) は stack>0 なので is_all_in=false
         assert!(!board.players[3].is_all_in);
+    }
+
+    // ================================================================
+    // Bug 3 fix: next_game で SB/BB が stack 0 でも進行可能にする
+    // ================================================================
+
+    /// 4 人ゲームで dealer=0, 次のゲームで SB=1(stack=0), BB=2(stack=0) のとき
+    /// next_game がスキップして進行できること。
+    #[test]
+    fn next_game_skips_zero_stack_sb_bb() {
+        let settings = GameSettings {
+            small_blind: 100,
+            big_blind: 200,
+            min_chip: 100,
+            bb_ante: false,
+        };
+        // dealer=0, SB=1(stack=0), BB=2(stack=0), P3(stack=1000) で showdown 後の状態を作る
+        let board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: u8::MAX,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 0,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 2,
+                    name: "C".into(),
+                    stack: 0,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 3,
+                    name: "D".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Showdown,
+            winners: vec![0],
+        };
+
+        // next_game は dealer=0+1=1 となり、SB=1(stack=0)、BB=2(stack=0) をスキップして
+        // SB=3(stack=1000)、BB=0(stack=1000) で進行するはず
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_ok(),
+            "next_game should succeed even if positions 1 and 2 have stack=0"
+        );
+        let (new_board, _) = result.unwrap();
+        assert_eq!(new_board.dealer_position, 1);
+        assert_eq!(new_board.hand_number, 2);
+        // SB と BB は stack が 0 でないプレイヤーを指すはず
+        let sb_player = new_board
+            .players
+            .iter()
+            .find(|p| p.position == new_board.sb_position)
+            .unwrap();
+        let bb_player = new_board
+            .players
+            .iter()
+            .find(|p| p.position == new_board.bb_position)
+            .unwrap();
+        // SB=3, BB=0 の場合 total_invested > 0 (ブラインドを投入済み)
+        assert!(
+            sb_player.total_invested > 0,
+            "SB must have posted blind (non-zero stack)"
+        );
+        assert!(
+            bb_player.total_invested > 0,
+            "BB must have posted blind (non-zero stack)"
+        );
     }
 }
