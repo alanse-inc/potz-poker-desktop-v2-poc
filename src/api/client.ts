@@ -133,9 +133,9 @@ export const api = {
         cb(e.payload),
       ),
     onInitialBoardUpdated: (
-      cb: (board: TexasHoldemInitialBoard) => void,
+      cb: (board: TexasHoldemInitialBoard | null) => void,
     ): Promise<UnlistenFn> =>
-      listen<TexasHoldemInitialBoard>("initial_board_updated", (e) =>
+      listen<TexasHoldemInitialBoard | null>("initial_board_updated", (e) =>
         cb(e.payload),
       ),
   },
