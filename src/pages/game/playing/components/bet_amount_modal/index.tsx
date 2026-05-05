@@ -6,6 +6,7 @@ type Props = {
   minAmount: number;
   maxAmount: number;
   bigBlind: number;
+  potAmount?: number;
   onCancel: () => void;
   onConfirm: (amount: number) => void;
 };
@@ -15,6 +16,7 @@ export function BetAmountModal({
   minAmount,
   maxAmount,
   bigBlind,
+  potAmount,
   onCancel,
   onConfirm,
 }: Props) {
@@ -41,7 +43,10 @@ export function BetAmountModal({
       { label: "MIN", value: minAmount },
       { label: "2BB", value: bigBlind * 2 },
       { label: "3BB", value: bigBlind * 3 },
-      { label: "POT", value: maxAmount },
+      {
+        label: "POT",
+        value: potAmount !== undefined ? potAmount : maxAmount,
+      },
     ];
     const clamped = items
       .map((p) => ({

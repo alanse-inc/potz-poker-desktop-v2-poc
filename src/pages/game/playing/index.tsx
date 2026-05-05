@@ -287,6 +287,16 @@ export function GamePlaying() {
     return Math.max(bigBlindAmount, 1);
   }, [bigBlindAmount]);
 
+  const potRaiseAmount = useMemo(() => {
+    if (!board || !me) return undefined;
+    const callAmount = Math.max(board.currentBet - me.betInRound, 0);
+    const potSize =
+      board.pots.reduce((sum, pot) => sum + pot.amount, 0) +
+      board.players.reduce((sum, p) => sum + p.betInRound, 0);
+    const raw = potSize + callAmount * 2;
+    return Math.min(raw, me.stack + me.betInRound);
+  }, [board, me]);
+
   const handleConfirmAmount = useCallback(
     async (amount: number) => {
       if (!confirmType) return;
@@ -369,6 +379,7 @@ export function GamePlaying() {
           minAmount={confirmType === "BET" ? minBet : minRaise}
           maxAmount={me.stack + me.betInRound}
           bigBlind={bigBlindAmount}
+          potAmount={potRaiseAmount}
           onCancel={() => setConfirmType(null)}
           onConfirm={handleConfirmAmount}
         />
