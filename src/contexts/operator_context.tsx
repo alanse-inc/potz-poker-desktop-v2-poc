@@ -254,20 +254,9 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!operator || gameTable) return;
 
-    let retryCount = 0;
-    const MAX_RETRIES = 30;
-
     const pollDeviceConnection = async () => {
-      if (retryCount >= MAX_RETRIES) {
-        console.error(
-          `[OperatorContext] Device polling stopped after ${MAX_RETRIES} retries`,
-        );
-        clearInterval(intervalId);
-        return;
-      }
       if (isLoadingGameTableRef.current) return;
       isLoadingGameTableRef.current = true;
-      retryCount++;
       try {
         const tableId = await fetchSerialStatus();
         if (tableId) {
