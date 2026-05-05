@@ -92,9 +92,11 @@ async function generateHandId(
 function derivePosition(
   player: Player,
   board: TexasHoldemBoard,
-  totalPlayers: number,
+  activePlayers: Player[],
 ): PlayerPosition {
   const pos = player.position;
+  const totalPlayers = activePlayers.length;
+
   if (pos === board.dealerPosition) {
     if (totalPlayers === 2) return "BTN_SB";
     return "BTN";
@@ -102,8 +104,14 @@ function derivePosition(
   if (pos === board.sbPosition) return "SB";
   if (pos === board.bbPosition) return "BB";
 
-  const dealerIdx = board.dealerPosition;
-  const diff = (pos - dealerIdx + totalPlayers) % totalPlayers;
+  const sorted = [...activePlayers].sort((a, b) => a.position - b.position);
+  const dealerIdx = sorted.findIndex(
+    (p) => p.position === board.dealerPosition,
+  );
+  const playerIdx = sorted.findIndex((p) => p.position === player.position);
+  const n = sorted.length;
+  const diff = (playerIdx - dealerIdx + n) % n;
+
   if (totalPlayers <= 4) {
     if (diff === 3) return "UTG";
   } else if (totalPlayers === 5) {
@@ -198,8 +206,6 @@ export async function mapShowdownBoardToCreateHandRequest(
     return true;
   });
 
-  const totalPlayers = activePlayers.length;
-
   const totalPot = activePlayers.reduce((sum, p) => {
     const starting =
       startingStackMap.get(String(p.position)) ?? p.stack + (p.betInRound ?? 0);
@@ -225,7 +231,7 @@ export async function mapShowdownBoardToCreateHandRequest(
           ])
         : null;
 
-    const position = derivePosition(player, board, totalPlayers);
+    const position = derivePosition(player, board, activePlayers);
 
     return {
       playerId,

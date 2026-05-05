@@ -550,6 +550,212 @@ describe("mapShowdownBoardToCreateHandRequest", () => {
     }
   });
 
+  describe("derivePosition", () => {
+    function makePositionBoard(
+      playerPositions: number[],
+      dealerPos: number,
+      sbPos: number,
+      bbPos: number,
+    ): TexasHoldemBoard {
+      const players = playerPositions.map((pos) =>
+        makePlayer({ position: pos, stack: 1000 }),
+      );
+      return {
+        handNumber: 1,
+        dealerPosition: dealerPos,
+        sbPosition: sbPos,
+        bbPosition: bbPos,
+        currentTurn: dealerPos,
+        currentBet: 0,
+        players,
+        communityCards: [],
+        pots: [{ amount: 0 }],
+        phase: "showdown",
+        winners: [],
+      };
+    }
+
+    function makePositionHandContext(playerPositions: number[]): HandContext {
+      return {
+        initialBoard: {
+          players: playerPositions.map((pos) => ({
+            id: String(pos),
+            stack: 1000,
+          })),
+        },
+        gameStartedAt: "2024-01-01T12:00:00Z",
+        actionHistory: [],
+        sidePots: [],
+      };
+    }
+
+    test("ヘッズアップ: dealer(BTN_SB) と BB が正しく割り当てられること", async () => {
+      // 席 0, 1 で 2人
+      const board = makePositionBoard([0, 1], 0, 0, 1);
+      const handContext = makePositionHandContext([0, 1]);
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        const p0 = result.value.players.find((p) => p.seatPosition === 0);
+        const p1 = result.value.players.find((p) => p.seatPosition === 1);
+        expect.soft(p0?.position).toBe("BTN_SB");
+        expect.soft(p1?.position).toBe("BB");
+      }
+    });
+
+    test("3-handed: BTN=diff0, SB=diff1, BB=diff2 が正しく割り当てられること", async () => {
+      // 席 0, 1, 2 で 3人, dealer=0, sb=1, bb=2
+      const board = makePositionBoard([0, 1, 2], 0, 1, 2);
+      const handContext = makePositionHandContext([0, 1, 2]);
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        const p0 = result.value.players.find((p) => p.seatPosition === 0);
+        const p1 = result.value.players.find((p) => p.seatPosition === 1);
+        const p2 = result.value.players.find((p) => p.seatPosition === 2);
+        expect.soft(p0?.position).toBe("BTN");
+        expect.soft(p1?.position).toBe("SB");
+        expect.soft(p2?.position).toBe("BB");
+      }
+    });
+
+    test("6-handed 連続席: BTN/SB/BB/UTG/HJ/CO が正しく割り当てられること", async () => {
+      // 席 0,1,2,3,4,5 で 6人, dealer=0, sb=1, bb=2
+      const board = makePositionBoard([0, 1, 2, 3, 4, 5], 0, 1, 2);
+      const handContext = makePositionHandContext([0, 1, 2, 3, 4, 5]);
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        const p0 = result.value.players.find((p) => p.seatPosition === 0);
+        const p1 = result.value.players.find((p) => p.seatPosition === 1);
+        const p2 = result.value.players.find((p) => p.seatPosition === 2);
+        const p3 = result.value.players.find((p) => p.seatPosition === 3);
+        const p4 = result.value.players.find((p) => p.seatPosition === 4);
+        const p5 = result.value.players.find((p) => p.seatPosition === 5);
+        expect.soft(p0?.position).toBe("BTN");
+        expect.soft(p1?.position).toBe("SB");
+        expect.soft(p2?.position).toBe("BB");
+        expect.soft(p3?.position).toBe("UTG");
+        expect.soft(p4?.position).toBe("HJ");
+        expect.soft(p5?.position).toBe("CO");
+      }
+    });
+
+    test("空席あり 6人 (席 0,1,3,5,7,8): 行動順が正しく計算されること", async () => {
+      // 9席テーブル、席 0,1,3,5,7,8 に着席 (席 2,4,6 は空席)
+      // dealer=0, sb=1, bb=3 (次の実着席者)
+      const board = makePositionBoard([0, 1, 3, 5, 7, 8], 0, 1, 3);
+      const handContext = makePositionHandContext([0, 1, 3, 5, 7, 8]);
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // sorted by position: [0, 1, 3, 5, 7, 8]
+        // dealer=0 → diff=0 → BTN
+        // 席1 → diff=1 → SB
+        // 席3 → diff=2 → BB
+        // 席5 → diff=3 → UTG
+        // 席7 → diff=4 → HJ
+        // 席8 → diff=5 → CO
+        const p0 = result.value.players.find((p) => p.seatPosition === 0);
+        const p1 = result.value.players.find((p) => p.seatPosition === 1);
+        const p3 = result.value.players.find((p) => p.seatPosition === 3);
+        const p5 = result.value.players.find((p) => p.seatPosition === 5);
+        const p7 = result.value.players.find((p) => p.seatPosition === 7);
+        const p8 = result.value.players.find((p) => p.seatPosition === 8);
+        expect.soft(p0?.position).toBe("BTN");
+        expect.soft(p1?.position).toBe("SB");
+        expect.soft(p3?.position).toBe("BB");
+        expect.soft(p5?.position).toBe("UTG");
+        expect.soft(p7?.position).toBe("HJ");
+        expect.soft(p8?.position).toBe("CO");
+      }
+    });
+
+    test("空席あり dealer が中間席 (席 0,1,3,5,7,8, dealer=5): wrap-around で正しく計算されること", async () => {
+      // dealer=5, sb=7, bb=8
+      const board = makePositionBoard([0, 1, 3, 5, 7, 8], 5, 7, 8);
+      const handContext = makePositionHandContext([0, 1, 3, 5, 7, 8]);
+
+      const result = await mapShowdownBoardToCreateHandRequest(
+        board,
+        "s",
+        "e",
+        "t",
+        "ring_game",
+        handContext,
+        defaultGameSettings,
+        "2024-01-01T12:30:00Z",
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // sorted: [0, 1, 3, 5, 7, 8], dealer at index 3
+        // 席5 → dealerIdx=3, diff=0 → BTN
+        // 席7 → diff=1 → SB
+        // 席8 → diff=2 → BB
+        // 席0 → diff=3 → UTG  (wrap-around: idx=0, (0-3+6)%6=3)
+        // 席1 → diff=4 → HJ
+        // 席3 → diff=5 → CO
+        const p5 = result.value.players.find((p) => p.seatPosition === 5);
+        const p7 = result.value.players.find((p) => p.seatPosition === 7);
+        const p8 = result.value.players.find((p) => p.seatPosition === 8);
+        const p0 = result.value.players.find((p) => p.seatPosition === 0);
+        const p1 = result.value.players.find((p) => p.seatPosition === 1);
+        const p3 = result.value.players.find((p) => p.seatPosition === 3);
+        expect.soft(p5?.position).toBe("BTN");
+        expect.soft(p7?.position).toBe("SB");
+        expect.soft(p8?.position).toBe("BB");
+        expect.soft(p0?.position).toBe("UTG");
+        expect.soft(p1?.position).toBe("HJ");
+        expect.soft(p3?.position).toBe("CO");
+      }
+    });
+  });
+
   test("initialBoard が null の場合は fallback startingStack を使うこと", async () => {
     const handContext: HandContext = {
       ...defaultHandContext,
