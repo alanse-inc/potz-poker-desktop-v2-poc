@@ -41,6 +41,11 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
     api.notifications
       .onBoardUpdated((updated) => {
+        if (updated === null) {
+          setBoard(null);
+          setLoading(false);
+          return;
+        }
         setBoard(updated);
         setLoading(false);
       })

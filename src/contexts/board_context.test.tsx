@@ -100,7 +100,7 @@ describe("BoardProvider", () => {
   it("onBoardUpdated(cb) を購読し、push されると board が更新される", async () => {
     vi.mocked(api.board.getBoard).mockResolvedValue(null);
 
-    let capturedCb: ((b: TexasHoldemBoard) => void) | undefined;
+    let capturedCb: ((b: TexasHoldemBoard | null) => void) | undefined;
     vi.mocked(api.notifications.onBoardUpdated).mockImplementation(
       async (cb) => {
         capturedCb = cb;

@@ -22,7 +22,7 @@ export function useTelopBoard() {
 
     api.notifications
       .onBoardUpdated((updated) => {
-        setBoard(updated);
+        setBoard(updated ?? null);
       })
       .then((fn) => {
         unlistenBoard = fn;
