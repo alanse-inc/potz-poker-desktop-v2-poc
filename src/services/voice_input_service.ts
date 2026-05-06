@@ -474,7 +474,10 @@ export class VoiceInputService {
         if (this.pendingAudio.length >= AUDIO_BUFFER_LIMIT) {
           this.pendingAudio.shift();
         }
-        this.pendingAudio.push(int16.buffer);
+        // int16.buffer を slice でコピーして保存する。WebSocket.send により
+        // 元の ArrayBuffer が transferred (detached) になった場合でも
+        // pendingAudio の buffer は独立したコピーとして残る。
+        this.pendingAudio.push(int16.buffer.slice(0));
       }
     };
   }

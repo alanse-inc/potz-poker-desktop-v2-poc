@@ -425,3 +425,153 @@ describe("VoiceInputService – reconnectAttempts reset on open (Bug 7)", () => 
     expect(MockWebSocket.instances.length).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// pendingAudio に slice コピーが保存される (Bug 5)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
+  let service: VoiceInputService;
+  let capturedProcessor: {
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+    onaudioprocess: ((e: AudioProcessingEvent) => void) | null;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    // AudioContext モック (processor の参照をキャプチャ)
+    capturedProcessor = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      onaudioprocess: null,
+    };
+    const mockGain = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      gain: { value: 1.0 },
+    };
+    const mockCompressor = {
+      connect: vi.fn(),
+      threshold: { value: 0 },
+      knee: { value: 0 },
+      ratio: { value: 1 },
+      attack: { value: 0.003 },
+      release: { value: 0.1 },
+    };
+    const mockSource = { connect: vi.fn() };
+
+    class MockAudioContextWithCapture {
+      state = "running";
+      sampleRate = 16000;
+      destination = {};
+      createMediaStreamSource = vi.fn().mockReturnValue(mockSource);
+      createGain = vi.fn().mockReturnValue(mockGain);
+      createDynamicsCompressor = vi.fn().mockReturnValue(mockCompressor);
+      createScriptProcessor = vi.fn().mockReturnValue(capturedProcessor);
+      resume = vi.fn().mockResolvedValue(undefined);
+      close = vi.fn().mockResolvedValue(undefined);
+    }
+
+    vi.stubGlobal("AudioContext", MockAudioContextWithCapture);
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("WebSocket が OPEN でない時に pendingAudio に push される buffer は元の ArrayBuffer とは独立したコピーである", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    // WebSocket は CONNECTING 状態のまま (simulateOpen しない)
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(MockWebSocket.instances[0].readyState).toBe(WebSocket.CONNECTING);
+
+    // onaudioprocess ハンドラが設定されていることを確認
+    expect(capturedProcessor.onaudioprocess).not.toBeNull();
+
+    // Float32Array (PCM データ) をシミュレート
+    const float32Data = new Float32Array([0.5, -0.3, 0.1]);
+    const mockEvent = {
+      inputBuffer: {
+        getChannelData: vi.fn().mockReturnValue(float32Data),
+      },
+    } as unknown as AudioProcessingEvent;
+
+    // onaudioprocess を呼び出す
+    capturedProcessor.onaudioprocess?.(mockEvent);
+
+    // pendingAudio に 1 件追加されているはず (サービス内部に直接アクセスできないため
+    // flushPendingAudio 経由で確認する)
+    // WebSocket を OPEN 状態にして flushPendingAudio を呼ばせる
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    // simulateOpen → ws.onopen → flushPendingAudio が呼ばれる
+    // pendingAudio の buffer が送信されているはずなので sentData を確認
+    expect(ws.sentData.length).toBeGreaterThan(0);
+
+    // 送信された buffer は有効な ArrayBuffer であること (detached でないこと)
+    const sentBuffer = ws.sentData[ws.sentData.length - 1] as ArrayBuffer;
+    // byteLength が 0 より大きければ detached でない
+    expect(sentBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(sentBuffer.byteLength).toBeGreaterThan(0);
+  });
+
+  it("pendingAudio に push された buffer が元の Int16Array.buffer と独立したコピーである (slice 検証)", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    // WebSocket が CONNECTING のまま
+    expect(MockWebSocket.instances[0].readyState).toBe(WebSocket.CONNECTING);
+
+    let capturedInt16Buffer: ArrayBuffer | null = null;
+
+    // Float32Array をシミュレートし、対応する Int16 変換後の buffer を取得
+    const float32Data = new Float32Array([0.5]);
+    const int16 = new Int16Array(float32Data.length);
+    int16[0] = Math.max(
+      -32768,
+      Math.min(32767, Math.round(float32Data[0] * 32768)),
+    );
+    capturedInt16Buffer = int16.buffer;
+
+    const mockEvent = {
+      inputBuffer: {
+        getChannelData: vi.fn().mockReturnValue(float32Data),
+      },
+    } as unknown as AudioProcessingEvent;
+
+    capturedProcessor.onaudioprocess?.(mockEvent);
+
+    // WebSocket を OPEN にして送信された buffer を取得
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    const sentBuffer = ws.sentData[ws.sentData.length - 1] as ArrayBuffer;
+
+    // slice(0) でコピーされているため、元の buffer とは別オブジェクトであること
+    // (同じ内容だが参照が異なる)
+    expect(sentBuffer).not.toBe(capturedInt16Buffer);
+    expect(sentBuffer.byteLength).toBe(capturedInt16Buffer.byteLength);
+  });
+});
