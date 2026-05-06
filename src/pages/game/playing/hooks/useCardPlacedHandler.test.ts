@@ -116,6 +116,13 @@ describe("useCardPlacedHandler", () => {
     const toast = await import("react-hot-toast");
     renderHook(() => useCardPlacedHandler());
 
+    // setup() の非同期処理（onCardPlacedUnregistered 登録まで）を消化する
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
     await act(async () => {
       onCardPlacedUnregisteredCb?.();
     });
@@ -128,6 +135,13 @@ describe("useCardPlacedHandler", () => {
   it("shows error toast when no board event received", async () => {
     const toast = await import("react-hot-toast");
     renderHook(() => useCardPlacedHandler());
+
+    // setup() の非同期処理（onCardPlacedNoBoard 登録まで）を消化する
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     await act(async () => {
       onCardPlacedNoBoardCb?.();
@@ -590,6 +604,60 @@ describe("useCardPlacedHandler", () => {
     });
     expect(result.current.eventHistory).toHaveLength(1);
     expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(2);
+  });
+
+  it("unmount 後に onCardPlacedUnregistered コールバックが発火しても toast が呼ばれない (Bug 4)", async () => {
+    const toast = await import("react-hot-toast");
+
+    const { unmount } = renderHook(() => useCardPlacedHandler());
+
+    // setup の非同期処理を消化してコールバックを捕獲する
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // アンマウント → cancelled = true
+    const callCountBefore = vi.mocked(toast.default.error).mock.calls.length;
+    unmount();
+
+    // アンマウント後にコールバックを直接発火
+    act(() => {
+      onCardPlacedUnregisteredCb?.();
+    });
+
+    // unmount 後は新たに toast.error が呼ばれないこと
+    expect(vi.mocked(toast.default.error).mock.calls.length).toBe(
+      callCountBefore,
+    );
+  });
+
+  it("unmount 後に onCardPlacedNoBoard コールバックが発火しても toast が呼ばれない (Bug 4)", async () => {
+    const toast = await import("react-hot-toast");
+
+    const { unmount } = renderHook(() => useCardPlacedHandler());
+
+    // setup の非同期処理を消化してコールバックを捕獲する
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // アンマウント → cancelled = true
+    const callCountBefore = vi.mocked(toast.default.error).mock.calls.length;
+    unmount();
+
+    // アンマウント後にコールバックを直接発火
+    act(() => {
+      onCardPlacedNoBoardCb?.();
+    });
+
+    // unmount 後は新たに toast.error が呼ばれないこと
+    expect(vi.mocked(toast.default.error).mock.calls.length).toBe(
+      callCountBefore,
+    );
   });
 
   it("burnCard イベントが重複送信された場合は2回目をスキップする", async () => {

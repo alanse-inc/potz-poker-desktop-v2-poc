@@ -152,6 +152,7 @@ export function useCardPlacedHandler() {
       // 未登録カードのイベントも購読
       const unlistenUnregistered =
         await api.notifications.onCardPlacedUnregistered(() => {
+          if (cancelled) return;
           toast.error("デッキに登録されていないカードです");
         });
 
@@ -165,6 +166,7 @@ export function useCardPlacedHandler() {
       // ゲーム未開始時のカードスキャンを購読
       const unlistenNoBoard = await api.notifications.onCardPlacedNoBoard(
         () => {
+          if (cancelled) return;
           toast.error("ゲームが開始されていません");
         },
       );
