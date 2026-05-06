@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "./auth_context";
@@ -143,6 +143,87 @@ describe("OperatorProvider", () => {
       "get_game_table",
       expect.anything(),
     );
+  });
+
+  it("getGameTable が遅延中に serial_status_updated が 2 回発火しても get_game_table は 1 回だけ呼ばれる (Bug C)", async () => {
+    // VITE_SKIP_AUTH_SCREEN=true で isSignedIn=true にし、
+    // get_operator_me を成功させて operator をセットする
+    vi.stubEnv("VITE_SKIP_AUTH_SCREEN", "true");
+
+    // serial_status_updated ハンドラをキャプチャするためにモックを差し替える
+    type SerialStatusPayload = { connected: boolean; portName: string | null };
+    type EventHandler = (event: { payload: SerialStatusPayload }) => void;
+    let capturedHandler: EventHandler | null = null;
+    vi.mocked(listen).mockImplementation((_event, handler) => {
+      capturedHandler = handler as EventHandler;
+      return Promise.resolve(() => {});
+    });
+
+    // get_game_table の応答は手動で resolve するまでブロック
+    let resolveFirst: (() => void) | null = null;
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "get_operator_me") {
+        return Promise.resolve({
+          operatorId: "op-1",
+          auth0Sub: "auth0|test",
+          name: "Test Op",
+          description: null,
+        });
+      }
+      if (cmd === "get_serial_status") {
+        return Promise.resolve({ connected: false, portName: null });
+      }
+      if (cmd === "get_game_table") {
+        return new Promise<{ tableId: string; venueId: string }>((resolve) => {
+          resolveFirst = () =>
+            resolve({ tableId: "table-1", venueId: "venue-1" });
+        });
+      }
+      return Promise.reject(new Error("command not found"));
+    });
+
+    const { result } = renderHook(() => useOperator(), { wrapper });
+
+    // operator がセットされるまで待つ
+    await waitFor(() => {
+      expect(result.current.operator).not.toBeNull();
+    });
+
+    // listen が登録されるまで待つ
+    await waitFor(() => {
+      expect(capturedHandler).not.toBeNull();
+    });
+
+    // 1 回目の serial_status_updated を発火 → isLoadingGameTableRef.current = true になる
+    act(() => {
+      capturedHandler?.({
+        payload: { connected: true, portName: "table-1" },
+      });
+    });
+
+    // 2 回目を即発火 (isLoadingGameTableRef.current = true のままなのでスキップされる)
+    act(() => {
+      capturedHandler?.({
+        payload: { connected: true, portName: "table-1" },
+      });
+    });
+
+    // 1 回目の get_game_table を resolve する
+    act(() => {
+      resolveFirst?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.gameTable).not.toBeNull();
+    });
+
+    // get_game_table は 1 回だけ呼ばれていること
+    expect(
+      vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "get_game_table")
+        .length,
+    ).toBe(1);
+
+    vi.unstubAllEnvs();
   });
 
   it("serial_status_updated リスナーは loadGameTable 実行中に再登録されない", async () => {

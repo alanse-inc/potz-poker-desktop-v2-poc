@@ -186,7 +186,6 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     async (tableId: string) => {
       if (!operator) return;
 
-      isLoadingGameTableRef.current = true;
       setIsLoadingGameTable(true);
       setGameTableError(null);
       const result = await fetchGameTable(operator.operatorId, tableId);
@@ -198,7 +197,6 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
           `[OperatorContext] fetchGameTable failed: ${result.message} (${result.status})`,
         );
       }
-      isLoadingGameTableRef.current = false;
       setIsLoadingGameTable(false);
     },
     [operator],
