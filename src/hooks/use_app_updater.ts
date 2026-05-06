@@ -25,6 +25,7 @@ export function useAppUpdater() {
   // Started イベントで得られる contentLength を保持する
   const contentLengthRef = useRef<number>(0);
   const downloadedRef = useRef<number>(0);
+  const unmountedRef = useRef(false);
 
   const checkForUpdates = useCallback(async () => {
     // dev 環境では updater endpoints がプレースホルダー (example.com) のため
@@ -32,6 +33,7 @@ export function useAppUpdater() {
     if (import.meta.env.DEV) return;
     try {
       const update = await check();
+      if (unmountedRef.current) return;
       if (update?.available) {
         setState({ phase: "available", version: update.version });
       }
@@ -52,6 +54,7 @@ export function useAppUpdater() {
       downloadedRef.current = 0;
 
       await update.downloadAndInstall((event) => {
+        if (unmountedRef.current) return;
         switch (event.event) {
           case "Started":
             contentLengthRef.current = event.data.contentLength ?? 0;
@@ -82,6 +85,7 @@ export function useAppUpdater() {
       await relaunch();
     } catch (error) {
       console.error("[useAppUpdater] update failed:", error);
+      if (unmountedRef.current) return;
       setState({ phase: "error", message: String(error) });
     }
   }, []);
@@ -92,6 +96,9 @@ export function useAppUpdater() {
 
   useEffect(() => {
     checkForUpdates();
+    return () => {
+      unmountedRef.current = true;
+    };
   }, [checkForUpdates]);
 
   return { state, startUpdate, dismiss };
