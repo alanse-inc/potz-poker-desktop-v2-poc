@@ -755,7 +755,17 @@ pub fn next_game(
         if sb == bb {
             return Err(BoardError::InvalidAction("ゲーム続行不可".into()));
         }
-        (new_dealer, sb, bb)
+        // アクティブプレイヤー (stack > 0) が 2 名のとき、3 人以上向けロジックでは
+        // dealer == bb になりうる (dealer=SB, SBの次=BB=dealerに戻る)。
+        // ヘッズアップルール: dealer == SB, 相手が BB に分岐させる。
+        let active_count = stacks.iter().filter(|&&s| s > 0).count();
+        if active_count == 2 {
+            // new_dealer が SB, sb が BB という配置になる
+            // (new_dealer は prev.dealer_position の次の非ゼロ, sb は new_dealer の次の非ゼロ)
+            (new_dealer, new_dealer, sb)
+        } else {
+            (new_dealer, sb, bb)
+        }
     };
 
     // stack 0 のプレイヤーはバスト（ゲームから除外）しない簡略版。
@@ -5611,6 +5621,89 @@ mod tests {
         assert_eq!(
             new_board.dealer_position, 2,
             "dealer should skip stack=0 player and land on position=2"
+        );
+    }
+
+    // ================================================================
+    // Bug 4: 3人以上で開始 → 残り2人のとき next_game がヘッズアップルールで動くこと
+    // ================================================================
+
+    /// 3人テーブルで pos=1 がバストアウト(stack=0)後、next_game で残り2人になったとき
+    /// dealer_position != bb_position であること（dealer == SB, 相手 == BB の正しい挙動）。
+    #[test]
+    fn next_game_two_active_players_in_three_player_game_uses_heads_up_rules() {
+        let settings = GameSettings {
+            small_blind: 100,
+            big_blind: 200,
+            min_chip: 100,
+            bb_ante: false,
+        };
+        // dealer=0, P1(stack=0), P2(stack=1000) の状態 (3人テーブル)
+        // next_game が elseブランチを通るケース: n=3 だが active が 2 名
+        let board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: u8::MAX,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 0,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 2,
+                    name: "C".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Showdown,
+            winners: vec![0],
+        };
+
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_ok(),
+            "next_game should succeed when 2 active players remain: {:?}",
+            result.err()
+        );
+        let (new_board, _) = result.unwrap();
+        // ヘッズアップルール: dealer == SB, dealer != BB
+        assert_ne!(
+            new_board.dealer_position, new_board.bb_position,
+            "dealer_position must not equal bb_position in heads-up (Bug 4)"
+        );
+        assert_eq!(
+            new_board.dealer_position, new_board.sb_position,
+            "dealer must be SB in heads-up"
         );
     }
 
