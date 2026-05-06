@@ -296,8 +296,9 @@ export const AutoModeInitializeBoardCommandProvider = ({
       // 2. 状態を同期的に更新（副作用なし）
       setInitializeBoardCommand(updatedCommand);
 
-      // commandRefから最新の状態を取得（レースコンディション対策）
-      const latestCommand = commandRef.current;
+      // setInitializeBoardCommand は非同期スケジュールのため、commandRef.current は次レンダリング後まで
+      // 更新されない。updatedCommand（ローカル変数）を直接使うことで stale 参照を回避する。
+      const latestCommand = updatedCommand;
 
       try {
         const getResult = await gameSettingsGateway.get();

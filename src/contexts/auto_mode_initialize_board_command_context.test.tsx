@@ -326,6 +326,66 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
         expectedPlayers,
       );
     });
+
+    it("[Bug 4] updatePlayer が setState 直後に stale な commandRef を参照せず gameSettingsGateway.save に最新プレイヤーリストを渡す", async () => {
+      // 保存されたプレイヤーリストをキャプチャするためモックを設定
+      let savedPlayers: unknown[] | undefined;
+      mockStoreSet.mockImplementation(
+        (_key: string, value: PersistedGameSettings) => {
+          savedPlayers = value.autoMode?.players;
+          return Promise.resolve(undefined);
+        },
+      );
+
+      // 既存設定をモック（autoMode が存在する状態）
+      const existingSettings: PersistedGameSettings = {
+        currentMode: "auto",
+        autoMode: {
+          players: [],
+          settings: { name: "" },
+          btnPlayerId: null,
+        },
+        manualMode: {
+          players: [],
+          settings: {
+            name: "",
+            miniChip: 100,
+            smallBlind: 500,
+            bigBlind: 1000,
+            anteRule: "none",
+            blindExceptionRule: "dead_button",
+          },
+          btnPlayerId: null,
+        },
+        telopSettings: {
+          telopId: "basic",
+          backgroundColor: "#00FF00",
+        },
+      };
+      mockStoreGet.mockResolvedValue(existingSettings);
+
+      const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializeBoardCommand).toBeDefined();
+      });
+
+      const newPlayer = createAutoModePlayer("player1", "Player 1", 1);
+
+      await act(async () => {
+        await result.current.updatePlayer(newPlayer);
+      });
+
+      // setState 直後の commandRef が stale であっても、updatedCommand を使うことで
+      // gameSettingsGateway.save には新規追加されたプレイヤーが含まれる
+      await waitFor(() => {
+        expect(savedPlayers).toBeDefined();
+        expect(savedPlayers).toHaveLength(1);
+        expect((savedPlayers as Array<{ id: string }>)[0]?.id).toBe("player1");
+      });
+    });
   });
 
   describe("deletePlayer", () => {
