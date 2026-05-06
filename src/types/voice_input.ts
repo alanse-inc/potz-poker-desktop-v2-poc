@@ -87,6 +87,8 @@ export interface VoiceInputSettings {
   sttModel: string;
   confidenceThreshold: number;
   endpointingMs: number;
+  /** Krisp BVC を有効にするか (default: true) */
+  bvcEnabled?: boolean;
 }
 
 /**
@@ -109,6 +111,10 @@ export interface VoiceInputDiagnostics {
   reconnectAttempts: number;
   /** Deepgram WebSocket の現在の readyState (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED, null=未生成) */
   wsReadyState: number | null;
+  /** 現在の環境で Krisp BVC がサポートされているか */
+  bvcSupported?: boolean;
+  /** Krisp BVC が実際に有効化されているか (サポートされていても失敗した場合は false) */
+  bvcEnabled?: boolean;
 }
 
 export type DiagnosticsCallback = (diagnostics: VoiceInputDiagnostics) => void;

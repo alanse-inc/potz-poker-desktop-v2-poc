@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@auth0/auth0-spa-js": "2.19.2",
+    "@livekit/krisp-noise-filter": "^0.4.3",
     "@sentry/react": "^10.51.0",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-deep-link": "^2.4.9",
@@ -43,6 +44,7 @@
     "dayjs": "^1.11.20",
     "html5-qrcode": "^2.3.8",
     "immer": "^11.1.4",
+    "livekit-client": "^2.18.9",
     "mixpanel-browser": "^2.78.0",
     "nanoid": "^5.1.11",
     "neverthrow": "^8.2.0",

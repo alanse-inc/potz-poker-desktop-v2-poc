@@ -1162,3 +1162,150 @@ describe("VoiceInputService – VoiceInputDiagnostics metrics collection (Issue 
     expect(d.errorCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Krisp BVC 統合テスト
+// ---------------------------------------------------------------------------
+
+// @livekit/krisp-noise-filter と livekit-client を mock
+// LocalAudioTrack を class として mock する (arrow function は constructor になれないため)
+vi.mock("@livekit/krisp-noise-filter", () => ({
+  isKrispNoiseFilterSupported: vi.fn(),
+  KrispNoiseFilter: vi.fn(),
+}));
+
+// LocalAudioTrack を class mock として定義
+const mockSetProcessor = vi.fn().mockResolvedValue(undefined);
+const mockStopProcessor = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("livekit-client", () => {
+  class MockLocalAudioTrack {
+    private _track: MediaStreamTrack;
+    constructor(track: MediaStreamTrack) {
+      this._track = track;
+    }
+    setProcessor = mockSetProcessor;
+    stopProcessor = mockStopProcessor;
+    get mediaStreamTrack() {
+      return this._track;
+    }
+  }
+  return { LocalAudioTrack: MockLocalAudioTrack };
+});
+
+describe("VoiceInputService – Krisp BVC integration", () => {
+  let service: VoiceInputService;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    setupAudioContextMock();
+
+    // MediaStream コンストラクタを jsdom 環境でサポートするようにスタブ
+    // vi.fn().mockImplementation は arrow function になるため new が使えない
+    // class 構文でコンストラクタとして機能させる
+    class MockMediaStream {
+      private _tracks: MediaStreamTrack[];
+      constructor(tracks?: MediaStreamTrack[]) {
+        this._tracks = tracks ?? [];
+      }
+      getTracks() {
+        return this._tracks;
+      }
+      getAudioTracks() {
+        return this._tracks;
+      }
+    }
+    vi.stubGlobal("MediaStream", MockMediaStream);
+
+    // mock 参照を取得してリセット
+    const { isKrispNoiseFilterSupported: isSup, KrispNoiseFilter: knf } =
+      await import("@livekit/krisp-noise-filter");
+    vi.mocked(isSup).mockReturnValue(true);
+    vi.mocked(knf).mockReturnValue({
+      name: "livekit-noise-filter" as const,
+      processedTrack: undefined,
+      init: vi.fn().mockResolvedValue(undefined),
+      restart: vi.fn().mockResolvedValue(undefined),
+      onPublish: vi.fn().mockResolvedValue(undefined),
+      setEnabled: vi.fn().mockResolvedValue(undefined),
+      isEnabled: vi.fn().mockReturnValue(true),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    });
+
+    // setProcessor/stopProcessor をリセット
+    mockSetProcessor.mockReset().mockResolvedValue(undefined);
+    mockStopProcessor.mockReset().mockResolvedValue(undefined);
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("BVC サポート環境では bvcSupported=true かつ bvcEnabled=true が diagnostics に反映される", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    const d = service.getDiagnostics();
+    expect(d.bvcSupported).toBe(true);
+    expect(d.bvcEnabled).toBe(true);
+  });
+
+  it("BVC 非サポート環境 (isKrispNoiseFilterSupported=false) では bvcSupported=false かつ bvcEnabled=false で fallback する", async () => {
+    const { isKrispNoiseFilterSupported: isSup } = await import(
+      "@livekit/krisp-noise-filter"
+    );
+    vi.mocked(isSup).mockReturnValue(false);
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    const d = service.getDiagnostics();
+    expect(d.bvcSupported).toBe(false);
+    expect(d.bvcEnabled).toBe(false);
+  });
+
+  it("setProcessor が例外を投げた場合は fallback し bvcEnabled=false になる", async () => {
+    mockSetProcessor.mockRejectedValueOnce(new Error("WORKLET_NOT_SUPPORTED"));
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    const d = service.getDiagnostics();
+    expect(d.bvcSupported).toBe(true);
+    expect(d.bvcEnabled).toBe(false);
+  });
+
+  it("start() 前は bvcEnabled=false, bvcSupported=false (初期値)", () => {
+    const d = service.getDiagnostics();
+    expect(d.bvcEnabled).toBe(false);
+    expect(d.bvcSupported).toBe(false);
+  });
+});

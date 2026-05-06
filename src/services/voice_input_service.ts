@@ -12,6 +12,11 @@
  *         (将来 LLM 呼び出し) → VoicePokerCommand emit
  */
 
+import {
+  isKrispNoiseFilterSupported,
+  KrispNoiseFilter,
+} from "@livekit/krisp-noise-filter";
+import { LocalAudioTrack } from "livekit-client";
 import type {
   DiagnosticsCallback,
   VoiceInputDiagnostics,
@@ -130,6 +135,14 @@ export class VoiceInputService {
   private _sttModel = "nova-3";
   private _confidenceThreshold = DEFAULT_CONFIDENCE_THRESHOLD;
   private _endpointingMs = DEFAULT_ENDPOINTING_MS;
+  /** Krisp BVC 設定: 有効にするか (default: true) */
+  private _bvcEnabled = true;
+  /** 現在の環境で BVC がサポートされているか (実行時に判定) */
+  private _bvcSupported = false;
+  /** 実際に BVC が適用されているか */
+  private _bvcActive = false;
+  /** BVC のために生成した LocalAudioTrack (cleanup 時に destroy する) */
+  private _bvcTrack: LocalAudioTrack | null = null;
 
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
@@ -249,6 +262,8 @@ export class VoiceInputService {
       errorCount: this._errorCount,
       reconnectAttempts: this.reconnectAttempts,
       wsReadyState: this.ws !== null ? this.ws.readyState : null,
+      bvcSupported: this._bvcSupported,
+      bvcEnabled: this._bvcActive,
     };
   }
 
@@ -262,6 +277,7 @@ export class VoiceInputService {
     enabled: boolean;
     confidenceThreshold: number;
     endpointingMs: number;
+    bvcEnabled?: boolean;
   }): Promise<void> {
     const prevDeviceId = this._deviceId;
     const prevSttModel = this._sttModel;
@@ -271,6 +287,7 @@ export class VoiceInputService {
     this._confidenceThreshold = params.confidenceThreshold;
     this._endpointingMs = params.endpointingMs;
     this._enabled = params.enabled;
+    this._bvcEnabled = params.bvcEnabled ?? true;
 
     const deviceChanged = prevDeviceId !== this._deviceId;
     const modelChanged = prevSttModel !== this._sttModel;
@@ -290,6 +307,7 @@ export class VoiceInputService {
       sttModel: this._sttModel,
       confidenceThreshold: this._confidenceThreshold,
       endpointingMs: this._endpointingMs,
+      bvcEnabled: this._bvcEnabled,
     });
   }
 
@@ -302,6 +320,7 @@ export class VoiceInputService {
         settings.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
       this._endpointingMs = settings.endpointingMs ?? DEFAULT_ENDPOINTING_MS;
       this._enabled = settings.enabled ?? false;
+      this._bvcEnabled = settings.bvcEnabled ?? true;
     }
   }
 
@@ -328,6 +347,7 @@ export class VoiceInputService {
     this._lastFrameSentAt = null;
     this._lastDisconnectReason = null;
     this._errorCount = 0;
+    this._bvcActive = false;
 
     this.startPromise = (async () => {
       try {
@@ -374,20 +394,67 @@ export class VoiceInputService {
       );
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const rawStream = await navigator.mediaDevices.getUserMedia({
       audio: this._deviceId ? { deviceId: { ideal: this._deviceId } } : true,
     });
 
     // getUserMedia 待機中に stop() が呼ばれた場合はストリームを解放して終了
     if (this.intentionallyStopped) {
-      for (const track of stream.getTracks()) {
+      for (const track of rawStream.getTracks()) {
         track.stop();
       }
       return;
     }
 
+    // Krisp BVC の適用を試みる
+    const stream = await this.applyBvc(rawStream);
+
     this.mediaStream = stream;
     this.connectWebSocket(deepgramApiKey, stream);
+  }
+
+  /**
+   * getUserMedia で取得した MediaStream に Krisp BVC を適用する。
+   * サポートされていない環境 / 失敗した場合は元の stream をそのまま返す (fallback)。
+   */
+  private async applyBvc(rawStream: MediaStream): Promise<MediaStream> {
+    this._bvcSupported = isKrispNoiseFilterSupported();
+
+    if (!this._bvcEnabled || !this._bvcSupported) {
+      this._bvcActive = false;
+      return rawStream;
+    }
+
+    // 既存の BVC track を cleanup
+    if (this._bvcTrack !== null) {
+      await this._bvcTrack.stopProcessor();
+      this._bvcTrack = null;
+    }
+
+    try {
+      const audioTracks = rawStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        this._bvcActive = false;
+        return rawStream;
+      }
+
+      const rawAudioTrack = audioTracks[0];
+      // LocalAudioTrack でラップ (userProvidedTrack=true: SDK がトラックを管理しない)
+      const localTrack = new LocalAudioTrack(rawAudioTrack, undefined, true);
+      await localTrack.setProcessor(KrispNoiseFilter());
+      this._bvcTrack = localTrack;
+      this._bvcActive = true;
+
+      // mediaStreamTrack は processor.processedTrack ?? _mediaStreamTrack を返す
+      const processedTrack = localTrack.mediaStreamTrack;
+      return new MediaStream([processedTrack]);
+    } catch (err) {
+      trackError(
+        `Krisp BVC の適用に失敗 (fallback): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      this._bvcActive = false;
+      return rawStream;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -726,6 +793,17 @@ export class VoiceInputService {
     this.stopKeepAlive();
     this.stopDiagnosticsLoop();
     this.cleanupAudioProcessor();
+
+    if (this._bvcTrack !== null) {
+      // BVC processor を非同期で停止 (エラーは無視)
+      this._bvcTrack.stopProcessor().catch((err: unknown) => {
+        trackError(
+          `BVC track cleanup error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+      this._bvcTrack = null;
+    }
+    this._bvcActive = false;
 
     if (this.mediaStream) {
       for (const track of this.mediaStream.getTracks()) {
