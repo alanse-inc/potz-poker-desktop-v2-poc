@@ -256,7 +256,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [getClient]);
 
   useEffect(() => {
+    let cancelled = false;
     const checkSession = async () => {
+      if (cancelled) return;
       setIsInitializing(true);
       try {
         if (
@@ -274,15 +276,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             "https://potzpoker.com/subscription_status": "active",
             "https://potzpoker.com/license_type": "paid",
           };
+          if (cancelled) return;
           setSession({ isAuthenticated: true, user: devUser });
         } else {
           await refresh();
         }
       } finally {
-        setIsInitializing(false);
+        if (!cancelled) {
+          setIsInitializing(false);
+        }
       }
     };
     void checkSession();
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   useEffect(() => {
