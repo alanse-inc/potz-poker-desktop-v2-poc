@@ -383,8 +383,8 @@ impl TexasHoldemBoard {
             return;
         }
 
-        let invested_sum: u32 = self.players.iter().map(|p| p.total_invested).sum();
-        let pot_total = self.total_pot();
+        let invested_sum: u64 = self.players.iter().map(|p| p.total_invested as u64).sum();
+        let pot_total = self.total_pot() as u64;
         if invested_sum != pot_total {
             tracing::warn!(
                 "resolve_showdown: total_invested sum ({}) != total_pot ({}); \
