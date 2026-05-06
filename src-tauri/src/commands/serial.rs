@@ -549,6 +549,9 @@ pub fn apply_card_placed(
                 };
                 if let Some(player) = board.players.iter_mut().find(|p| p.position == seat) {
                     let prev_hand = player.hand;
+                    // ignored: hand が変更されなかった（スキャンを無視した）かどうか
+                    let ignored = matches!(prev_hand, Some([f, s]) if f != s)
+                        || matches!(prev_hand, Some([f, _]) if f == card);
                     player.hand = match player.hand {
                         None => Some([card, card]), // 1枚目スキャン済み（暫定: hand[0]==hand[1] で未確定を表す）
                         Some([first, second]) if first != second => {
@@ -573,7 +576,7 @@ pub fn apply_card_placed(
                     // pending → confirmed への遷移かどうかを返す
                     let became_confirmed = matches!(prev_hand, Some([f, s]) if f == s)
                         && matches!(player.hand, Some([f, s]) if f != s);
-                    Some(became_confirmed)
+                    Some((became_confirmed, ignored))
                 } else {
                     None
                 }
@@ -583,7 +586,11 @@ pub fn apply_card_placed(
                 None => {
                     return Err(format!("player at seat {} not found", seat));
                 }
-                Some(true) => {
+                Some((_, true)) => {
+                    // スキャンが無視されたケース: deck を変更しない
+                    return Ok(());
+                }
+                Some((true, false)) => {
                     // confirmed への遷移: pending 状態のスナップショットを history に push する
                     let mut snap = guard.board.as_ref().unwrap().clone();
                     if let Some(player) = snap.players.iter_mut().find(|p| p.position == seat) {
@@ -600,7 +607,7 @@ pub fn apply_card_placed(
                         guard.history.drain(0..excess);
                     }
                 }
-                Some(false) => {}
+                Some((false, false)) => {}
             }
             guard
                 .deck
@@ -1323,6 +1330,8 @@ mod tests {
                     };
                     if let Some(player) = board.players.iter_mut().find(|p| p.position == seat) {
                         let prev_hand = player.hand;
+                        let ignored = matches!(prev_hand, Some([f, s]) if f != s)
+                            || matches!(prev_hand, Some([f, _]) if f == card);
                         player.hand = match player.hand {
                             None => Some([card, card]),
                             Some([first, second]) if first != second => Some([first, second]),
@@ -1331,7 +1340,7 @@ mod tests {
                         };
                         let became_confirmed = matches!(prev_hand, Some([f, s]) if f == s)
                             && matches!(player.hand, Some([f, s]) if f != s);
-                        Some(became_confirmed)
+                        Some((became_confirmed, ignored))
                     } else {
                         None
                     }
@@ -1340,7 +1349,10 @@ mod tests {
                     None => {
                         return Err(format!("player at seat {} not found", seat));
                     }
-                    Some(true) => {
+                    Some((_, true)) => {
+                        return Ok(());
+                    }
+                    Some((true, false)) => {
                         let mut snap = state.board.as_ref().unwrap().clone();
                         if let Some(player) = snap.players.iter_mut().find(|p| p.position == seat) {
                             player.hand = Some([card, card]);
@@ -1356,7 +1368,7 @@ mod tests {
                             state.history.drain(0..excess);
                         }
                     }
-                    Some(false) => {}
+                    Some((false, false)) => {}
                 }
                 state
                     .deck
@@ -1736,6 +1748,75 @@ mod tests {
             hand,
             [card1, card2],
             "back_board must not restore confirmed state"
+        );
+    }
+
+    // ---- Bug 2 fix: confirmed な hand への追加スキャンで deck が汚染されない ----
+
+    /// confirmed 状態の hand に追加スキャンしても deck からカードが除去されないこと。
+    #[test]
+    fn apply_card_placed_confirmed_hand_extra_scan_does_not_pollute_deck() {
+        use crate::domain::board::build_remaining_deck;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card1 = Card::new(Suit::Spade, CardValue::Ace);
+        let card2 = Card::new(Suit::Heart, CardValue::King);
+        let card3 = Card::new(Suit::Club, CardValue::Two);
+
+        // 1枚目スキャン（pending）
+        apply_card_with_history(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        // 2枚目スキャン（confirmed）
+        apply_card_with_history(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        // confirmed 状態に。deck のサイズを記録
+        let deck_len_after_confirmed = state.deck.len();
+        assert!(
+            !state
+                .deck
+                .iter()
+                .any(|c| c.suit == card1.suit && c.value == card1.value),
+            "card1 should not be in deck after pending"
+        );
+        assert!(
+            !state
+                .deck
+                .iter()
+                .any(|c| c.suit == card2.suit && c.value == card2.value),
+            "card2 should not be in deck after confirmed"
+        );
+        assert!(
+            state
+                .deck
+                .iter()
+                .any(|c| c.suit == card3.suit && c.value == card3.value),
+            "card3 should still be in deck before extra scan"
+        );
+
+        // 3枚目を誤ってスキャン（confirmed 状態なので hand は変わらないはず）
+        apply_card_with_history(&mut state, card3, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        // hand は変わっていないこと
+        let hand = state.board.as_ref().unwrap().players[0].hand.unwrap();
+        assert_eq!(
+            hand,
+            [card1, card2],
+            "hand should remain confirmed after extra scan"
+        );
+
+        // deck のサイズも変わっていないこと（card3 が除去されていないこと）
+        assert_eq!(
+            state.deck.len(),
+            deck_len_after_confirmed,
+            "deck should not change on ignored scan of confirmed hand"
+        );
+        assert!(
+            state
+                .deck
+                .iter()
+                .any(|c| c.suit == card3.suit && c.value == card3.value),
+            "card3 must remain in deck after ignored extra scan"
         );
     }
 
