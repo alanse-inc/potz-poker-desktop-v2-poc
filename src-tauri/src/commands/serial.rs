@@ -14,7 +14,7 @@ use tauri::{AppHandle, State};
 use crate::domain::card_distribution::determine_next_card_position;
 #[cfg(not(test))]
 use crate::events::{
-    BOARD_UPDATED, CARD_PLACED, CARD_PLACED_NO_BOARD, CARD_PLACED_REGISTER,
+    AUTO_CARD_PLACED, BOARD_UPDATED, CARD_PLACED, CARD_PLACED_NO_BOARD, CARD_PLACED_REGISTER,
     CARD_PLACED_UNREGISTERED, DECK_UPDATED, SERIAL_STATUS_UPDATED,
 };
 #[cfg(not(test))]
@@ -77,6 +77,15 @@ pub struct CardPlacedRegisterPayload {
 #[serde(rename_all = "camelCase")]
 pub struct CardPlacedNoBoardPayload {
     pub rfid: String,
+}
+
+/// Auto Mode 中に RFID カードが置かれたときのペイロード。
+/// position は Rust board がないため含まない。フロント側で決定する。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoCardPlacedPayload {
+    pub rfid: String,
+    pub card: Card,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,6 +394,10 @@ fn process_rfid(app: &AppHandle, rfid: String) {
             burn_count: u8,
             last_emitted: Option<(crate::domain::card_distribution::CardPosition, Instant)>,
         },
+        /// Auto Mode 中 (board = None) にカードが置かれた。
+        AutoPlaced {
+            card: crate::domain::card::Card,
+        },
         NoBoard,
     }
 
@@ -406,8 +419,14 @@ fn process_rfid(app: &AppHandle, rfid: String) {
                         last_emitted: guard.last_emitted_position.clone(),
                     },
                     None => {
-                        tracing::warn!("Card placed but no board active. rfid={}", rfid);
-                        RfidEvent::NoBoard
+                        // Auto Mode 中 (active_route が /auto-game/ 始まり) はカード情報付きで emit する。
+                        // それ以外は board 未開始として通知する。
+                        if guard.active_route.starts_with("/auto-game/") {
+                            RfidEvent::AutoPlaced { card }
+                        } else {
+                            tracing::warn!("Card placed but no board active. rfid={}", rfid);
+                            RfidEvent::NoBoard
+                        }
                     }
                 },
             }
@@ -468,6 +487,9 @@ fn process_rfid(app: &AppHandle, rfid: String) {
                 tracing::warn!("Cannot determine card position: {}", e);
             }
         },
+        RfidEvent::AutoPlaced { card } => {
+            let _ = app.emit(AUTO_CARD_PLACED, AutoCardPlacedPayload { rfid, card });
+        }
         RfidEvent::NoBoard => {
             let _ = app.emit(CARD_PLACED_NO_BOARD, CardPlacedNoBoardPayload { rfid });
         }
@@ -530,6 +552,13 @@ pub async fn unregister_rfid_card(
 #[tauri::command]
 pub fn set_register_mode(args: SetRegisterModeArgs, state: State<AppState>) {
     state.lock().register_mode = args.enabled;
+}
+
+/// アクティブなフロントエンドルートを Rust 側に通知する。
+/// process_rfid で Auto/Manual モードの分岐に使用する。
+#[tauri::command(rename_all = "camelCase")]
+pub fn set_active_route(route: String, state: State<AppState>) {
+    state.lock().active_route = route;
 }
 
 /// シリアル接続状態を返す。

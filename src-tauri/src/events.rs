@@ -12,6 +12,9 @@ pub const CARD_PLACED_UNREGISTERED: &str = "card_placed_unregistered";
 pub const CARD_PLACED_REGISTER: &str = "card_placed_register";
 /// ゲーム未開始時にカードが置かれたとき。
 pub const CARD_PLACED_NO_BOARD: &str = "card_placed_no_board";
+/// Auto Mode 中にカードが置かれたとき (Rust board なし)。
+/// ペイロード: { rfid, card } のみ。position の決定はフロント側で行う。
+pub const AUTO_CARD_PLACED: &str = "auto_card_placed";
 /// シリアル接続状態が変わったとき。
 pub const SERIAL_STATUS_UPDATED: &str = "serial_status_updated";
 /// テロップ ID が変わったとき。

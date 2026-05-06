@@ -100,6 +100,53 @@ export function updatePlayerHand(
 }
 
 /**
+ * Auto Mode ボードから次に配るべきカードの位置を決定する。
+ *
+ * 優先順: プレイヤーホールカード → バーンカード → コミュニティカード
+ *
+ * バーン判定:
+ *   - communityCards.length === 0 && burnCards.length === 0 → バーン (フロップ前)
+ *   - communityCards.length === 3 && burnCards.length === 1 → バーン (ターン前)
+ *   - communityCards.length === 4 && burnCards.length === 2 → バーン (リバー前)
+ */
+export type AutoCardPosition =
+  | { type: "playerHand"; seat: number }
+  | { type: "communityCard"; slot: number }
+  | { type: "burnCard" }
+  | null; // 全カード配布済み
+
+export function determineAutoNextCardPosition(
+  board: AutoModeBoard,
+): AutoCardPosition {
+  // ホールカードが未配布のプレイヤー (seat 昇順) を探す
+  const undealtPlayer = board.players
+    .filter((p) => p.hand.length < 2)
+    .sort((a, b) => a.seat - b.seat)[0];
+
+  if (undealtPlayer) {
+    return { type: "playerHand", seat: undealtPlayer.seat };
+  }
+
+  // バーン判定
+  const communityCount = board.communityCards.length;
+  const burnCount = board.burnCards.length;
+  if (
+    (communityCount === 0 && burnCount === 0) ||
+    (communityCount === 3 && burnCount === 1) ||
+    (communityCount === 4 && burnCount === 2)
+  ) {
+    return { type: "burnCard" };
+  }
+
+  // コミュニティカード (最大 5 枚)
+  if (communityCount < 5) {
+    return { type: "communityCard", slot: communityCount };
+  }
+
+  return null;
+}
+
+/**
  * プレイヤーの Odds を更新する
  */
 export function updatePlayerOdds(

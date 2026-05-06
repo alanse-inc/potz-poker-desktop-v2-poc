@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AutoCardPlacedPayload,
   Card,
   CardPlacedNoBoardPayload,
   CardPlacedPayload,
@@ -94,6 +95,8 @@ export const api = {
     getSerialStatus: () => invoke<SerialStatus>("get_serial_status"),
     applyCardPlaced: (rfid: string, card: Card, position: CardPosition) =>
       invoke<void>("apply_card_placed", { rfid, card, position }),
+    setActiveRoute: (route: string) =>
+      invoke<void>("set_active_route", { route }),
   },
   notifications: {
     onBoardUpdated: (
@@ -124,6 +127,10 @@ export const api = {
       listen<CardPlacedNoBoardPayload>("card_placed_no_board", (e) =>
         cb(e.payload),
       ),
+    onAutoCardPlaced: (
+      cb: (payload: AutoCardPlacedPayload) => void,
+    ): Promise<UnlistenFn> =>
+      listen<AutoCardPlacedPayload>("auto_card_placed", (e) => cb(e.payload)),
     onDeckUpdated: (
       cb: (mapping: RfidCardMapping) => void,
     ): Promise<UnlistenFn> =>
