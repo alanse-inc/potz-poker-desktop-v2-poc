@@ -914,7 +914,15 @@ fn start_game_with_stacks_and_deck(
     let utg_pos = if n <= 2 {
         dealer
     } else {
-        (bb_pos + 1) % n as u8
+        // is_all_in=true (スタック 0) のプレイヤーをスキップして UTG を決定する。
+        let mut pos = (bb_pos + 1) % n as u8;
+        for _ in 0..n {
+            if !players[pos as usize].is_all_in {
+                break;
+            }
+            pos = (pos + 1) % n as u8;
+        }
+        pos
     };
 
     let mut deck = shuffle_deck_with_rng(&mut rand::thread_rng());
@@ -6243,6 +6251,39 @@ mod tests {
             board.community_cards.len(),
             4,
             "one card should be added to reach len==4"
+        );
+    }
+
+    // ================================================================
+    // Bug E: start_game の UTG がスタック 0 プレイヤーを指す
+    // ================================================================
+
+    /// 4 人ゲームで UTG (bb_pos+1) がスタック 0 (is_all_in=true) の場合、
+    /// current_turn が次のアクティブプレイヤーを指すことを確認する。
+    #[test]
+    fn start_game_utg_skips_zero_stack_player() {
+        let settings = GameSettings {
+            small_blind: 100,
+            big_blind: 200,
+            min_chip: 100,
+            bb_ante: false,
+        };
+        // dealer=3, SB=0, BB=1, UTG=2(stack=0), BTN=3(stack=1000)
+        let names = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+        let stacks = vec![1000u32, 1000, 0, 1000];
+        let board = start_game_with_stacks(settings, names, stacks, 1, 3, 0, 1).unwrap();
+
+        // Player[2] は stack=0 なので is_all_in=true
+        assert!(board.players[2].is_all_in, "UTG player[2] should be all-in");
+        // current_turn は UTG(2) ではなく dealer(3) を指すべき
+        assert_ne!(
+            board.current_turn, 2,
+            "current_turn should skip all-in UTG at position 2"
+        );
+        // dealer(position=3) がアクティブな次のプレイヤー
+        assert_eq!(
+            board.current_turn, 3,
+            "current_turn should point to dealer (position 3) as the next active player after BB"
         );
     }
 }
