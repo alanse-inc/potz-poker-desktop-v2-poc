@@ -649,6 +649,164 @@ describe("AutoModeInitializeBoardCommandProvider", () => {
     });
   });
 
+  describe("[Bug 7] deletePlayer/setBtnPosition が Tauri Store 経由で更新される", () => {
+    it("deletePlayer は HTTP fetch を呼ばず gameSettingsGateway.save でプレイヤーを削除する", async () => {
+      const existingSettings: PersistedGameSettings = {
+        currentMode: "auto",
+        autoMode: {
+          players: [],
+          settings: { name: "" },
+          btnPlayerId: null,
+        },
+        manualMode: {
+          players: [],
+          settings: {
+            name: "",
+            miniChip: 100,
+            smallBlind: 500,
+            bigBlind: 1000,
+            anteRule: "none",
+            blindExceptionRule: "dead_button",
+          },
+          btnPlayerId: null,
+        },
+        telopSettings: {
+          telopId: "basic",
+          backgroundColor: "#00FF00",
+        },
+      };
+
+      let savedSettings: PersistedGameSettings | undefined;
+      mockStoreGet.mockResolvedValue(existingSettings);
+      mockStoreSet.mockImplementation(
+        (_key: string, value: PersistedGameSettings) => {
+          savedSettings = value;
+          return Promise.resolve(undefined);
+        },
+      );
+
+      const fetchSpy = vi.spyOn(global, "fetch");
+
+      const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializeBoardCommand).toBeDefined();
+      });
+
+      const player1 = createAutoModePlayer("player1", "Player 1", 1);
+      const player2 = createAutoModePlayer("player2", "Player 2", 2);
+      await act(async () => {
+        await result.current.updatePlayer(player1);
+      });
+      await act(async () => {
+        await result.current.updatePlayer(player2);
+      });
+
+      fetchSpy.mockClear();
+
+      act(() => {
+        result.current.deletePlayer("player1");
+      });
+
+      // fetch が /api/initial-board/player に呼ばれないことを確認
+      await waitFor(() => {
+        expect(savedSettings).toBeDefined();
+      });
+
+      const fetchCalls = fetchSpy.mock.calls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("/api/initial-board/player"),
+      );
+      expect(fetchCalls).toHaveLength(0);
+
+      // Tauri Store には player2 のみが残ること
+      expect(savedSettings?.autoMode.players).toHaveLength(1);
+      expect(
+        (savedSettings?.autoMode.players as Array<{ id: string }>)[0]?.id,
+      ).toBe("player2");
+    });
+
+    it("setBtnPosition は HTTP fetch を呼ばず gameSettingsGateway.save で BTN を保存する", async () => {
+      const existingSettings: PersistedGameSettings = {
+        currentMode: "auto",
+        autoMode: {
+          players: [],
+          settings: { name: "" },
+          btnPlayerId: null,
+        },
+        manualMode: {
+          players: [],
+          settings: {
+            name: "",
+            miniChip: 100,
+            smallBlind: 500,
+            bigBlind: 1000,
+            anteRule: "none",
+            blindExceptionRule: "dead_button",
+          },
+          btnPlayerId: null,
+        },
+        telopSettings: {
+          telopId: "basic",
+          backgroundColor: "#00FF00",
+        },
+      };
+
+      let savedSettings: PersistedGameSettings | undefined;
+      mockStoreGet.mockResolvedValue(existingSettings);
+      mockStoreSet.mockImplementation(
+        (_key: string, value: PersistedGameSettings) => {
+          savedSettings = value;
+          return Promise.resolve(undefined);
+        },
+      );
+
+      const fetchSpy = vi.spyOn(global, "fetch");
+
+      const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializeBoardCommand).toBeDefined();
+      });
+
+      const player1 = createAutoModePlayer("player1", "Player 1", 1);
+      const player2 = createAutoModePlayer("player2", "Player 2", 2);
+      await act(async () => {
+        await result.current.updatePlayer(player1);
+      });
+      await act(async () => {
+        await result.current.updatePlayer(player2);
+      });
+
+      fetchSpy.mockClear();
+      savedSettings = undefined;
+
+      act(() => {
+        result.current.setBtnPosition(1);
+      });
+
+      // fetch が /api/initial-board/player に呼ばれないことを確認
+      await waitFor(() => {
+        expect(savedSettings).toBeDefined();
+      });
+
+      const fetchCalls = fetchSpy.mock.calls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("/api/initial-board/player"),
+      );
+      expect(fetchCalls).toHaveLength(0);
+
+      // Tauri Store の btnPlayerId が seat 1 のプレイヤー ID に設定されること
+      expect(savedSettings?.autoMode.btnPlayerId).toBe("player1");
+    });
+  });
+
   describe("SSEイベント処理", () => {
     it("SSEイベントハンドリング構造が存在する", async () => {
       const { result } = renderHook(() => useAutoModeInitializeBoardCommand(), {

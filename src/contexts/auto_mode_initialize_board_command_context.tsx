@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { apiFetch } from "../api/fetch";
 import { assignPositions } from "../domain/auto_game/player";
 import type {
   AutoModePlayer,
@@ -346,12 +345,6 @@ export const AutoModeInitializeBoardCommandProvider = ({
     // 現在の状態を取得
     const current = commandRef.current;
 
-    // ステップ1: 削除前の状態でpositionResetPlayersを構築（削除時は常に全プレイヤーのポジションをリセット）
-    const positionResetPlayers = current.input.players.map((p) => ({
-      ...p,
-      position: null,
-    }));
-
     // 1. 新しいコマンドを作成（純粋な計算）
     const updatedCommand = produce(current, (draft) => {
       // ポジションリセット
@@ -371,46 +364,8 @@ export const AutoModeInitializeBoardCommandProvider = ({
     // 2. 状態を同期的に更新（副作用なし）
     setInitializeBoardCommand(updatedCommand);
 
-    // 非同期処理用のスナップショットを保存
-    const positionResetPlayersSnapshot = positionResetPlayers;
-    const settingSnapshot = updatedCommand.input.setting;
-
-    // 非同期処理はsetState外で実行（レースコンディション対策）
-    // サーバー側でプレイヤーを削除（ボード状態を更新）
-    (async () => {
-      try {
-        const response = await apiFetch("/api/initial-board/player", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            kind: "editPlayer",
-            input: {
-              board: {
-                players: positionResetPlayersSnapshot,
-                setting: settingSnapshot,
-              },
-              playerId: playerId,
-              player: null, // null でプレイヤー削除操作を示唆
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        if (result.type !== "success") {
-          throw new Error("Failed to delete player");
-        }
-      } catch (error) {
-        trackClientSideError("Failed to delete player on server", {
-          cause: error,
-        });
-      }
-    })();
-
-    // ゲーム設定にもプレイヤー情報を保存（Mode switch時の同期用）
+    // Tauri 環境では HTTP サーバーは稼働していないため、
+    // gameSettingsGateway 経由で Tauri Store を直接更新する。
     (async () => {
       try {
         const getResult = await gameSettingsGateway.get();
@@ -422,7 +377,8 @@ export const AutoModeInitializeBoardCommandProvider = ({
           throw new Error("Failed to fetch game settings");
         }
 
-        const latestCommand = commandRef.current;
+        // updatedCommand はローカル変数のため stale にならない
+        const latestCommand = updatedCommand;
 
         const updatedGameSettings: PersistedGameSettings = {
           ...existingSettings,
@@ -532,53 +488,43 @@ export const AutoModeInitializeBoardCommandProvider = ({
     // 2. 状態を同期的に更新（副作用なし）
     setInitializeBoardCommand(updatedCommand);
 
-    // 非同期処理用にローカル変数にコピー（型推論のため）
-    const btnPlayerData = {
-      id: btnPlayer.id,
-      name: btnPlayer.name,
-      icon: btnPlayer.icon,
-      seat: btnPlayer.seat,
-    };
-    const updatedPlayersData = updatedPlayers;
-    const settingData = updatedCommand.input.setting;
-
-    // 非同期処理はsetState外で実行（レースコンディション対策）
-    // HTTP API経由でBTN設定を送信
+    // Tauri 環境では HTTP サーバーは稼働していないため、
+    // gameSettingsGateway 経由で Tauri Store を直接更新する。
     (async () => {
       try {
-        const editPlayerCommand = {
-          kind: "editPlayer",
-          input: {
-            board: {
-              players: updatedPlayersData,
-              setting: settingData,
+        const getResult = await gameSettingsGateway.get();
+        if (getResult.isErr()) {
+          throw getResult.error;
+        }
+        const existingSettings = getResult.value;
+        if (!existingSettings) {
+          throw new Error("Failed to fetch game settings");
+        }
+
+        const updatedSettings: PersistedGameSettings = {
+          ...existingSettings,
+          autoMode: {
+            ...existingSettings.autoMode,
+            players: updatedCommand.input.players.map((p) => ({
+              id: p.id,
+              name: p.name,
+              icon: p.icon ?? null,
+              seat: p.seat,
+              position: p.position,
+            })),
+            settings: existingSettings.autoMode?.settings ?? {
+              name: "",
             },
-            playerId: btnPlayerData.id,
-            player: {
-              name: btnPlayerData.name,
-              icon: btnPlayerData.icon ?? null,
-              seat: btnPlayerData.seat,
-              position: "btn" as const,
-            },
+            btnPlayerId: btnPlayer.id,
           },
         };
 
-        const response = await apiFetch("/api/initial-board/player", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(editPlayerCommand),
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        if (result.type !== "success") {
-          throw new Error("Failed to set BTN position");
+        const saveResult = await gameSettingsGateway.save(updatedSettings);
+        if (saveResult.isErr()) {
+          throw saveResult.error;
         }
       } catch (error) {
-        trackClientSideError("Failed to set BTN position", {
+        trackClientSideError("Failed to save BTN position", {
           cause: error,
         });
       }
