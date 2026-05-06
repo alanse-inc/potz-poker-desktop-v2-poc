@@ -22,7 +22,7 @@ type LocationState = {
   minChip: number;
   bbAnte: boolean;
   playerNames: string[];
-  playerSeats: { seatIndex: number; name: string }[];
+  playerSeats: { seatIndex: number; name: string; stack?: number }[];
 };
 
 function positionToSeat(
@@ -66,6 +66,9 @@ export function SelectBtn() {
   const handleStart = async () => {
     setIsLoading(true);
     try {
+      const playerStacks = state.playerSeats.every((s) => s.stack != null)
+        ? state.playerSeats.map((s) => s.stack as number)
+        : undefined;
       await api.board.startGame({
         smallBlind: state.smallBlind,
         bigBlind: state.bigBlind,
@@ -73,6 +76,7 @@ export function SelectBtn() {
         bbAnte: state.bbAnte,
         playerNames: state.playerNames,
         dealerPosition: dealer,
+        playerStacks,
       });
       await refresh();
       navigate("/game/playing");

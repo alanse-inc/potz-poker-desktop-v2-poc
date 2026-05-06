@@ -28,6 +28,7 @@ export const api = {
       bbAnte: boolean;
       playerNames: string[];
       dealerPosition: number;
+      playerStacks?: number[];
     }) => invoke<TexasHoldemBoard>("start_game", params),
     moveNextGame: () => invoke<TexasHoldemBoard>("move_next_game"),
     resetBoard: () => invoke<void>("reset_board"),

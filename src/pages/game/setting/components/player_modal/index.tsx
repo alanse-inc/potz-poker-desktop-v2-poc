@@ -1,11 +1,13 @@
 import { useState } from "react";
+import { ChipForm } from "../../../../../features/form/chip_form";
 import { RoundButton } from "../../../../../ui/button/round_button";
 import { TextInput } from "../../../../../ui/text_input";
 
 type AddModeProps = {
   mode: "add";
   seatIndex: number;
-  onConfirm: (name: string) => void;
+  defaultStack: number;
+  onConfirm: (name: string, stack: number) => void;
   onCancel: () => void;
 };
 
@@ -13,7 +15,8 @@ type EditModeProps = {
   mode: "edit";
   seatIndex: number;
   currentName: string;
-  onConfirm: (name: string) => void;
+  currentStack: number;
+  onConfirm: (name: string, stack: number) => void;
   onDelete: () => void;
   onCancel: () => void;
 };
@@ -23,11 +26,14 @@ type Props = AddModeProps | EditModeProps;
 export function PlayerModal(props: Props) {
   const { mode, seatIndex, onConfirm, onCancel } = props;
   const [name, setName] = useState(mode === "edit" ? props.currentName : "");
+  const [stack, setStack] = useState(
+    mode === "edit" ? props.currentStack : props.defaultStack,
+  );
 
   const handleConfirm = () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    onConfirm(trimmed);
+    if (!trimmed || stack <= 0) return;
+    onConfirm(trimmed, stack);
   };
 
   return (
@@ -49,12 +55,19 @@ export function PlayerModal(props: Props) {
           />
         </label>
 
+        <div className="block">
+          <span className="mb-1 block font-bold text-sm text-white">
+            スタック
+          </span>
+          <ChipForm value={stack} onChange={setStack} />
+        </div>
+
         <div className="flex flex-col gap-2">
           <RoundButton
             type="primary"
             size="full"
             text={mode === "add" ? "追加" : "保存"}
-            disabled={name.trim().length === 0}
+            disabled={name.trim().length === 0 || stack <= 0}
             onClick={handleConfirm}
           />
           {mode === "edit" && (

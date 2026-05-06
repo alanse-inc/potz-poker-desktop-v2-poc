@@ -598,17 +598,19 @@ pub fn start_game(
     player_names: Vec<String>,
     dealer: u8,
 ) -> Result<TexasHoldemBoard, BoardError> {
-    let (board, _deck) = start_game_with_deck(settings, player_names, dealer, 1)?;
+    let (board, _deck) = start_game_with_deck(settings, player_names, dealer, 1, None)?;
     Ok(board)
 }
 
 /// ゲームを開始してボードとシャッフル済み残デッキを返す。
 /// Auto モードで community cards を内部デッキから配布する際に使用する。
+/// `stacks` が `Some` の場合は player ごとの初期 stack を上書きする。`None` の場合は `small_blind * 100` をデフォルトとする。
 pub fn start_game_with_deck(
     settings: GameSettings,
     player_names: Vec<String>,
     dealer: u8,
     hand_number: u32,
+    stacks: Option<Vec<u32>>,
 ) -> Result<(TexasHoldemBoard, Vec<Card>), BoardError> {
     let n = player_names.len();
     if !(2..=10).contains(&n) {
@@ -639,11 +641,29 @@ pub fn start_game_with_deck(
         }
     }
 
-    let initial_stack = settings
-        .small_blind
-        .checked_mul(100)
-        .ok_or_else(|| BoardError::InvalidAction("small_blind * 100 overflows u32".into()))?;
-    let stacks: Vec<u32> = vec![initial_stack; n];
+    let resolved_stacks = match stacks {
+        Some(s) => {
+            if s.len() != n {
+                return Err(BoardError::InvalidAction(
+                    "player_stacks length must match player_names length".into(),
+                ));
+            }
+            for &stack in &s {
+                if stack == 0 {
+                    return Err(BoardError::InvalidAction(
+                        "each player stack must be greater than 0".into(),
+                    ));
+                }
+            }
+            s
+        }
+        None => {
+            let initial_stack = settings.small_blind.checked_mul(100).ok_or_else(|| {
+                BoardError::InvalidAction("small_blind * 100 overflows u32".into())
+            })?;
+            vec![initial_stack; n]
+        }
+    };
 
     let sb_pos = if n == 2 {
         dealer
@@ -659,7 +679,7 @@ pub fn start_game_with_deck(
     start_game_with_stacks_and_deck(
         settings,
         player_names,
-        stacks,
+        resolved_stacks,
         hand_number,
         dealer,
         sb_pos,
@@ -4756,7 +4776,7 @@ mod tests {
             bb_ante: false,
         };
         let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
-        let (mut board, mut deck) = start_game_with_deck(settings, names, 0, 1).unwrap();
+        let (mut board, mut deck) = start_game_with_deck(settings, names, 0, 1, None).unwrap();
 
         // flop フェーズに直接進めるため community_cards に 3 枚手動追加してフェーズを Flop にする
         // まず preflop を全員 check/call で完了させる
@@ -4836,7 +4856,7 @@ mod tests {
             bb_ante: false,
         };
         let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
-        let (board, deck) = start_game_with_deck(settings, names, 0, 1).unwrap();
+        let (board, deck) = start_game_with_deck(settings, names, 0, 1, None).unwrap();
 
         // 3 人 × 2 枚 = 6 枚使用済み → 残 52 - 6 = 46 枚
         assert_eq!(deck.len(), 52 - board.players.len() * 2);
@@ -4998,6 +5018,55 @@ mod tests {
         let msg = result.unwrap_err().to_string();
         assert!(
             msg.contains("バーンカードが既に使用されています"),
+            "エラーメッセージが想定外: {}",
+            msg
+        );
+    }
+
+    // ================================================================
+    // Issue #3: start_game_with_deck の player_stacks 引数
+    // ================================================================
+
+    /// Some(stacks) を渡したとき各プレイヤーの stack が指定値になること。
+    #[test]
+    fn start_game_with_deck_custom_stacks_applied() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let stacks = vec![1000u32, 2000u32, 3000u32];
+        let (board, _deck) =
+            start_game_with_deck(settings.clone(), names, 0, 1, Some(stacks.clone())).unwrap();
+
+        assert_eq!(board.players.len(), 3);
+        // SB(pos=1) は small_blind 分が bet_in_round に入っているため stack が減っている
+        let sb_stack = stacks[1] - settings.small_blind;
+        let bb_stack = stacks[2] - settings.big_blind;
+        assert_eq!(board.players[0].stack, stacks[0]);
+        assert_eq!(board.players[1].stack, sb_stack);
+        assert_eq!(board.players[2].stack, bb_stack);
+    }
+
+    /// Some(stacks) の長さが player_names と一致しない場合は Err を返すこと。
+    #[test]
+    fn start_game_with_deck_stacks_length_mismatch_returns_err() {
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        // 3 人に対して 2 要素のスタックを渡す
+        let stacks = vec![1000u32, 2000u32];
+        let result = start_game_with_deck(settings, names, 0, 1, Some(stacks));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("player_stacks length must match"),
             "エラーメッセージが想定外: {}",
             msg
         );

@@ -121,24 +121,24 @@ export function FirstGameSetting() {
     saveSettings({ bbAnte: next });
   };
 
-  const handlePlayerAdd = (name: string) => {
+  const handlePlayerAdd = (name: string, stack: number) => {
     if (selectedSeat === null) return;
     setPlayers((prev) => {
       const next = [...prev];
-      next[selectedSeat] = { name, stack: smallBlind * 100, isDealer: false };
+      next[selectedSeat] = { name, stack, isDealer: false };
       return next;
     });
     setSelectedSeat(null);
   };
 
-  const handlePlayerEdit = (name: string) => {
+  const handlePlayerEdit = (name: string, stack: number) => {
     if (selectedSeat === null) return;
     setPlayers((prev) => {
       const next = [...prev];
       const current = next[selectedSeat];
       next[selectedSeat] = {
         name,
-        stack: current?.stack ?? smallBlind * 100,
+        stack,
         isDealer: current?.isDealer ?? false,
       };
       return next;
@@ -195,6 +195,7 @@ export function FirstGameSetting() {
         bbAnte,
         playerNames,
         dealerPosition: dealerInFilled,
+        playerStacks: filledPlayers.map((p) => p.stack),
       });
       navigate("/game/playing");
     } catch (e) {
@@ -292,6 +293,7 @@ export function FirstGameSetting() {
         <PlayerModal
           mode="add"
           seatIndex={selectedSeat}
+          defaultStack={smallBlind * 100}
           onConfirm={handlePlayerAdd}
           onCancel={() => setSelectedSeat(null)}
         />
@@ -301,6 +303,7 @@ export function FirstGameSetting() {
           mode="edit"
           seatIndex={selectedSeat}
           currentName={players[selectedSeat]?.name ?? ""}
+          currentStack={players[selectedSeat]?.stack ?? smallBlind * 100}
           onConfirm={handlePlayerEdit}
           onDelete={handlePlayerDelete}
           onCancel={() => setSelectedSeat(null)}

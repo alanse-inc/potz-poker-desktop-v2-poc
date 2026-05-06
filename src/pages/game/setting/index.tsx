@@ -10,7 +10,7 @@ import { GameSettingButtons } from "./components/game_setting_buttons";
 import { PlayerModal } from "./components/player_modal";
 import { SettingBoard } from "./components/setting_board";
 
-type Player = { name: string };
+type Player = { name: string; stack: number };
 
 const CHIP_LABELS: Record<ChipSettingKey, string> = {
   smallBlind: "SB",
@@ -69,21 +69,21 @@ export function GameSetting() {
     setSelectedSeat(index);
   };
 
-  const handlePlayerAdd = (name: string) => {
+  const handlePlayerAdd = (name: string, stack: number) => {
     if (selectedSeat === null) return;
     setPlayers((prev) => {
       const next = [...prev];
-      next[selectedSeat] = { name };
+      next[selectedSeat] = { name, stack };
       return next;
     });
     setSelectedSeat(null);
   };
 
-  const handlePlayerEdit = (name: string) => {
+  const handlePlayerEdit = (name: string, stack: number) => {
     if (selectedSeat === null) return;
     setPlayers((prev) => {
       const next = [...prev];
-      next[selectedSeat] = { name };
+      next[selectedSeat] = { name, stack };
       return next;
     });
     setSelectedSeat(null);
@@ -149,8 +149,13 @@ export function GameSetting() {
   const handleGameStart = () => {
     if (!isStartable) return;
     const playerSeats = players
-      .map((p, idx) => (p ? { seatIndex: idx, name: p.name } : null))
-      .filter((x): x is { seatIndex: number; name: string } => x !== null);
+      .map((p, idx) =>
+        p ? { seatIndex: idx, name: p.name, stack: p.stack } : null,
+      )
+      .filter(
+        (x): x is { seatIndex: number; name: string; stack: number } =>
+          x !== null,
+      );
     const playerNames = playerSeats.map((s) => s.name);
 
     navigate("/game/select-btn", {
@@ -250,6 +255,7 @@ export function GameSetting() {
         <PlayerModal
           mode="add"
           seatIndex={selectedSeat}
+          defaultStack={smallBlind * 100}
           onConfirm={handlePlayerAdd}
           onCancel={() => setSelectedSeat(null)}
         />
@@ -259,6 +265,7 @@ export function GameSetting() {
           mode="edit"
           seatIndex={selectedSeat}
           currentName={players[selectedSeat]?.name ?? ""}
+          currentStack={players[selectedSeat]?.stack ?? smallBlind * 100}
           onConfirm={handlePlayerEdit}
           onDelete={handlePlayerDelete}
           onCancel={() => setSelectedSeat(null)}

@@ -150,8 +150,8 @@ describe("GameSetting", () => {
             bbAnte: false,
             playerNames: ["Alice", "Bob"],
             playerSeats: [
-              { seatIndex: 0, name: "Alice" },
-              { seatIndex: 2, name: "Bob" },
+              { seatIndex: 0, name: "Alice", stack: expect.any(Number) },
+              { seatIndex: 2, name: "Bob", stack: expect.any(Number) },
             ],
           }),
         });
@@ -189,9 +189,9 @@ describe("GameSetting", () => {
           state: expect.objectContaining({
             playerNames: ["Alice", "Bob", "Carol"],
             playerSeats: [
-              { seatIndex: 0, name: "Alice" },
-              { seatIndex: 3, name: "Bob" },
-              { seatIndex: 6, name: "Carol" },
+              { seatIndex: 0, name: "Alice", stack: expect.any(Number) },
+              { seatIndex: 3, name: "Bob", stack: expect.any(Number) },
+              { seatIndex: 6, name: "Carol", stack: expect.any(Number) },
             ],
           }),
         });

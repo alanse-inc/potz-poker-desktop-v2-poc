@@ -36,14 +36,20 @@ pub fn start_game(
     bb_ante: bool,
     player_names: Vec<String>,
     dealer_position: u8,
+    player_stacks: Option<Vec<u32>>,
 ) -> Result<TexasHoldemBoard, String> {
     let settings = sanitize_settings(small_blind, big_blind, min_chip, bb_ante);
     validate_settings(&settings)?;
 
     // start_game_with_deck でシャッフル済み残デッキを直接取得する（再シャッフル不要）。
-    let (board, deck) =
-        domain_start_game_with_deck(settings.clone(), player_names, dealer_position, 1)
-            .map_err(|e| e.to_string())?;
+    let (board, deck) = domain_start_game_with_deck(
+        settings.clone(),
+        player_names,
+        dealer_position,
+        1,
+        player_stacks,
+    )
+    .map_err(|e| e.to_string())?;
     let initial_board = TexasHoldemInitialBoard::from_board(&board, settings.clone());
 
     {
