@@ -156,13 +156,18 @@ function CameraSelectorDropdown({
         </svg>
       </button>
       {isOpen && (
-        <div className="absolute right-0 mt-1 max-h-60 min-w-[200px] overflow-auto rounded-lg border border-white/10 bg-black/85 py-1 shadow-xl backdrop-blur-md">
+        <div
+          role="listbox"
+          aria-label="カメラ選択"
+          className="absolute right-0 mt-1 max-h-60 min-w-[200px] overflow-auto rounded-lg border border-white/10 bg-black/85 py-1 shadow-xl backdrop-blur-md"
+        >
           {cameras.map((cam, index) => {
             const isSelected = cam.id === selectedCameraId;
             return (
               <button
                 key={cam.id}
-                aria-pressed={isSelected}
+                role="option"
+                aria-selected={isSelected}
                 className={`block w-full px-3 py-2 text-left text-xs transition hover:bg-white/10 ${
                   isSelected
                     ? "bg-white/10 font-bold text-primary"
