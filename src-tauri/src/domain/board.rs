@@ -156,6 +156,32 @@ impl TexasHoldemBoard {
         non_allin.iter().all(|p| p.bet_in_round >= self.current_bet)
     }
 
+    /// 次フェーズへ advance するために必要な community_cards 枚数を
+    /// 既存 community_cards と deck の合計で確保できるか確認する。
+    ///
+    /// RFID モードでは deck が空のまま community_cards も足りていない状態が
+    /// あり得るため、auto-advance ループで Showdown まで突き抜けて
+    /// community_cards 不足のまま resolve_showdown が走るのを防ぐ。
+    fn can_advance_with_available_cards(&self, deck: &[Card]) -> bool {
+        // (次フェーズで必要な community 累計, バーン消費の有無)
+        let (target, burn_required) = match self.phase {
+            Phase::PreFlop => (3usize, true), // -> Flop
+            Phase::Flop => (4usize, true),    // -> Turn
+            Phase::Turn => (5usize, true),    // -> River
+            // River -> Showdown は追加カード不要
+            Phase::River => return true,
+            // Showdown は advance しない
+            Phase::Showdown => return false,
+        };
+        let current = self.community_cards.len();
+        if current >= target {
+            // 既に十分な community_cards (RFID で配布済み) があるためバーンも不要
+            return true;
+        }
+        let needed_from_deck = target - current + if burn_required { 1 } else { 0 };
+        deck.len() >= needed_from_deck
+    }
+
     /// ラウンドをリセットし次フェーズへ進める。community_cards を配る。
     fn advance_phase(&mut self, deck: &mut Vec<Card>) {
         // ベット額をポットに移動
@@ -298,13 +324,22 @@ impl TexasHoldemBoard {
         self.current_bet = new_current_bet;
 
         if self.is_round_complete() {
-            self.advance_phase(deck);
-            // 全員 allin 等で誰もアクションできない場合は Showdown まで連続で進める
-            while self.phase != Phase::Showdown && self.is_round_complete() {
+            // RFID モード等で community_cards / deck が次フェーズに必要な枚数を
+            // 確保できないときは advance しない。後続の apply_card_placed 等で
+            // カードが揃ったタイミングで再度進行する想定。
+            if self.can_advance_with_available_cards(deck) {
                 self.advance_phase(deck);
-            }
-            if self.phase == Phase::Showdown {
-                self.resolve_showdown();
+                // 全員 allin 等で誰もアクションできない場合は Showdown まで連続で進める。
+                // ただし各 iteration で必要なカード枚数を確認し、不足時はループを抜ける。
+                while self.phase != Phase::Showdown
+                    && self.is_round_complete()
+                    && self.can_advance_with_available_cards(deck)
+                {
+                    self.advance_phase(deck);
+                }
+                if self.phase == Phase::Showdown {
+                    self.resolve_showdown();
+                }
             }
         } else {
             // 次のアクティブプレイヤーへ
@@ -1430,6 +1465,56 @@ mod tests {
 
         // フェーズは変わらない
         assert_eq!(board.phase, Phase::PreFlop);
+    }
+
+    /// RFID モードで deck が空、community_cards も足りない状態で全員 all-in した場合、
+    /// auto-advance ループが community_cards 不足のまま Showdown まで突き抜けないこと。
+    #[test]
+    fn auto_advance_halts_when_deck_empty_and_community_short_on_allin() {
+        let (mut board, _deck) = make_board();
+        // RFID モードを模して deck を空にする (community_cards も空のまま)
+        let mut empty_deck: Vec<Card> = Vec::new();
+        // 3 人全員 all-in
+        board_allin(&mut board, &mut empty_deck).unwrap(); // UTG
+        board_allin(&mut board, &mut empty_deck).unwrap(); // SB
+        board_allin(&mut board, &mut empty_deck).unwrap(); // BB
+                                                           // Flop に必要な community_cards / deck が無いため PreFlop に留まり Showdown には進まない
+        assert_ne!(
+            board.phase,
+            Phase::Showdown,
+            "auto-advance must not jump to Showdown without enough community cards"
+        );
+        assert_eq!(board.community_cards.len(), 0);
+    }
+
+    /// RFID モードで Flop の community_cards (3 枚) が事前配布済みなら、
+    /// 全員 all-in 時に Flop まで advance するが Turn 以降は deck 不足で止まること。
+    #[test]
+    fn auto_advance_progresses_only_to_flop_when_only_flop_cards_set() {
+        let (mut board, _deck) = make_board();
+        // フロップ 3 枚を community_cards に直接埋める (RFID 配布済みを模擬)
+        board.community_cards = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Four,
+            },
+        ];
+        let mut empty_deck: Vec<Card> = Vec::new();
+        // 3 人全員 all-in
+        board_allin(&mut board, &mut empty_deck).unwrap();
+        board_allin(&mut board, &mut empty_deck).unwrap();
+        board_allin(&mut board, &mut empty_deck).unwrap();
+        // Flop までは advance できるが Turn は不可
+        assert_eq!(board.phase, Phase::Flop);
+        assert_eq!(board.community_cards.len(), 3);
     }
 
     #[test]
