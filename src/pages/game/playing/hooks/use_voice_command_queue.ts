@@ -279,6 +279,19 @@ export function useVoiceCommandQueue(
 
   const autoFoldUntilSeat = useCallback(
     async (targetSeat: number): Promise<TexasHoldemBoard | null> => {
+      // ループ開始前に target seat が既にフォールド済みかを確認する。
+      // フォールド済みの場合、next_active_position_after がスキップするため
+      // currentTurn === targetSeat に到達することが永遠にないためここで早期終了する。
+      const initialBoard = boardRef.current;
+      if (initialBoard) {
+        const targetPlayer = initialBoard.players.find(
+          (p) => p.position === targetSeat,
+        );
+        if (!targetPlayer || targetPlayer.hasFolded) {
+          return null;
+        }
+      }
+
       let iterations = 0;
 
       while (iterations < MAX_AUTO_SKIP_ITERATIONS) {

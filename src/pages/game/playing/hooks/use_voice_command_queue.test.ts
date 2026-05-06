@@ -1044,6 +1044,137 @@ describe("useVoiceCommandQueue", () => {
     });
   });
 
+  describe("Bug 3 (R34): autoFoldUntilSeat でターゲットが folded 済みなら早期 BREAK_QUEUE", () => {
+    it("target seat が hasFolded=true の場合、fold/check API は呼ばれず null（BREAK_QUEUE）が返る", async () => {
+      // 4 人テーブルで seat 2 が既にフォールド済み
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 200,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 2,
+            name: "Charlie",
+            stack: 9700,
+            hand: null,
+            betInRound: 0,
+            hasFolded: true, // 既にフォールド済み
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 3,
+            name: "Dave",
+            stack: 9600,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+        ],
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // seat 2（折り済み）を target に fold コマンドを発行
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 2 }));
+
+      await vi.runAllTimersAsync();
+
+      // fold/check が一切呼ばれないこと
+      expect(api.action.fold).not.toHaveBeenCalled();
+      expect(api.action.check).not.toHaveBeenCalled();
+    });
+
+    it("target seat が players リストに存在しない場合も fold/check API は呼ばれない", async () => {
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 200,
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // 存在しない seat 99 を target に fold コマンドを発行
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 99 }));
+
+      await vi.runAllTimersAsync();
+
+      // fold/check が一切呼ばれないこと
+      expect(api.action.fold).not.toHaveBeenCalled();
+      expect(api.action.check).not.toHaveBeenCalled();
+    });
+
+    it("target seat が folded 済みの場合、後続コマンドも実行されない（BREAK_QUEUE）", async () => {
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 200,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 0,
+            hasFolded: true, // 既にフォールド済み（target）
+            isAllIn: false,
+            hasActed: false,
+          },
+        ],
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // seat 1（折り済み）を target に fold コマンドを発行し、後続に call を積む
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 1 }));
+      result.current.enqueue(buildCommand({ action: "call" }));
+
+      await vi.runAllTimersAsync();
+
+      // fold も後続の call も実行されないこと
+      expect(api.action.fold).not.toHaveBeenCalled();
+      expect(api.action.call).not.toHaveBeenCalled();
+    });
+  });
+
   describe("Bug C: autoFoldUntilSeat が canChangeRound=true で null を返した後のキュー継続バグ", () => {
     it("autoFoldUntilSeat が null を返した場合（canChangeRound=true による中断）、後続コマンドは実行されない", async () => {
       // 席 0 が currentTurn、targetSeat=2 を目指すが canChangeRound=true のため
