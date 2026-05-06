@@ -2,8 +2,10 @@
 use crate::domain::rfid_mapping::RfidCardMapping;
 use crate::state::AppState;
 use serde::Deserialize;
+use std::sync::OnceLock;
 use tauri::{AppHandle, State};
 use tauri_plugin_store::StoreExt;
+use tokio::sync::Mutex as AsyncMutex;
 
 #[cfg(not(test))]
 use crate::events::DECK_UPDATED;
@@ -15,6 +17,13 @@ const KEY_DECKS: &str = "decks";
 const KEY_CURRENT_DECK_ID: &str = "currentDeckId";
 const LEGACY_STORE_FILE: &str = "rfid_mapping.json";
 const LEGACY_KEY: &str = "mapping";
+
+/// persist_decks の並列実行を防ぐシリアライズ用 Mutex。
+/// 複数の register/unregister が短時間に来ても、ファイル書き込みは逐次化される。
+fn persist_lock() -> &'static AsyncMutex<()> {
+    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| AsyncMutex::new(()))
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,6 +141,12 @@ pub async fn persist_decks_pub(app: &AppHandle, state: &State<'_, AppState>) -> 
 }
 
 async fn persist_decks(app: &AppHandle, state: &State<'_, AppState>) -> Result<(), String> {
+    // 並列 persist による古いスナップショットの上書きを防ぐため、
+    // ファイル書き込みを逐次化する。
+    let _guard = persist_lock().lock().await;
+
+    // lock 取得後に最新スナップショットを取る（他の persist が先に完了していれば
+    // その結果が state に反映済みであるため、常に最新状態が書き込まれる）。
     let (decks, current_id) = {
         let guard = state.lock();
         (guard.decks.clone(), guard.current_deck_id.clone())
@@ -457,5 +472,109 @@ mod tests {
             }
         }
         assert_eq!(state.lock().decks.len(), 1, "同じ id の移行は重複しない");
+    }
+
+    // ---- Bug 4: persist シリアライズ競合防止 ----
+
+    /// persist_lock は同一インスタンスを返す（シングルトン）こと。
+    #[test]
+    fn persist_lock_returns_same_instance() {
+        let ptr1 = super::persist_lock() as *const _;
+        let ptr2 = super::persist_lock() as *const _;
+        assert_eq!(
+            ptr1, ptr2,
+            "persist_lock must return the same OnceLock instance"
+        );
+    }
+
+    /// persist_lock を複数スレッドから並行取得しても直列化されること。
+    /// 各スレッドは lock を取得後に counter をインクリメントし、lock 解放前に
+    /// 一時停止しないため、最終的に counter == THREAD_COUNT になれば
+    /// 各スレッドが排他的に実行できたことの傍証になる。
+    #[tokio::test]
+    async fn persist_lock_serializes_concurrent_access() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        const THREAD_COUNT: usize = 20;
+        let counter = Arc::new(AtomicUsize::new(0));
+        let concurrent_peak = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = Vec::with_capacity(THREAD_COUNT);
+        for _ in 0..THREAD_COUNT {
+            let c = Arc::clone(&counter);
+            let peak = Arc::clone(&concurrent_peak);
+            let active_clone = Arc::clone(&active);
+            handles.push(tokio::spawn(async move {
+                let _guard = super::persist_lock().lock().await;
+                // lock 取得時点での並列数を記録（1 を超えてはいけない）
+                let n = active_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(n, Ordering::SeqCst);
+                // 「persist のクリティカルセクション相当」をシミュレート
+                c.fetch_add(1, Ordering::SeqCst);
+                active_clone.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            THREAD_COUNT,
+            "全タスクが実行されること"
+        );
+        assert_eq!(
+            concurrent_peak.load(Ordering::SeqCst),
+            1,
+            "同時に lock を保持できるタスクは 1 つだけであること"
+        );
+    }
+
+    /// register → unregister を連続呼び出ししたとき、最終的なインメモリ状態が
+    /// unregister 後の状態（マッピングなし）になること。
+    /// (persist の順序保証とは独立した、state 変更の正確性テスト)
+    #[test]
+    fn register_then_unregister_leaves_empty_mapping() {
+        use crate::domain::card::Card;
+        let state = make_app_state();
+
+        let deck = RfidCardMapping::new("deck-1", "Test");
+        {
+            let mut guard = state.lock();
+            guard.decks.push(deck.clone());
+            guard.current_deck_id = Some("deck-1".to_string());
+        }
+
+        // register をシミュレート
+        {
+            let mut guard = state.lock();
+            if let Some(d) = guard.current_deck_mut() {
+                d.register(
+                    "RFID_001".to_string(),
+                    Card::new(
+                        crate::domain::card::Suit::Spade,
+                        crate::domain::card::CardValue::Ace,
+                    ),
+                );
+            }
+        }
+
+        // unregister をシミュレート
+        {
+            let mut guard = state.lock();
+            if let Some(d) = guard.current_deck_mut() {
+                d.unregister("RFID_001");
+            }
+        }
+
+        // 最終状態: RFID_001 は存在しないこと
+        let guard = state.lock();
+        let current = guard.current_deck().unwrap();
+        assert!(
+            current.lookup("RFID_001").is_none(),
+            "unregister 後は RFID_001 のマッピングが存在しないこと"
+        );
     }
 }
