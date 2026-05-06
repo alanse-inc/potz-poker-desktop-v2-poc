@@ -103,7 +103,14 @@ pub fn run() {
             get_current_deck,
         ])
         .setup(|app| {
-            tracing_subscriber::fmt::init();
+            use tracing_subscriber::{fmt, EnvFilter};
+            let filter =
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+            fmt()
+                .with_env_filter(filter)
+                .with_target(false)
+                .with_thread_ids(false)
+                .init();
             // ストアからデッキを読み込む（legacy 移行含む）
             let app_state: tauri::State<AppState> = app.state();
             load_decks_from_store(app.handle(), &app_state);
