@@ -7,7 +7,6 @@
  * 必要な Tauri イベント名 (Rust 側で emit が必要):
  *   - board_updated          (payload: TexasHoldemBoard | null)
  *   - initial_board_updated  (payload: TexasHoldemInitialBoard | null)
- *   - game_settings_updated  (payload: GameSettings)
  *   - telop_id_updated       (payload: TelopId)
  *   - telop_background_color_updated (payload: string)
  *   - telop_current_screen_updated   (payload: TelopScreenState)
@@ -22,7 +21,6 @@ import { useEffect, useRef } from "react";
 import { api } from "../api/client";
 import type {
   CardPlacedPayload,
-  GameSettings,
   SerialStatus,
   TelopId,
   TelopScreenState,
@@ -46,10 +44,6 @@ export type SSEEvent =
   | {
       event: "initial-board-updated";
       data: TexasHoldemInitialBoard | null;
-    }
-  | {
-      event: "game-settings-updated";
-      data: GameSettings;
     }
   | {
       event: "telop-updated";

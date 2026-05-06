@@ -228,12 +228,10 @@ export const AutoModeInitializeBoardCommandProvider = ({
     [initializeBoardCommand],
   );
 
-  // SSEイベントリスナー：Auto Modeからの設定・プレイヤー変更を監視（SSE駆動）
-  // Tauri版では auto-mode-initial-board-updated イベントは未サポート
-  // game-settings-updated イベントのみ処理する
+  // SSEイベントリスナー：Tauri版では auto-mode-initial-board-updated イベントは未サポート
+  // 将来的にTauriイベントを追加した際にここを実装する。
   const handleSSEEvent = useCallback(() => {
-    // Tauri版では auto-mode-initial-board-updated / game-settings-updated 経由の
-    // 自動同期は未サポート。将来的にTauriイベントを追加した際にここを実装する。
+    // Tauri版では auto-mode-initial-board-updated 経由の自動同期は未サポート。
     console.log(
       "[AutoModeInitializeBoardCommandContext] SSE event received (no-op in Tauri)",
     );
