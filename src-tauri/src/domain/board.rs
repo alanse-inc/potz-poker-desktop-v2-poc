@@ -1424,6 +1424,30 @@ pub fn evaluate_player_hand(
     Ok(evaluate_hand(&cards))
 }
 
+/// community card 配置後に呼ぶ。
+/// ラウンドが完了していれば次フェーズへ advance し、Showdown なら resolve_showdown も実行する。
+/// RFID モードで全員 all-in 後に community card を 1 枚ずつ置いていく際に使用する。
+/// `deck` は通常 RFIDモードでは空だが、`can_advance_with_available_cards` が
+/// community_cards の枚数でも判定するため問題ない。
+pub fn try_advance_if_round_complete(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) {
+    if !board.is_round_complete() {
+        return;
+    }
+    if !board.can_advance_with_available_cards(deck) {
+        return;
+    }
+    board.advance_phase(deck);
+    while board.phase != Phase::Showdown
+        && board.is_round_complete()
+        && board.can_advance_with_available_cards(deck)
+    {
+        board.advance_phase(deck);
+    }
+    if board.phase == Phase::Showdown {
+        board.resolve_showdown();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

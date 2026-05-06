@@ -650,6 +650,13 @@ pub fn apply_card_placed(
             guard
                 .deck
                 .retain(|c| c.suit != card.suit || c.value != card.value);
+
+            // 全員 all-in 等でラウンドが完了している場合は advance_phase を呼んで次フェーズへ進める。
+            // 通常はプレイヤーアクション (apply_action) が advance_phase をトリガーするが、
+            // 全員 all-in 後はアクション不要のため community card 配置だけでは進行しない。
+            if let Some((board_ref, deck_ref)) = guard.split_board_and_deck() {
+                crate::domain::board::try_advance_if_round_complete(board_ref, deck_ref);
+            }
         }
         CardPosition::BurnCard => {
             let board_snap = guard.board.as_ref().unwrap().clone();
@@ -1410,6 +1417,10 @@ mod tests {
                 state
                     .deck
                     .retain(|c| c.suit != card.suit || c.value != card.value);
+
+                if let Some((board_ref, deck_ref)) = state.split_board_and_deck() {
+                    crate::domain::board::try_advance_if_round_complete(board_ref, deck_ref);
+                }
             }
             CardPosition::BurnCard => {
                 let board_snap = state.board.as_ref().unwrap().clone();
@@ -1838,5 +1849,156 @@ mod tests {
         map.retain(|_, instant| instant.elapsed() < Duration::from_millis(interval_ms));
 
         assert_eq!(map.len(), 2, "all fresh entries should be retained");
+    }
+
+    // ---- Bug B (R32): 全員 all-in 後 community card 配置で Showdown に進む ----
+
+    /// 2 人が全員 all-in している状態で community card を 5 枚押し込んだとき、
+    /// Phase が Showdown になり winners が確定すること。
+    #[test]
+    fn all_in_community_cards_advance_to_showdown() {
+        use crate::domain::board::{board_allin, board_call, start_game, GameSettings, Phase};
+        use crate::domain::card_distribution::CardPosition;
+
+        // 2 人ゲームを開始
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let mut state = InnerState {
+            settings,
+            board: Some(board),
+            ..Default::default()
+        };
+
+        // Preflop: UTG(dealer+1) が all-in → BB が call（全員 all-in に）
+        // 2 人 heads-up では SB=dealer=0, BB=1, UTG=SB=0 から開始
+        // board_allin で SB(0) が all-in
+        {
+            let (board_ref, deck_ref) = state.split_board_and_deck().unwrap();
+            board_allin(board_ref, deck_ref).unwrap();
+        }
+        // BB(1) が call（all-in へ）
+        {
+            let (board_ref, deck_ref) = state.split_board_and_deck().unwrap();
+            board_call(board_ref, deck_ref).unwrap();
+        }
+
+        // 全員 all-in 後は is_round_complete() == true になる
+        // deck は空（RFID モード相当）なので advance_phase はコミュニティカードを追加しない
+        // → Phase は PreFlop のまま（can_advance_with_available_cards が false）
+        let phase_after_allin = state.board.as_ref().unwrap().phase;
+        // preflop が完了して flop に進んでいるかもしれないが、community_cards が 0 の状態で
+        // deck も空なら PreFlop のままのはず
+        // ここでは phase に関わらず community card を手動で 5 枚配布して Showdown を確認する
+
+        // community card を 5 枚配置（slot 0..4）
+        let community_cards = [
+            Card::new(Suit::Spade, CardValue::Two),
+            Card::new(Suit::Heart, CardValue::Three),
+            Card::new(Suit::Diamond, CardValue::Four),
+            Card::new(Suit::Club, CardValue::Five),
+            Card::new(Suit::Spade, CardValue::Seven),
+        ];
+
+        // Phase が PreFlop なら Flop 用に 3 枚、Turn 用に 1 枚、River 用に 1 枚を順番に置く
+        // Phase が既に Flop/Turn/River の場合は現在の community_cards.len() から続ける
+        let start_slot = state.board.as_ref().unwrap().community_cards.len() as u8;
+        for (i, &card) in community_cards.iter().enumerate() {
+            let slot = start_slot + i as u8;
+            if slot >= 5 {
+                break;
+            }
+            apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot })
+                .unwrap();
+        }
+
+        // Phase が Showdown になっていること
+        let board = state.board.as_ref().unwrap();
+        assert_eq!(
+            board.phase,
+            Phase::Showdown,
+            "phase should be Showdown after 5 community cards with all-in players (was {:?} after all-in, community_cards={:?})",
+            phase_after_allin,
+            board.community_cards
+        );
+
+        // winners が確定していること（空でないこと）
+        assert!(
+            !board.winners.is_empty(),
+            "winners should be determined after Showdown"
+        );
+    }
+
+    /// 全員 all-in で community card を 1 枚ずつ置くたびに Phase が適切に遷移すること。
+    /// River (5 枚目) 配置後に Showdown になること。
+    #[test]
+    fn all_in_phase_transitions_with_community_cards() {
+        use crate::domain::board::{board_allin, board_call, start_game, GameSettings, Phase};
+        use crate::domain::card_distribution::CardPosition;
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let mut state = InnerState {
+            settings,
+            board: Some(board),
+            ..Default::default()
+        };
+
+        // 両者 all-in
+        {
+            let (board_ref, deck_ref) = state.split_board_and_deck().unwrap();
+            board_allin(board_ref, deck_ref).unwrap();
+        }
+        {
+            let (board_ref, deck_ref) = state.split_board_and_deck().unwrap();
+            board_call(board_ref, deck_ref).unwrap();
+        }
+
+        // 現在の community_cards.len() から開始して 5 枚になるまで community card を配布
+        let cards = [
+            Card::new(Suit::Spade, CardValue::Two),
+            Card::new(Suit::Heart, CardValue::Three),
+            Card::new(Suit::Diamond, CardValue::Four),
+            Card::new(Suit::Club, CardValue::Five),
+            Card::new(Suit::Spade, CardValue::Seven),
+            Card::new(Suit::Heart, CardValue::Eight),
+            Card::new(Suit::Diamond, CardValue::Nine),
+        ];
+
+        let mut card_idx = 0usize;
+        while state.board.as_ref().unwrap().community_cards.len() < 5
+            && state.board.as_ref().unwrap().phase != Phase::Showdown
+        {
+            let slot = state.board.as_ref().unwrap().community_cards.len() as u8;
+            apply_card_with_history(
+                &mut state,
+                cards[card_idx],
+                CardPosition::CommunityCard { slot },
+            )
+            .unwrap();
+            card_idx += 1;
+        }
+
+        let board = state.board.as_ref().unwrap();
+        assert_eq!(
+            board.phase,
+            Phase::Showdown,
+            "phase must be Showdown after all community cards placed with all-in players"
+        );
+        assert!(
+            !board.winners.is_empty(),
+            "winners must be determined after Showdown"
+        );
     }
 }
