@@ -1406,7 +1406,7 @@ pub fn board_allin(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) -> Result
             if p.stack == 0 {
                 return Err(BoardError::InvalidAction("already all-in".into()));
             }
-            p.bet_in_round += p.stack;
+            p.bet_in_round = p.bet_in_round.saturating_add(p.stack);
             p.stack = 0;
             p.is_all_in = true;
             Ok(())
@@ -7740,5 +7740,19 @@ mod tests {
         let ante: u32 = 100;
         let result = base.saturating_add(ante);
         assert_eq!(result, u32::MAX);
+    }
+
+    #[test]
+    fn r37_bug1_board_allin_uses_saturating_add() {
+        let (mut board, mut deck) = make_board();
+        let player = &mut board.players[0];
+        // bet_in_round を u32::MAX - 100 に設定し、stack を 200 にする
+        player.bet_in_round = u32::MAX - 100;
+        player.stack = 200;
+        board_allin(&mut board, &mut deck).unwrap();
+        // saturating_add により u32::MAX に飽和する
+        assert_eq!(board.players[0].bet_in_round, u32::MAX);
+        assert_eq!(board.players[0].stack, 0);
+        assert!(board.players[0].is_all_in);
     }
 }
