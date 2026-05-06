@@ -58,6 +58,9 @@ pub struct InnerState {
     /// 直近に emit した CardPosition とそのタイムスタンプ。
     /// process_rfid の per-position デバウンスに使用する。
     pub last_emitted_position: Option<(CardPosition, Instant)>,
+    /// 配置失敗カードのプール。フェーズ進行後に再評価する。
+    /// 上限は CARD_POOL_MAX 枚 (DoS 防止)。
+    pub card_pool: Vec<Card>,
 }
 
 impl InnerState {
@@ -111,6 +114,7 @@ impl Default for InnerState {
             telop_background_color: "#00ff00".to_string(),
             telop_current_screen: None,
             last_emitted_position: None,
+            card_pool: Vec::new(),
         }
     }
 }

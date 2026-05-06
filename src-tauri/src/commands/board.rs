@@ -11,7 +11,7 @@ use crate::domain::board::{
 use crate::domain::card::Card;
 use crate::domain::hand::EvaluatedHand;
 use crate::error::BoardError;
-use crate::events::{BOARD_UPDATED, INITIAL_BOARD_UPDATED};
+use crate::events::{BOARD_UPDATED, CARD_POOL_UPDATED, INITIAL_BOARD_UPDATED};
 use crate::state::{AppState, MAX_HISTORY};
 use tauri::{AppHandle, Emitter, State};
 
@@ -62,10 +62,12 @@ pub fn start_game(
         inner.burn_count = 0;
         inner.burn_card = None;
         inner.event_history.clear();
+        inner.card_pool.clear();
     } // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &board);
     let _ = app.emit(INITIAL_BOARD_UPDATED, &initial_board);
+    let _ = app.emit(CARD_POOL_UPDATED, &Vec::<crate::domain::card::Card>::new());
     Ok(board)
 }
 
@@ -93,12 +95,14 @@ pub fn move_next_game(
         inner.burn_count = 0;
         inner.burn_card = None;
         inner.event_history.clear();
+        inner.card_pool.clear();
 
         (board, initial_board)
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &board);
     let _ = app.emit(INITIAL_BOARD_UPDATED, &initial_board);
+    let _ = app.emit(CARD_POOL_UPDATED, &Vec::<crate::domain::card::Card>::new());
     Ok(board)
 }
 
@@ -113,6 +117,7 @@ pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
         inner.burn_count = 0;
         inner.burn_card = None;
         inner.event_history.clear();
+        inner.card_pool.clear();
     } // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, Option::<TexasHoldemBoard>::None);
@@ -120,6 +125,7 @@ pub fn reset_board(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
         INITIAL_BOARD_UPDATED,
         Option::<TexasHoldemInitialBoard>::None,
     );
+    let _ = app.emit(CARD_POOL_UPDATED, &Vec::<crate::domain::card::Card>::new());
     Ok(())
 }
 
@@ -137,12 +143,14 @@ pub fn back_board(app: AppHandle, state: State<'_, AppState>) -> Result<TexasHol
         inner.burn_count = prev_burn_count;
         inner.burn_card = prev_burn_card;
         inner.event_history.clear();
+        inner.card_pool.clear();
 
         (prev_board, inner.initial_board.clone())
     }; // lock を解放してから emit
 
     let _ = app.emit(BOARD_UPDATED, &prev_board);
     let _ = app.emit(INITIAL_BOARD_UPDATED, &initial_board);
+    let _ = app.emit(CARD_POOL_UPDATED, &Vec::<crate::domain::card::Card>::new());
     Ok(prev_board)
 }
 

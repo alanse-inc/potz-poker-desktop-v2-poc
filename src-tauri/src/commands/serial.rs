@@ -15,7 +15,7 @@ use crate::domain::card_distribution::determine_next_card_position;
 #[cfg(not(test))]
 use crate::events::{
     BOARD_UPDATED, CARD_PLACED, CARD_PLACED_NO_BOARD, CARD_PLACED_REGISTER,
-    CARD_PLACED_UNREGISTERED, DECK_UPDATED, SERIAL_STATUS_UPDATED,
+    CARD_PLACED_UNREGISTERED, CARD_POOL_UPDATED, DECK_UPDATED, SERIAL_STATUS_UPDATED,
 };
 #[cfg(not(test))]
 use parking_lot::Mutex;
@@ -34,6 +34,9 @@ use tauri::{Emitter, Manager};
 
 /// event_history の最大保持件数
 const MAX_EVENT_HISTORY: usize = 200;
+
+/// card_pool の最大保持枚数 (DoS 防止)
+const CARD_POOL_MAX: usize = 16;
 
 /// ボーレート (115200 bps)
 #[cfg(not(test))]
@@ -664,28 +667,54 @@ pub fn apply_card_placed(
                 }
                 // board の borrow はここで終了
             };
-            slot_result?;
-            guard
-                .history
-                .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
-            if guard.history.len() > MAX_HISTORY {
-                let excess = guard.history.len() - MAX_HISTORY;
-                guard.history.drain(0..excess);
-            }
-            guard
-                .deck
-                .retain(|c| c.suit != card.suit || c.value != card.value);
 
-            // 全員 all-in 等でラウンドが完了している場合は advance_phase を呼んで次フェーズへ進める。
-            // 通常はプレイヤーアクション (apply_action) が advance_phase をトリガーするが、
-            // 全員 all-in 後はアクション不要のため community card 配置だけでは進行しない。
-            let burn_count_for_advance = guard.burn_count;
-            if let Some((board_ref, deck_ref)) = guard.split_board_and_deck() {
-                crate::domain::board::try_advance_if_round_complete(
-                    board_ref,
-                    deck_ref,
-                    burn_count_for_advance,
-                );
+            match slot_result {
+                Err(reason) => {
+                    // スロット不一致: カードをプールに保留して成功扱いにする
+                    add_to_card_pool(&mut guard.card_pool, card);
+                    tracing::info!(
+                        "Card {:?} pooled ({}). pool size={}",
+                        card,
+                        reason,
+                        guard.card_pool.len()
+                    );
+                    // lock 解放後の emit のためプールのスナップショットを取得
+                    #[cfg(not(test))]
+                    let pool_snapshot = guard.card_pool.clone();
+                    drop(guard);
+                    #[cfg(not(test))]
+                    let _ = app.emit(CARD_POOL_UPDATED, &pool_snapshot);
+                    #[cfg(test)]
+                    let _ = app;
+                    return Ok(());
+                }
+                Ok(()) => {
+                    guard
+                        .history
+                        .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+                    if guard.history.len() > MAX_HISTORY {
+                        let excess = guard.history.len() - MAX_HISTORY;
+                        guard.history.drain(0..excess);
+                    }
+                    guard
+                        .deck
+                        .retain(|c| c.suit != card.suit || c.value != card.value);
+
+                    // 全員 all-in 等でラウンドが完了している場合は advance_phase を呼んで次フェーズへ進める。
+                    // 通常はプレイヤーアクション (apply_action) が advance_phase をトリガーするが、
+                    // 全員 all-in 後はアクション不要のため community card 配置だけでは進行しない。
+                    let burn_count_for_advance = guard.burn_count;
+                    if let Some((board_ref, deck_ref)) = guard.split_board_and_deck() {
+                        crate::domain::board::try_advance_if_round_complete(
+                            board_ref,
+                            deck_ref,
+                            burn_count_for_advance,
+                        );
+                    }
+
+                    // フェーズが進んだかもしれないのでプールを再評価する
+                    drain_card_pool(&mut guard);
+                }
             }
         }
         CardPosition::BurnCard => {
@@ -707,6 +736,9 @@ pub fn apply_card_placed(
                 let excess = guard.history.len() - MAX_HISTORY;
                 guard.history.drain(0..excess);
             }
+
+            // バーンカード完了後にプールを再評価する
+            drain_card_pool(&mut guard);
         }
     }
 
@@ -728,24 +760,127 @@ pub fn apply_card_placed(
     // これにより次回スキャンで同じ position への emit が抑制されなくなる。
     guard.last_emitted_position = None;
 
-    // board のスナップショットを取得してから lock を解放する
+    // board のスナップショットとプールのスナップショットを取得してから lock を解放する
     #[cfg(not(test))]
     let board_snapshot = guard.board.clone();
+    #[cfg(not(test))]
+    let pool_snapshot = guard.card_pool.clone();
 
     // Mutex lock を解放してから emit する（lock 保持中の emit はデッドロックリスクがある）
     drop(guard);
 
-    // board_updated を emit してフロントエンドの BoardContext を更新する
+    // board_updated / card_pool_updated を emit してフロントエンドを更新する
     #[cfg(not(test))]
     if let Some(board) = board_snapshot {
         let _ = app.emit(BOARD_UPDATED, &board);
     }
+    #[cfg(not(test))]
+    let _ = app.emit(CARD_POOL_UPDATED, &pool_snapshot);
 
     // テスト時は app を使わない
     #[cfg(test)]
     let _ = app;
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// カードプールヘルパー
+// ---------------------------------------------------------------------------
+
+/// カードをプールに追加する。
+/// 重複がある場合または上限に達している場合は追加しない。
+fn add_to_card_pool(pool: &mut Vec<Card>, card: Card) {
+    if pool.len() >= CARD_POOL_MAX {
+        tracing::warn!(
+            "card_pool is full ({} cards); dropping {:?}",
+            CARD_POOL_MAX,
+            card
+        );
+        return;
+    }
+    // 同一カードの重複追加を防ぐ
+    let already_in_pool = pool
+        .iter()
+        .any(|c| c.suit == card.suit && c.value == card.value);
+    if !already_in_pool {
+        pool.push(card);
+    }
+}
+
+/// プール内のカードを現在のボード状態で再評価し、コミュニティスロットへ適用できるものを順番に適用する。
+/// ボード・デッキは `InnerState` から直接参照する。
+/// この関数は `apply_card_placed` のロック取得済みスコープ内から呼ばれる。
+fn drain_card_pool(state: &mut crate::state::InnerState) {
+    use crate::domain::board::Phase;
+
+    if state.card_pool.is_empty() {
+        return;
+    }
+
+    // ボードが存在しない場合はプールを触らない
+    let phase = match state.board.as_ref() {
+        Some(b) => b.phase,
+        None => return,
+    };
+
+    // Showdown になっていたらプールをクリアして終了
+    if phase == Phase::Showdown {
+        state.card_pool.clear();
+        return;
+    }
+
+    // プールの先頭から順に現在のコミュニティスロットへ適用を試みる。
+    // community_cards.len() < 5 の間、プールに残っている限り繰り返す。
+    while let Some(board) = state.board.as_ref() {
+        let community_len = board.community_cards.len();
+
+        // コミュニティカードが 5 枚以上、またはプールが空なら終了
+        if community_len >= 5 || state.card_pool.is_empty() {
+            break;
+        }
+
+        let pooled_card = state.card_pool[0];
+
+        let board_mut = match state.board.as_mut() {
+            Some(b) => b,
+            None => break,
+        };
+
+        let slot = board_mut.community_cards.len() as u8;
+        board_mut.community_cards.push(pooled_card);
+        // デッキからも除去
+        state
+            .deck
+            .retain(|dc| dc.suit != pooled_card.suit || dc.value != pooled_card.value);
+        // プールから削除（先頭を除去）
+        state.card_pool.remove(0);
+        tracing::info!(
+            "Card {:?} drained from pool into community slot {}",
+            pooled_card,
+            slot
+        );
+
+        // advance_phase が必要か確認
+        let burn_count_for_advance = state.burn_count;
+        if let Some((board_ref, deck_ref)) = state.split_board_and_deck() {
+            crate::domain::board::try_advance_if_round_complete(
+                board_ref,
+                deck_ref,
+                burn_count_for_advance,
+            );
+        }
+
+        // Showdown になった場合はプールをクリアして終了
+        if state
+            .board
+            .as_ref()
+            .is_some_and(|b| b.phase == Phase::Showdown)
+        {
+            state.card_pool.clear();
+            return;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2208,6 +2343,197 @@ mod tests {
         assert!(
             should_skip,
             "second scan to same seat within 200ms must be debounced (skipped)"
+        );
+    }
+
+    // ---- card_pool: 基本操作 ----
+
+    #[test]
+    fn add_to_card_pool_prevents_duplicate() {
+        let card = Card::new(Suit::Spade, CardValue::Ace);
+        let mut pool: Vec<Card> = Vec::new();
+
+        super::add_to_card_pool(&mut pool, card);
+        super::add_to_card_pool(&mut pool, card); // 重複
+
+        assert_eq!(pool.len(), 1, "duplicate card should not be added to pool");
+    }
+
+    #[test]
+    fn add_to_card_pool_respects_max_limit() {
+        use crate::domain::card::CardValue;
+        let values = [
+            CardValue::Two,
+            CardValue::Three,
+            CardValue::Four,
+            CardValue::Five,
+            CardValue::Six,
+            CardValue::Seven,
+            CardValue::Eight,
+            CardValue::Nine,
+            CardValue::Ten,
+            CardValue::Jack,
+            CardValue::Queen,
+            CardValue::King,
+            CardValue::Ace,
+            CardValue::Two,   // Suit::Heart で再利用
+            CardValue::Three, // Suit::Heart
+            CardValue::Four,  // Suit::Heart  (17枚目: 超過)
+        ];
+        let suits = [
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Spade,
+            Suit::Heart,
+            Suit::Heart,
+            Suit::Heart,
+        ];
+        let mut pool: Vec<Card> = Vec::new();
+        for (v, s) in values.iter().zip(suits.iter()) {
+            super::add_to_card_pool(&mut pool, Card::new(*s, *v));
+        }
+        assert_eq!(
+            pool.len(),
+            super::CARD_POOL_MAX,
+            "pool should not exceed CARD_POOL_MAX"
+        );
+    }
+
+    // ---- card_pool: drain 後に community へ自動適用される ----
+
+    /// Flop 前にスキャンされたコミュニティカードがプールに保留され、
+    /// Flop 進行後に自動で community に追加されること。
+    #[test]
+    fn card_pool_drains_into_community_after_phase_advance() {
+        use crate::domain::board::{start_game_with_deck, GameSettings, Phase};
+
+        // 3人ゲームを作成
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let (mut board, deck) = start_game_with_deck(settings.clone(), names, 0, 1, None).unwrap();
+
+        // 全員のハンドをリセット（テスト用）してから confirmed 状態にする
+        let card_a = Card::new(Suit::Spade, CardValue::Ace);
+        let card_b = Card::new(Suit::Heart, CardValue::King);
+        for p in &mut board.players {
+            p.hand = Some([card_a, card_b]);
+        }
+
+        // PreFlop ベッティングを完了済みにする
+        let current_bet = board.current_bet;
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = current_bet;
+        }
+
+        let mut state = InnerState {
+            settings: settings.clone(),
+            board: Some(board),
+            deck,
+            ..Default::default()
+        };
+
+        // コミュニティカード (Flop 1枚目) をプールに追加する
+        // (Flop 前: フェーズがまだ PreFlop なのでプールへ)
+        let flop1 = Card::new(Suit::Diamond, CardValue::Two);
+        super::add_to_card_pool(&mut state.card_pool, flop1);
+        assert_eq!(
+            state.card_pool.len(),
+            1,
+            "card should be in pool before phase advance"
+        );
+        assert_eq!(
+            state.board.as_ref().unwrap().phase,
+            Phase::PreFlop,
+            "phase should still be PreFlop"
+        );
+
+        // バーンカードを1枚処理してプールを再評価する
+        // (バーンカード完了後に drain_card_pool が呼ばれる)
+        let burn_card = Card::new(Suit::Club, CardValue::Five);
+        state.burn_count = state.burn_count.saturating_add(1);
+        state.burn_card = Some(burn_card);
+        state
+            .deck
+            .retain(|c| c.suit != burn_card.suit || c.value != burn_card.value);
+
+        // drain_card_pool を呼ぶ (BurnCard 処理後と同じ)
+        super::drain_card_pool(&mut state);
+
+        // プールのカードが community に移動していること
+        let community = &state.board.as_ref().unwrap().community_cards;
+        assert!(
+            community.contains(&flop1),
+            "pooled card should be drained into community after burn, community={:?}",
+            community
+        );
+        assert!(
+            state.card_pool.is_empty(),
+            "card_pool should be empty after successful drain"
+        );
+    }
+
+    /// reset_board 時にプールがクリアされること。
+    #[test]
+    fn card_pool_cleared_on_reset() {
+        let mut state = make_state_with_board();
+        let card = Card::new(Suit::Spade, CardValue::Ace);
+        super::add_to_card_pool(&mut state.card_pool, card);
+        assert_eq!(state.card_pool.len(), 1);
+
+        // reset_board ロジックをシミュレート
+        state.board = None;
+        state.deck.clear();
+        state.history.clear();
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+        state.card_pool.clear();
+
+        assert!(
+            state.card_pool.is_empty(),
+            "card_pool should be cleared after reset_board"
+        );
+    }
+
+    /// move_next_game 時にプールがクリアされること。
+    #[test]
+    fn card_pool_cleared_on_next_game() {
+        use crate::domain::board::next_game;
+
+        let mut state = make_state_with_board();
+        let card = Card::new(Suit::Heart, CardValue::Queen);
+        super::add_to_card_pool(&mut state.card_pool, card);
+        assert_eq!(state.card_pool.len(), 1);
+
+        // next_game でリセット
+        let prev = state.board.as_ref().unwrap().clone();
+        let (board, deck) = next_game(&prev, &state.settings).unwrap();
+        state.board = Some(board);
+        state.deck = deck;
+        state.burn_count = 0;
+        state.burn_card = None;
+        state.event_history.clear();
+        state.card_pool.clear();
+
+        assert!(
+            state.card_pool.is_empty(),
+            "card_pool should be cleared after move_next_game"
         );
     }
 }
