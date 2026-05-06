@@ -93,113 +93,138 @@ export function useSSEConnection(onEvent: SSECallback): void {
   }, [onEvent]);
 
   useEffect(() => {
-    // 各 Tauri イベントのアンリスン関数を収集
-    const unlisteners: Array<() => void> = [];
+    let cancelled = false;
+    const pendingListenPromises: Array<Promise<() => void>> = [];
 
     // board_updated
-    api.notifications
-      .onBoardUpdated((board) => {
-        onEventRef.current({ event: "board-updated", data: board });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error(
-          "[useSSEConnection] Failed to listen board_updated:",
-          err,
-        );
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onBoardUpdated((board) => {
+          if (cancelled) return;
+          onEventRef.current({ event: "board-updated", data: board });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen board_updated:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
     // initial_board_updated
-    api.notifications
-      .onInitialBoardUpdated((board) => {
-        onEventRef.current({ event: "initial-board-updated", data: board });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error(
-          "[useSSEConnection] Failed to listen initial_board_updated:",
-          err,
-        );
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onInitialBoardUpdated((board) => {
+          if (cancelled) return;
+          onEventRef.current({ event: "initial-board-updated", data: board });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen initial_board_updated:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
     // telop_id_updated → telop-updated (type: "telop-id")
-    api.notifications
-      .onTelopIdUpdated((telopId) => {
-        onEventRef.current({
-          event: "telop-updated",
-          data: { type: "telop-id", telopId },
-        });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error(
-          "[useSSEConnection] Failed to listen telop_id_updated:",
-          err,
-        );
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onTelopIdUpdated((telopId) => {
+          if (cancelled) return;
+          onEventRef.current({
+            event: "telop-updated",
+            data: { type: "telop-id", telopId },
+          });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen telop_id_updated:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
     // telop_background_color_updated → telop-updated (type: "background-color")
-    api.notifications
-      .onTelopBackgroundColorUpdated((color) => {
-        onEventRef.current({
-          event: "telop-updated",
-          data: { type: "background-color", color },
-        });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error(
-          "[useSSEConnection] Failed to listen telop_background_color_updated:",
-          err,
-        );
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onTelopBackgroundColorUpdated((color) => {
+          if (cancelled) return;
+          onEventRef.current({
+            event: "telop-updated",
+            data: { type: "background-color", color },
+          });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen telop_background_color_updated:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
     // telop_current_screen_updated → telop-updated (type: "current-screen")
-    api.notifications
-      .onTelopCurrentScreenUpdated((screen) => {
-        onEventRef.current({
-          event: "telop-updated",
-          data: { type: "current-screen", screen },
-        });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error(
-          "[useSSEConnection] Failed to listen telop_current_screen_updated:",
-          err,
-        );
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onTelopCurrentScreenUpdated((screen) => {
+          if (cancelled) return;
+          onEventRef.current({
+            event: "telop-updated",
+            data: { type: "current-screen", screen },
+          });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen telop_current_screen_updated:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
     // card_placed
-    api.notifications
-      .onCardPlaced((payload) => {
-        onEventRef.current({ event: "card-placed", data: payload });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error("[useSSEConnection] Failed to listen card_placed:", err);
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onCardPlaced((payload) => {
+          if (cancelled) return;
+          onEventRef.current({ event: "card-placed", data: payload });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen card_placed:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
     // serial_status_updated → connection-status-updated
-    api.notifications
-      .onSerialStatusUpdated((status) => {
-        onEventRef.current({
-          event: "connection-status-updated",
-          data: status,
-        });
-      })
-      .then((fn) => unlisteners.push(fn))
-      .catch((err) => {
-        console.error(
-          "[useSSEConnection] Failed to listen serial_status_updated:",
-          err,
-        );
-      });
+    pendingListenPromises.push(
+      api.notifications
+        .onSerialStatusUpdated((status) => {
+          if (cancelled) return;
+          onEventRef.current({
+            event: "connection-status-updated",
+            data: status,
+          });
+        })
+        .catch((err) => {
+          console.error(
+            "[useSSEConnection] Failed to listen serial_status_updated:",
+            err,
+          );
+          return () => {};
+        }),
+    );
 
-    // クリーンアップ: 全アンリスン関数を呼び出す
+    // クリーンアップ: cancelled フラグを立て、未解決の Promise を含む全 listener を解除
     return () => {
-      for (const unlisten of unlisteners) {
-        unlisten();
+      cancelled = true;
+      for (const p of pendingListenPromises) {
+        p.then((fn) => fn()).catch(() => {});
       }
     };
   }, []); // NOTE: onEventRef を使うことで再購読を防ぐ

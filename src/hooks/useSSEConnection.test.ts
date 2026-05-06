@@ -238,9 +238,81 @@ describe("useSSEConnection", () => {
 
     unmount();
 
-    for (const fn of unlistenFns) {
-      expect(fn).toHaveBeenCalled();
+    // cleanup 内の p.then((fn) => fn()) は非同期のため、解決を待つ
+    await vi.waitFor(() => {
+      for (const fn of unlistenFns) {
+        expect(fn).toHaveBeenCalled();
+      }
+    });
+  });
+
+  it("cleanup race: unmount 前に listen Promise が解決していなくても unlisten が呼ばれる", async () => {
+    // 各 listen Promise の resolve を手動で制御する
+    const resolvers: Array<(fn: () => void) => void> = [];
+    const unlistenFns: ReturnType<typeof vi.fn>[] = [];
+
+    vi.mocked(listen).mockImplementation(async () => {
+      return new Promise<() => void>((resolve) => {
+        resolvers.push(resolve);
+      });
+    });
+
+    const { unmount } = renderHook(() => useSSEConnection(() => {}));
+
+    // listen が呼ばれるまで待つ（useEffect の非同期処理）
+    await vi.waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(7));
+
+    // Promise はまだ未解決のまま unmount (cleanup race を再現)
+    unmount();
+
+    // unmount 後に全 Promise を解決する
+    for (const resolver of resolvers) {
+      const unlistenFn = vi.fn();
+      unlistenFns.push(unlistenFn);
+      resolver(unlistenFn);
     }
+
+    // cleanup 内の p.then((fn) => fn()) の解決を待つ
+    await vi.waitFor(() => {
+      for (const fn of unlistenFns) {
+        expect(fn).toHaveBeenCalled();
+      }
+    });
+  });
+
+  it("cleanup race: unmount 後に listener が発火しても onEvent が呼ばれない", async () => {
+    const resolvers: Array<(fn: () => void) => void> = [];
+    const handlers: Array<(e: { payload: unknown }) => void> = [];
+
+    vi.mocked(listen).mockImplementation(
+      async (_eventName, handler: (e: { payload: unknown }) => void) => {
+        handlers.push(handler);
+        return new Promise<() => void>((resolve) => {
+          resolvers.push(resolve);
+        });
+      },
+    );
+
+    const onEvent = vi.fn<SSECallback>();
+    const { unmount } = renderHook(() => useSSEConnection(onEvent));
+
+    // listen Promise が登録されるまで待つ
+    await vi.waitFor(() => expect(resolvers.length).toBeGreaterThan(0));
+
+    // unmount (cancelled = true になる)
+    unmount();
+
+    // unmount 後に Promise を解決
+    for (const resolver of resolvers) {
+      resolver(() => {});
+    }
+
+    // unmount 後に handler を発火しても onEvent が呼ばれないこと
+    for (const handler of handlers) {
+      handler({ payload: null });
+    }
+
+    expect(onEvent).not.toHaveBeenCalled();
   });
 
   it("onEvent コールバックが更新されても再購読しない", async () => {
