@@ -190,7 +190,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // noop
     }
     // ユーザー固有のゲーム状態を明示的に削除する（別アカウントでログインしても前ユーザーのデータが残らないようにする）
-    localStorage.removeItem("auto_mode_board");
+    try {
+      localStorage.removeItem("auto_mode_board");
+    } catch {
+      // noop
+    }
     Sentry.setUser(null);
     resetMixpanel();
     if (!unmountedRef.current) {
@@ -215,11 +219,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const setupDeepLink = async () => {
       const { onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
       unlisten = await onOpenUrl(async (urls: string[]) => {
-        const callbackUrl = urls.find(
-          (u) =>
-            u.startsWith("com.potz.poker://callback") ||
-            u.includes("code=") ||
-            u.includes("error="),
+        const callbackUrl = urls.find((u) =>
+          u.startsWith("com.potz.poker://callback"),
         );
         if (!callbackUrl) return;
         try {
