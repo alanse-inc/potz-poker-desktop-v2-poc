@@ -2807,4 +2807,139 @@ mod tests {
             "last_emitted_position should be None after BurnCard"
         );
     }
+
+    // ---- drain_card_pool: history push の回帰テスト (PR #34) ----
+
+    /// drain_card_pool でプールからカードを 1 枚消費したとき、
+    /// history にスナップショットが push されること。
+    #[test]
+    fn drain_card_pool_pushes_history_snapshot() {
+        use crate::domain::board::{start_game_with_deck, GameSettings};
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let (mut board, deck) = start_game_with_deck(settings.clone(), names, 0, 1, None).unwrap();
+
+        // 全プレイヤーを acted 済みにしてフロップへ進める準備
+        let current_bet = board.current_bet;
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = current_bet;
+            p.hand = Some([
+                crate::domain::card::Card::new(Suit::Spade, CardValue::Ace),
+                crate::domain::card::Card::new(Suit::Heart, CardValue::King),
+            ]);
+        }
+
+        let flop1 = Card::new(Suit::Diamond, CardValue::Two);
+        let mut state = InnerState {
+            settings,
+            board: Some(board),
+            deck,
+            ..Default::default()
+        };
+        super::add_to_card_pool(&mut state.card_pool, flop1);
+
+        let history_len_before = state.history.len();
+        super::drain_card_pool(&mut state);
+
+        assert!(
+            state.history.len() > history_len_before,
+            "drain_card_pool should push at least one history snapshot"
+        );
+    }
+
+    /// drain_card_pool でプールに複数枚あるとき、
+    /// 消費した枚数以上の history エントリが追加されること。
+    #[test]
+    fn drain_card_pool_pushes_at_least_one_history_per_pool_card() {
+        use crate::domain::board::{start_game_with_deck, GameSettings};
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let (mut board, deck) = start_game_with_deck(settings.clone(), names, 0, 1, None).unwrap();
+
+        let current_bet = board.current_bet;
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = current_bet;
+            p.hand = Some([
+                crate::domain::card::Card::new(Suit::Spade, CardValue::Ace),
+                crate::domain::card::Card::new(Suit::Heart, CardValue::King),
+            ]);
+        }
+
+        let flop1 = Card::new(Suit::Diamond, CardValue::Two);
+        let flop2 = Card::new(Suit::Diamond, CardValue::Three);
+        let flop3 = Card::new(Suit::Diamond, CardValue::Four);
+        let mut state = InnerState {
+            settings,
+            board: Some(board),
+            deck,
+            ..Default::default()
+        };
+        let pool_len_before = 3usize;
+        super::add_to_card_pool(&mut state.card_pool, flop1);
+        super::add_to_card_pool(&mut state.card_pool, flop2);
+        super::add_to_card_pool(&mut state.card_pool, flop3);
+
+        super::drain_card_pool(&mut state);
+
+        assert!(
+            state.history.len() >= pool_len_before,
+            "history.len() ({}) should be >= pool_len_before ({})",
+            state.history.len(),
+            pool_len_before
+        );
+    }
+
+    /// Showdown フェーズではプールをクリアして history を追加しないこと。
+    #[test]
+    fn drain_card_pool_clears_pool_when_showdown() {
+        use crate::domain::board::{GameSettings, Phase};
+
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let board = start_game(settings.clone(), names, 0).unwrap();
+        let mut state = InnerState {
+            settings,
+            board: Some(board),
+            ..Default::default()
+        };
+        // フェーズを Showdown に強制
+        state.board.as_mut().unwrap().phase = Phase::Showdown;
+
+        let dummy = Card::new(Suit::Club, CardValue::Seven);
+        super::add_to_card_pool(&mut state.card_pool, dummy);
+        assert_eq!(state.card_pool.len(), 1);
+
+        let history_len_before = state.history.len();
+        super::drain_card_pool(&mut state);
+
+        assert_eq!(
+            state.card_pool.len(),
+            0,
+            "pool should be cleared in Showdown"
+        );
+        assert_eq!(
+            state.history.len(),
+            history_len_before,
+            "Showdown drain should not push history"
+        );
+    }
 }

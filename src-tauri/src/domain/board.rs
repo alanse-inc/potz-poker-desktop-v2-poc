@@ -7757,4 +7757,168 @@ mod tests {
         assert_eq!(board.players[0].stack, 0);
         assert!(board.players[0].is_all_in);
     }
+
+    // ---- board_allin エラーパス ----
+
+    #[test]
+    fn board_allin_already_allin_returns_error() {
+        let (mut board, mut deck) = make_board();
+        // current_turn のプレイヤーを強制 all-in 状態にする
+        let pos = board.current_turn;
+        let player = board
+            .players
+            .iter_mut()
+            .find(|p| p.position == pos)
+            .unwrap();
+        player.stack = 0;
+        player.is_all_in = true;
+        let result = board_allin(&mut board, &mut deck);
+        assert!(result.is_err(), "already all-in player should return error");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("already all-in"),
+            "error message should contain 'already all-in', got: {}",
+            msg
+        );
+    }
+
+    // ---- board_bet エラーパス ----
+
+    #[test]
+    fn board_bet_fails_when_bet_outstanding() {
+        let (mut board, mut deck) = make_board();
+        // make_board() は start_game() 後の状態: current_bet = big_blind = 20
+        assert!(
+            board.current_bet > 0,
+            "precondition: bet already outstanding"
+        );
+        let result = board_bet(&mut board, 100, &mut deck, 10);
+        assert!(
+            result.is_err(),
+            "board_bet should fail when bet is outstanding"
+        );
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("use raise"),
+            "error should mention raise, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn board_bet_fails_with_zero_amount() {
+        let (mut board, mut deck) = make_board();
+        // current_bet を 0 にリセットして bet=0 → エラー
+        board.current_bet = 0;
+        let result = board_bet(&mut board, 0, &mut deck, 0);
+        assert!(result.is_err(), "board_bet with 0 should fail");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("positive"),
+            "error should mention positive, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn board_bet_fails_when_not_enough_stack() {
+        let (mut board, mut deck) = make_board();
+        board.current_bet = 0;
+        let pos = board.current_turn;
+        let stack = board
+            .players
+            .iter()
+            .find(|p| p.position == pos)
+            .unwrap()
+            .stack;
+        let result = board_bet(&mut board, stack + 1, &mut deck, 0);
+        assert!(result.is_err(), "overbet should fail");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("not enough stack"),
+            "error should mention stack, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn board_bet_sets_allin_when_stack_equals_bet() {
+        let (mut board, mut deck) = make_board();
+        board.current_bet = 0;
+        let pos = board.current_turn;
+        let stack = board
+            .players
+            .iter()
+            .find(|p| p.position == pos)
+            .unwrap()
+            .stack;
+        board_bet(&mut board, stack, &mut deck, 0).unwrap();
+        // 次のターンに移動している可能性があるので pos のプレイヤーを取得
+        let player = board.players.iter().find(|p| p.position == pos).unwrap();
+        assert!(
+            player.is_all_in,
+            "betting entire stack should set is_all_in"
+        );
+    }
+
+    // ---- evaluate_player_hand エラーパス ----
+
+    #[test]
+    fn evaluate_player_hand_fails_when_player_not_found() {
+        let (board, _deck) = make_board();
+        let result = evaluate_player_hand(&board, 255);
+        assert!(result.is_err(), "invalid position should return error");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("not found"),
+            "error should mention not found, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn evaluate_player_hand_fails_when_not_enough_community_cards() {
+        let (mut board, _deck) = make_board();
+        // コミュニティカードが 0 枚の状態でも 2 枚のホールカードのみ → 合計 2 < 5
+        let pos = board.players[0].position;
+        board.players[0].hand = Some([
+            Card::new(Suit::Spade, CardValue::Ace),
+            Card::new(Suit::Heart, CardValue::King),
+        ]);
+        let result = evaluate_player_hand(&board, pos);
+        assert!(
+            result.is_err(),
+            "fewer than 5 total cards should return error"
+        );
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("not enough community cards"),
+            "error should mention community cards, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn evaluate_player_hand_fails_when_player_has_no_hand() {
+        let (mut board, _deck) = make_board();
+        // コミュニティカードを 5 枚追加してからハンドを None に
+        let community = [
+            Card::new(Suit::Spade, CardValue::Two),
+            Card::new(Suit::Heart, CardValue::Three),
+            Card::new(Suit::Diamond, CardValue::Four),
+            Card::new(Suit::Club, CardValue::Five),
+            Card::new(Suit::Spade, CardValue::Six),
+        ];
+        board.community_cards = community.to_vec();
+        let pos = board.players[0].position;
+        board.players[0].hand = None;
+        let result = evaluate_player_hand(&board, pos);
+        assert!(result.is_err(), "no hand should return error");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("no hand"),
+            "error should mention no hand, got: {}",
+            msg
+        );
+    }
 }
