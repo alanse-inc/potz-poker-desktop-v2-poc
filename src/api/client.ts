@@ -98,6 +98,17 @@ export const api = {
     setActiveRoute: (route: string) =>
       invoke<void>("set_active_route", { route }),
   },
+  debug: {
+    // 次に配るべきスロットをランダムカードで埋める (debug build のみ有効)
+    assignRandomCard: () => invoke<void>("debug_assign_random_card"),
+    // 指定カードを指定ポジションに配布する (debug build のみ有効)
+    assignCard: (card: Card, position: CardPosition, rfid?: string) =>
+      invoke<void>("debug_assign_card", {
+        card,
+        position,
+        rfid: rfid ?? null,
+      }),
+  },
   notifications: {
     onBoardUpdated: (
       cb: (board: TexasHoldemBoard | null) => void,

@@ -11,6 +11,7 @@ use commands::board::{
     add_player, back_board, evaluate_player_hand, get_board, get_initial_board, get_remaining_deck,
     move_next_game, remove_player, reset_board, set_community_card, start_game, update_player,
 };
+use commands::debug::{debug_assign_card, debug_assign_random_card};
 use commands::deck::{
     choose_deck, delete_deck, get_all_decks, get_current_deck, get_deck_by_id,
     load_decks_from_store, save_deck,
@@ -82,6 +83,9 @@ pub fn run() {
             set_telop_current_screen,
             // expose
             expose,
+            // debug (RFID なし開発用)
+            debug_assign_random_card,
+            debug_assign_card,
             // serial / rfid
             get_rfid_card_mapping,
             register_rfid_card,
