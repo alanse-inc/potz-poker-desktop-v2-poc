@@ -682,4 +682,27 @@ describe("useCardPlacedHandler", () => {
     expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
     expect(result.current.eventHistory).toHaveLength(1);
   });
+
+  it("r37_bug7_setup_throws_unlistens_already_registered: onCardPlacedUnregistered が reject した場合 onCardPlaced の unlisten が呼ばれる", async () => {
+    const unlistenCardPlacedSpy = vi.fn();
+    vi.spyOn(api.notifications, "onCardPlaced").mockResolvedValue(
+      unlistenCardPlacedSpy,
+    );
+    vi.spyOn(api.notifications, "onCardPlacedUnregistered").mockRejectedValue(
+      new Error("listener registration failed"),
+    );
+
+    renderHook(() => useCardPlacedHandler());
+
+    // setup() の非同期処理を消化する
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // onCardPlacedUnregistered が reject したため catch に入り、
+    // 既に登録済みの onCardPlaced の unlisten が呼ばれること
+    expect(unlistenCardPlacedSpy).toHaveBeenCalled();
+  });
 });

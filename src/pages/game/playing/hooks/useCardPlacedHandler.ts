@@ -60,6 +60,8 @@ export function useCardPlacedHandler() {
     let unlisten: (() => void) | undefined;
 
     const setup = async () => {
+      const registered: Array<() => void> = [];
+
       const processNext = async (): Promise<void> => {
         // unmount 後 (cancelled === true) は新規 IPC 呼び出し / toast / state 更新を行わず
         // そのまま終了する。processNext 呼び出し時点で既に cancelled であれば即リセットして戻る。
@@ -100,95 +102,109 @@ export function useCardPlacedHandler() {
         processingRef.current = false;
       };
 
-      const unlistenCardPlaced = await api.notifications.onCardPlaced(
-        async (payload: CardPlacedPayload) => {
-          if (cancelled) return;
-          if (processingRef.current) {
-            pendingQueueRef.current.push(payload);
-            return;
-          }
-
-          const eventKey = payloadKey(payload);
-
-          // 重複イベントはスキップ（ref経由で最新の履歴を参照）
-          if (eventHistoryRef.current.includes(eventKey)) {
-            return;
-          }
-
-          processingRef.current = true;
-          pushEventHistory(eventKey);
-
-          try {
-            await api.rfid.applyCardPlaced(
-              payload.rfid,
-              payload.card,
-              payload.position,
-            );
+      try {
+        const unlistenCardPlaced = await api.notifications.onCardPlaced(
+          async (payload: CardPlacedPayload) => {
             if (cancelled) return;
-            toast.success("カードを読み込みました");
-          } catch (e) {
-            if (cancelled) return;
-            // エラー時は履歴からロールバック
-            popEventHistory(eventKey);
-            const message =
-              e instanceof Error ? e.message : "カード配置に失敗しました";
-            toast.error(message);
-          } finally {
-            if (!cancelled) {
-              await processNext();
-            } else {
-              processingRef.current = false;
+            if (processingRef.current) {
+              pendingQueueRef.current.push(payload);
+              return;
             }
-          }
-        },
-      );
 
-      // onCardPlaced 登録後にアンマウントされた場合は即解除してリーク防止
-      if (cancelled) {
-        unlistenCardPlaced();
-        return;
+            const eventKey = payloadKey(payload);
+
+            // 重複イベントはスキップ（ref経由で最新の履歴を参照）
+            if (eventHistoryRef.current.includes(eventKey)) {
+              return;
+            }
+
+            processingRef.current = true;
+            pushEventHistory(eventKey);
+
+            try {
+              await api.rfid.applyCardPlaced(
+                payload.rfid,
+                payload.card,
+                payload.position,
+              );
+              if (cancelled) return;
+              toast.success("カードを読み込みました");
+            } catch (e) {
+              if (cancelled) return;
+              // エラー時は履歴からロールバック
+              popEventHistory(eventKey);
+              const message =
+                e instanceof Error ? e.message : "カード配置に失敗しました";
+              toast.error(message);
+            } finally {
+              if (!cancelled) {
+                await processNext();
+              } else {
+                processingRef.current = false;
+              }
+            }
+          },
+        );
+
+        registered.push(unlistenCardPlaced);
+
+        // onCardPlaced 登録後にアンマウントされた場合は即解除してリーク防止
+        if (cancelled) {
+          unlistenCardPlaced();
+          return;
+        }
+
+        // 未登録カードのイベントも購読
+        const unlistenUnregistered =
+          await api.notifications.onCardPlacedUnregistered(() => {
+            if (cancelled) return;
+            toast.error("デッキに登録されていないカードです");
+          });
+
+        registered.push(unlistenUnregistered);
+
+        // onCardPlacedUnregistered 登録後にアンマウントされた場合は両方解除
+        if (cancelled) {
+          unlistenCardPlaced();
+          unlistenUnregistered();
+          return;
+        }
+
+        // ゲーム未開始時のカードスキャンを購読
+        const unlistenNoBoard = await api.notifications.onCardPlacedNoBoard(
+          () => {
+            if (cancelled) return;
+            toast.error("ゲームが開始されていません");
+          },
+        );
+
+        registered.push(unlistenNoBoard);
+
+        // onCardPlacedNoBoard 登録後にアンマウントされた場合は全部解除
+        if (cancelled) {
+          unlistenCardPlaced();
+          unlistenUnregistered();
+          unlistenNoBoard();
+          return;
+        }
+
+        unlisten = () => {
+          unlistenCardPlaced();
+          unlistenUnregistered();
+          unlistenNoBoard();
+        };
+      } catch (err) {
+        for (const fn of registered) {
+          fn();
+        }
+        console.error(
+          "[useCardPlacedHandler] failed to register listener",
+          err,
+        );
       }
-
-      // 未登録カードのイベントも購読
-      const unlistenUnregistered =
-        await api.notifications.onCardPlacedUnregistered(() => {
-          if (cancelled) return;
-          toast.error("デッキに登録されていないカードです");
-        });
-
-      // onCardPlacedUnregistered 登録後にアンマウントされた場合は両方解除
-      if (cancelled) {
-        unlistenCardPlaced();
-        unlistenUnregistered();
-        return;
-      }
-
-      // ゲーム未開始時のカードスキャンを購読
-      const unlistenNoBoard = await api.notifications.onCardPlacedNoBoard(
-        () => {
-          if (cancelled) return;
-          toast.error("ゲームが開始されていません");
-        },
-      );
-
-      // onCardPlacedNoBoard 登録後にアンマウントされた場合は全部解除
-      if (cancelled) {
-        unlistenCardPlaced();
-        unlistenUnregistered();
-        unlistenNoBoard();
-        return;
-      }
-
-      unlisten = () => {
-        unlistenCardPlaced();
-        unlistenUnregistered();
-        unlistenNoBoard();
-      };
     };
 
-    setup().catch((err) => {
-      console.error("[useCardPlacedHandler] failed to register listener", err);
-    });
+    setup();
 
     return () => {
       cancelled = true;
