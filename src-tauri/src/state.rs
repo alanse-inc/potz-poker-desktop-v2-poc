@@ -2,10 +2,12 @@
 
 use crate::domain::board::{GameSettings, TexasHoldemBoard, TexasHoldemInitialBoard};
 use crate::domain::card::Card;
+use crate::domain::card_distribution::CardPosition;
 use crate::domain::rfid_mapping::RfidCardMapping;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::time::Instant;
 
 /// history Vec に保持するスナップショット数の上限。
 /// push 後にこの値を超えた場合は古いエントリを先入れ先出しで削除する。
@@ -53,6 +55,9 @@ pub struct InnerState {
     pub telop_background_color: String,
     /// テロップ現在画面状態。
     pub telop_current_screen: Option<String>,
+    /// 直近に emit した CardPosition とそのタイムスタンプ。
+    /// process_rfid の per-position デバウンスに使用する。
+    pub last_emitted_position: Option<(CardPosition, Instant)>,
 }
 
 impl InnerState {
@@ -105,6 +110,7 @@ impl Default for InnerState {
             telop_id: "modern".to_string(),
             telop_background_color: "#00ff00".to_string(),
             telop_current_screen: None,
+            last_emitted_position: None,
         }
     }
 }

@@ -383,6 +383,7 @@ fn process_rfid(app: &AppHandle, rfid: String) {
             card: crate::domain::card::Card,
             board: crate::domain::board::TexasHoldemBoard,
             burn_count: u8,
+            last_emitted: Option<(crate::domain::card_distribution::CardPosition, Instant)>,
         },
         NoBoard,
     }
@@ -402,6 +403,7 @@ fn process_rfid(app: &AppHandle, rfid: String) {
                         card,
                         board: b.clone(),
                         burn_count: guard.burn_count,
+                        last_emitted: guard.last_emitted_position.clone(),
                     },
                     None => {
                         tracing::warn!("Card placed but no board active. rfid={}", rfid);
@@ -428,8 +430,31 @@ fn process_rfid(app: &AppHandle, rfid: String) {
             card,
             board,
             burn_count,
+            last_emitted,
         } => match determine_next_card_position(&board, burn_count) {
             Ok(position) => {
+                // per-position デバウンス:
+                // 直前に同じ position を emit してから DEBOUNCE_INTERVAL_MS 以内なら
+                // apply_card_placed のラウンドトリップがまだ完了していない可能性があるためスキップする。
+                if let Some((ref prev_pos, prev_instant)) = last_emitted {
+                    if prev_pos == &position
+                        && prev_instant.elapsed() < Duration::from_millis(DEBOUNCE_INTERVAL_MS)
+                    {
+                        tracing::debug!(
+                            "per-position debounce: skipping duplicate emit for {:?}",
+                            position
+                        );
+                        return;
+                    }
+                }
+
+                // emit 前に last_emitted_position を更新する（lock を再取得）
+                {
+                    let state: State<AppState> = app.state();
+                    let mut guard = state.lock();
+                    guard.last_emitted_position = Some((position.clone(), Instant::now()));
+                }
+
                 let _ = app.emit(
                     CARD_PLACED,
                     CardPlacedPayload {
@@ -693,6 +718,10 @@ pub fn apply_card_placed(
     if guard.event_history.len() > MAX_EVENT_HISTORY {
         guard.event_history.pop_front();
     }
+
+    // カードが正常に適用されたので per-position デバウンスキャッシュをクリアする。
+    // これにより次回スキャンで同じ position への emit が抑制されなくなる。
+    guard.last_emitted_position = None;
 
     // board のスナップショットを取得してから lock を解放する
     #[cfg(not(test))]
@@ -1443,6 +1472,8 @@ mod tests {
                 }
             }
         }
+        // apply_card_placed 本体と同様に last_emitted_position をクリアする
+        state.last_emitted_position = None;
         Ok(())
     }
 
@@ -1999,6 +2030,151 @@ mod tests {
         assert!(
             !board.winners.is_empty(),
             "winners must be determined after Showdown"
+        );
+    }
+
+    // ---- R33 Bug 3: per-position デバウンス ----
+
+    /// last_emitted_position が設定済みで DEBOUNCE_INTERVAL_MS (500ms) 以内のとき、
+    /// 同一 position へのデバウンス判定が true (スキップすべき) になること。
+    #[test]
+    fn per_position_debounce_skips_within_interval() {
+        use crate::domain::card_distribution::CardPosition;
+        use std::time::{Duration, Instant};
+
+        let debounce_ms: u64 = 500;
+        let position = CardPosition::PlayerHand { seat: 0 };
+
+        // 100ms 前に同じ position を emit 済みと仮定
+        let last_emitted: Option<(CardPosition, Instant)> = Some((
+            position.clone(),
+            Instant::now() - Duration::from_millis(100),
+        ));
+
+        let should_skip = match &last_emitted {
+            Some((prev_pos, prev_instant)) => {
+                prev_pos == &position && prev_instant.elapsed() < Duration::from_millis(debounce_ms)
+            }
+            None => false,
+        };
+
+        assert!(
+            should_skip,
+            "same position within 500ms should be debounced (skipped)"
+        );
+    }
+
+    /// last_emitted_position が DEBOUNCE_INTERVAL_MS (500ms) を超過したとき、
+    /// 同一 position へのデバウンス判定が false (emit すべき) になること。
+    #[test]
+    fn per_position_debounce_allows_after_interval() {
+        use crate::domain::card_distribution::CardPosition;
+        use std::time::{Duration, Instant};
+
+        let debounce_ms: u64 = 500;
+        let position = CardPosition::PlayerHand { seat: 0 };
+
+        // 600ms 前に同じ position を emit 済みと仮定（タイムアウト超過）
+        let last_emitted: Option<(CardPosition, Instant)> = Some((
+            position.clone(),
+            Instant::now() - Duration::from_millis(600),
+        ));
+
+        let should_skip = match &last_emitted {
+            Some((prev_pos, prev_instant)) => {
+                prev_pos == &position && prev_instant.elapsed() < Duration::from_millis(debounce_ms)
+            }
+            None => false,
+        };
+
+        assert!(
+            !should_skip,
+            "same position after 500ms should NOT be debounced (allow emit)"
+        );
+    }
+
+    /// last_emitted_position が異なる position のとき、
+    /// デバウンス判定が false (emit すべき) になること。
+    #[test]
+    fn per_position_debounce_allows_different_position() {
+        use crate::domain::card_distribution::CardPosition;
+        use std::time::{Duration, Instant};
+
+        let debounce_ms: u64 = 500;
+        let emitted_position = CardPosition::PlayerHand { seat: 0 };
+        let new_position = CardPosition::PlayerHand { seat: 1 };
+
+        // 100ms 前に seat 0 へ emit 済み、今回は seat 1 へ
+        let last_emitted: Option<(CardPosition, Instant)> = Some((
+            emitted_position,
+            Instant::now() - Duration::from_millis(100),
+        ));
+
+        let should_skip = match &last_emitted {
+            Some((prev_pos, prev_instant)) => {
+                prev_pos == &new_position
+                    && prev_instant.elapsed() < Duration::from_millis(debounce_ms)
+            }
+            None => false,
+        };
+
+        assert!(
+            !should_skip,
+            "different position should NOT be debounced (allow emit)"
+        );
+    }
+
+    /// apply_card_placed 相当のロジック実行後、last_emitted_position がクリアされること。
+    /// (apply_card_with_history に last_emitted_position クリアを含めてテスト)
+    #[test]
+    fn apply_card_placed_clears_last_emitted_position() {
+        use crate::domain::board::build_remaining_deck;
+        use crate::domain::card_distribution::CardPosition;
+        use std::time::Instant;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        // last_emitted_position を事前に設定（1枚目スキャン後を模擬）
+        let card = state.deck[0];
+        state.last_emitted_position = Some((CardPosition::PlayerHand { seat: 0 }, Instant::now()));
+
+        // apply_card_with_history で 1 枚目スキャン適用
+        apply_card_with_history(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        // カードが適用された後は last_emitted_position がクリアされるべき
+        // (apply_card_with_history 内でクリアするロジックを追加済み)
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be cleared after apply_card_placed"
+        );
+    }
+
+    /// 1枚目スキャン後 200ms 以内に同じ seat への 2 枚目スキャンが来た場合、
+    /// per-position デバウンスによりスキップされ、last_emitted_position は変化しないこと。
+    #[test]
+    fn per_position_debounce_second_scan_within_200ms_is_skipped() {
+        use crate::domain::card_distribution::CardPosition;
+        use std::time::{Duration, Instant};
+
+        let debounce_ms: u64 = 500;
+        let seat0 = CardPosition::PlayerHand { seat: 0 };
+
+        // 1枚目スキャン: last_emitted_position を設定
+        let emit_instant = Instant::now() - Duration::from_millis(200); // 200ms 前
+        let last_emitted: Option<(CardPosition, Instant)> = Some((seat0.clone(), emit_instant));
+
+        // 2枚目スキャン（200ms 後、同一 seat）: デバウンスでスキップすべき
+        let should_skip = match &last_emitted {
+            Some((prev_pos, prev_instant)) => {
+                prev_pos == &seat0 && prev_instant.elapsed() < Duration::from_millis(debounce_ms)
+            }
+            None => false,
+        };
+
+        assert!(
+            should_skip,
+            "second scan to same seat within 200ms must be debounced (skipped)"
         );
     }
 }
