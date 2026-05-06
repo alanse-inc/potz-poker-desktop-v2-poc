@@ -143,6 +143,8 @@ export class VoiceInputService {
   private _bvcActive = false;
   /** BVC のために生成した LocalAudioTrack (cleanup 時に destroy する) */
   private _bvcTrack: LocalAudioTrack | null = null;
+  /** getUserMedia が返した生の MediaStream (BVC 適用時に rawStream を保持してcleanup で解放する) */
+  private rawStream: MediaStream | null = null;
 
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
@@ -405,6 +407,9 @@ export class VoiceInputService {
       }
       return;
     }
+
+    // rawStream を保持しておく (BVC 適用後も cleanup で解放できるよう)
+    this.rawStream = rawStream;
 
     // Krisp BVC の適用を試みる
     const stream = await this.applyBvc(rawStream);
@@ -805,11 +810,20 @@ export class VoiceInputService {
     }
     this._bvcActive = false;
 
-    if (this.mediaStream) {
+    // BVC 適用時: rawStream (元のマイクトラック) と mediaStream (processedTrack) の両方を解放する
+    // BVC 非適用時: mediaStream === rawStream のため rawStream の解放のみで十分
+    if (this.mediaStream !== null && this.mediaStream !== this.rawStream) {
       for (const track of this.mediaStream.getTracks()) {
         track.stop();
       }
-      this.mediaStream = null;
+    }
+    this.mediaStream = null;
+
+    if (this.rawStream) {
+      for (const track of this.rawStream.getTracks()) {
+        track.stop();
+      }
+      this.rawStream = null;
     }
 
     if (this.ws) {
