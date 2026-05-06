@@ -13,6 +13,9 @@ vi.mock("../../../../../api/client", () => ({
     action: {
       expose: vi.fn(),
     },
+    notifications: {
+      onBoardUpdated: vi.fn(),
+    },
   },
 }));
 
@@ -74,6 +77,7 @@ describe("SelectExposeCardModal", () => {
       suit: "spade",
       value: "A",
     });
+    vi.mocked(api.notifications.onBoardUpdated).mockResolvedValue(() => {});
   });
 
   it("モーダルが表示される", () => {
@@ -173,6 +177,30 @@ describe("SelectExposeCardModal", () => {
     // Promise の reject が伝播しないことを waitFor で確認
     await waitFor(() => {
       expect(api.board.getRemainingDeck).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("board_updated イベント発火後に getRemainingDeck が再度呼ばれる", async () => {
+    let capturedCallback: ((board: unknown) => void) | undefined;
+    vi.mocked(api.notifications.onBoardUpdated).mockImplementation((cb) => {
+      capturedCallback = cb as (board: unknown) => void;
+      return Promise.resolve(() => {});
+    });
+
+    render(
+      <SelectExposeCardModal onClose={onClose} onConfirmed={onConfirmed} />,
+    );
+
+    // 初回フェッチを待つ
+    await waitFor(() => {
+      expect(api.board.getRemainingDeck).toHaveBeenCalledTimes(1);
+    });
+
+    // board_updated イベントをシミュレート
+    capturedCallback?.(null);
+
+    await waitFor(() => {
+      expect(api.board.getRemainingDeck).toHaveBeenCalledTimes(2);
     });
   });
 });

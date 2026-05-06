@@ -63,18 +63,34 @@ export function SelectExposeCardModal({ onClose, onConfirmed }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    api.board
-      .getRemainingDeck()
-      .then((remaining) => {
-        if (!cancelled) {
-          setRemainingKeys(new Set(remaining.map(cardKey)));
-        }
+
+    function fetchDeck() {
+      api.board
+        .getRemainingDeck()
+        .then((remaining) => {
+          if (!cancelled) {
+            setRemainingKeys(new Set(remaining.map(cardKey)));
+          }
+        })
+        .catch((err: unknown) => {
+          console.error("[SelectExposeCardModal] getRemainingDeck failed", err);
+        });
+    }
+
+    fetchDeck();
+
+    let unlisten: (() => void) | undefined;
+    api.notifications
+      .onBoardUpdated(() => {
+        fetchDeck();
       })
-      .catch((err: unknown) => {
-        console.error("[SelectExposeCardModal] getRemainingDeck failed", err);
+      .then((fn) => {
+        unlisten = fn;
       });
+
     return () => {
       cancelled = true;
+      unlisten?.();
     };
   }, []);
 
