@@ -63,6 +63,7 @@ export const CardPlacedEventProvider = ({
 
     api.notifications
       .onCardPlaced((payload) => {
+        if (cancelled) return;
         setPlacedEvent(payload);
       })
       .then((fn) => {
