@@ -710,15 +710,15 @@ pub fn next_game(
     settings: &GameSettings,
 ) -> Result<(TexasHoldemBoard, Vec<Card>), BoardError> {
     let n = prev.players.len();
-    let new_dealer = (prev.dealer_position + 1) % n as u8;
 
     // 前回のスタックを引き継ぐ
     let stacks: Vec<u32> = prev.players.iter().map(|p| p.stack).collect();
 
-    // スタックが 0 のプレイヤーをスキップして SB/BB を決定する。
-    let (new_sb, new_bb) = if n == 2 {
+    // スタックが 0 のプレイヤーをスキップして dealer/SB/BB を決定する。
+    let (new_dealer, new_sb, new_bb) = if n == 2 {
         // ヘッズアップ: dealer=SB, 相手=BB
         // どちらかがスタック 0 の場合はゲーム終了（バスト）として扱う。
+        let new_dealer = (prev.dealer_position + 1) % n as u8;
         if stacks[new_dealer as usize] == 0 {
             return Err(BoardError::InvalidAction(
                 "heads-up: dealer has stack 0; game over".into(),
@@ -730,8 +730,15 @@ pub fn next_game(
                 "heads-up: opponent has stack 0; game over".into(),
             ));
         }
-        (new_dealer, opponent)
+        (new_dealer, new_dealer, opponent)
     } else {
+        // dealer は前回 dealer の次でスタック 0 をスキップ
+        let new_dealer =
+            next_non_zero_stack_pos(&stacks, prev.dealer_position).ok_or_else(|| {
+                BoardError::InvalidAction(
+                    "all players have stack 0; cannot determine dealer".into(),
+                )
+            })?;
         // SB は dealer の次でスタック 0 をスキップ
         let sb = next_non_zero_stack_pos(&stacks, new_dealer).ok_or_else(|| {
             BoardError::InvalidAction("all players have stack 0; cannot determine SB".into())
@@ -744,7 +751,7 @@ pub fn next_game(
         if sb == bb {
             return Err(BoardError::InvalidAction("ゲーム続行不可".into()));
         }
-        (sb, bb)
+        (new_dealer, sb, bb)
     };
 
     // stack 0 のプレイヤーはバスト（ゲームから除外）しない簡略版。
@@ -4534,15 +4541,16 @@ mod tests {
             winners: vec![0],
         };
 
-        // next_game は dealer=0+1=1 となり、SB=1(stack=0)、BB=2(stack=0) をスキップして
-        // SB=3(stack=1000)、BB=0(stack=1000) で進行するはず
+        // dealer=0 の次は P1(stack=0) → スキップ → P2(stack=0) → スキップ → P3(stack=1000) が dealer
+        // SB は dealer(=3) の次 → P0(stack=1000)
+        // BB は SB(=0) の次 → P1(stack=0) をスキップ → P3(stack=1000)
         let result = next_game(&board, &settings);
         assert!(
             result.is_ok(),
             "next_game should succeed even if positions 1 and 2 have stack=0"
         );
         let (new_board, _) = result.unwrap();
-        assert_eq!(new_board.dealer_position, 1);
+        assert_eq!(new_board.dealer_position, 3);
         assert_eq!(new_board.hand_number, 2);
         // SB と BB は stack が 0 でないプレイヤーを指すはず
         let sb_player = new_board
@@ -5182,6 +5190,84 @@ mod tests {
         assert!(
             !board.winners.contains(&1),
             "position=1 (pending) は winners に含まれないべき"
+        );
+    }
+
+    // ================================================================
+    // Bug 2 fix: next_game の dealer 計算で stack=0 プレイヤーをスキップ
+    // ================================================================
+
+    /// 3 人ゲームで dealer=0、次の dealer 候補 position=1 が stack=0 のとき
+    /// dealer が position=2 にスキップされること。
+    #[test]
+    fn next_game_skips_zero_stack_dealer_candidate() {
+        let settings = GameSettings {
+            small_blind: 100,
+            big_blind: 200,
+            min_chip: 100,
+            bb_ante: false,
+        };
+        // dealer=0, P1(stack=0), P2(stack=1000) の状態を作る
+        let board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: u8::MAX,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 0,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 2,
+                    name: "C".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Showdown,
+            winners: vec![0],
+        };
+
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_ok(),
+            "next_game should succeed: {:?}",
+            result.err()
+        );
+        let (new_board, _) = result.unwrap();
+        // dealer 候補 position=1 は stack=0 なのでスキップされ、position=2 が dealer になる
+        assert_eq!(
+            new_board.dealer_position, 2,
+            "dealer should skip stack=0 player and land on position=2"
         );
     }
 }
