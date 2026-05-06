@@ -15,7 +15,9 @@ export function Switch({ text, checked, disabled, onChange }: Props) {
         type="button"
         role="switch"
         aria-checked={checked}
-        onClick={() => (disabled ? undefined : onChange(!checked))}
+        disabled={disabled}
+        aria-disabled={disabled}
+        onClick={() => onChange(!checked)}
         className={`relative inline-flex w-12 rounded-full border-2 border-white p-1 ${checked ? "bg-white" : "bg-black"} ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
       >
         <span
