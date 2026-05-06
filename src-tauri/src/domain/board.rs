@@ -388,6 +388,24 @@ impl TexasHoldemBoard {
             return;
         }
 
+        // community_cards が 5 枚未満かつ手役評価が必要なアクティブプレイヤーがいる場合は
+        // 正常なショーダウンを行えない。
+        // 通常フローでは advance_phase を経て全 community が揃ってから呼ばれるが、
+        // エラー回復・テスト経路で直接呼ばれると不正な手役評価になるためガードする。
+        // hand=None のフォールバックパスはハンド評価を行わないため、このガードの対象外とする。
+        let has_hand_holders = self
+            .players
+            .iter()
+            .any(|p| !p.has_folded && p.hand.is_some_and(|h| h[0] != h[1]));
+        if has_hand_holders && self.community_cards.len() < 5 {
+            tracing::warn!(
+                "resolve_showdown: community_cards has only {} cards (expected 5); \
+                 aborting to prevent incorrect hand evaluation",
+                self.community_cards.len()
+            );
+            return;
+        }
+
         let invested_sum: u64 = self.players.iter().map(|p| p.total_invested as u64).sum();
         let pot_total = self.total_pot();
         if invested_sum != pot_total {
@@ -6421,16 +6439,16 @@ mod tests {
 
         board.resolve_showdown();
 
-        // community_cards が 3 枚しかないので evals が空 → best_eval_pot = None
-        // フォールバックにより A, B 均等分割されてしまう (バグ B の再現確認)
-        // 現状では両者 100 ずつになることを確認（バグが存在する場合）
-        // 修正後は均等分割になる（community 不足の場合は均等分割が意図した動作）
-        assert_eq!(board.total_pot(), 0, "ポット全額が配分されるべき");
+        // Bug 5 fix: community_cards が 5 枚未満かつ hand を持つプレイヤーがいる場合は
+        // 不正なハンド評価を防ぐため resolve_showdown が早期 return する。
+        // ポットは配分されず 200 のまま残る（stack は変化しない）。
         assert_eq!(
-            board.players[0].stack + board.players[1].stack,
+            board.total_pot(),
             200,
-            "チップ保存則: 配分合計が元ポットと一致すべき"
+            "Bug 5 fix: resolve_showdown should abort (community < 5), pot should remain 200"
         );
+        assert_eq!(board.players[0].stack, 0, "no chips distributed");
+        assert_eq!(board.players[1].stack, 0, "no chips distributed");
     }
 
     // ================================================================
@@ -7220,5 +7238,101 @@ mod tests {
         // invested_sum の u64 化検証: 6 * 800_000_000 = 4_800_000_000 は u32 でオーバーフローするが、
         // u64 化後は正確に計算されるため warn が誤発火しない。
         let _ = total_chips; // unused 抑制
+    }
+
+    // ================================================================
+    // R34 Bug 5 リグレッションテスト: resolve_showdown community_cards < 5 ガード
+    // ================================================================
+
+    /// Bug 5: community_cards が 3 枚の状態で resolve_showdown を呼ぶと
+    /// ポットが配分されずに return すること。
+    #[test]
+    fn r34_bug5_resolve_showdown_aborts_when_community_cards_less_than_5() {
+        let hand_a = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::King,
+            },
+        ];
+        let hand_b = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Jack,
+            },
+        ];
+        let three_community = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Four,
+            },
+        ];
+
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 0,
+                    hand: Some(hand_a),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 0,
+                    hand: Some(hand_b),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+            ],
+            community_cards: three_community,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+            bb_ante_amount: 0,
+        };
+
+        board.resolve_showdown();
+
+        // community_cards < 5 かつ hand を持つプレイヤーがいるため早期 return
+        // ポットは配分されず 200 のまま残る
+        assert_eq!(
+            board.total_pot(),
+            200,
+            "resolve_showdown must abort when community_cards < 5 with hand holders (Bug 5)"
+        );
+        assert_eq!(board.players[0].stack, 0, "no chips distributed");
+        assert_eq!(board.players[1].stack, 0, "no chips distributed");
+        assert!(board.winners.is_empty(), "no winners set when aborted");
     }
 }
