@@ -53,6 +53,46 @@ const DEBOUNCE_INTERVAL_MS: u64 = 500;
 const VENDOR_ID_PATTERNS: &[&str] = &["0403", "2341", "10c4", "1a86", "067b"];
 
 // ---------------------------------------------------------------------------
+// 静的 Regex (OnceLock で初回のみコンパイル)
+// ---------------------------------------------------------------------------
+
+/// UID 形式: 英数字 14 文字
+#[cfg(not(test))]
+static UID_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+#[cfg(not(test))]
+fn uid_re() -> &'static regex::Regex {
+    UID_RE.get_or_init(|| {
+        regex::Regex::new(r"^[a-zA-Z0-9]{14}$").expect("UID_RE: static regex must compile")
+    })
+}
+
+/// カード取り除き通知パターン
+#[cfg(not(test))]
+static REMOVED_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+#[cfg(not(test))]
+fn removed_re() -> &'static regex::Regex {
+    REMOVED_RE.get_or_init(|| {
+        regex::Regex::new(r"^-?11111111$").expect("REMOVED_RE: static regex must compile")
+    })
+}
+
+/// ポート名パターン (macOS tty.usb / Linux ttyUSB / Linux ttyACM / Windows COM)
+#[cfg(not(test))]
+static PORT_NAME_PATTERNS: std::sync::OnceLock<[regex::Regex; 4]> = std::sync::OnceLock::new();
+#[cfg(not(test))]
+fn port_name_patterns() -> &'static [regex::Regex; 4] {
+    PORT_NAME_PATTERNS.get_or_init(|| {
+        [
+            regex::Regex::new(r"tty\.usb")
+                .expect("port_name_patterns[0]: static regex must compile"),
+            regex::Regex::new(r"ttyUSB").expect("port_name_patterns[1]: static regex must compile"),
+            regex::Regex::new(r"ttyACM").expect("port_name_patterns[2]: static regex must compile"),
+            regex::Regex::new(r"COM\d+").expect("port_name_patterns[3]: static regex must compile"),
+        ]
+    })
+}
+
+// ---------------------------------------------------------------------------
 // イベントペイロード型
 // ---------------------------------------------------------------------------
 
@@ -162,13 +202,7 @@ fn find_rfid_port() -> Option<serialport::SerialPortInfo> {
     }
 
     // ポート名パターン
-    let name_patterns = [
-        regex::Regex::new(r"tty\.usb").unwrap(),
-        regex::Regex::new(r"ttyUSB").unwrap(),
-        regex::Regex::new(r"ttyACM").unwrap(),
-        regex::Regex::new(r"COM\d+").unwrap(),
-    ];
-    for pat in &name_patterns {
+    for pat in port_name_patterns() {
         for port in &ports {
             if pat.is_match(&port.port_name) {
                 return Some(port.clone());
@@ -335,8 +369,6 @@ fn read_loop(
 ) -> Result<(), String> {
     use std::io::BufRead;
     let reader = std::io::BufReader::new(port.try_clone().map_err(|e| e.to_string())?);
-    let uid_re = regex::Regex::new(r"^[a-zA-Z0-9]{14}$").unwrap();
-    let removed_re = regex::Regex::new(r"^-?11111111$").unwrap();
 
     for line in reader.lines() {
         let data = match line {
@@ -347,12 +379,12 @@ fn read_loop(
             }
         };
 
-        if removed_re.is_match(&data) {
+        if removed_re().is_match(&data) {
             // カード取り除き通知は無視
             continue;
         }
 
-        if !uid_re.is_match(&data) {
+        if !uid_re().is_match(&data) {
             tracing::debug!("Unknown data format: \"{}\"", data);
             continue;
         }
@@ -873,6 +905,22 @@ fn drain_card_pool(state: &mut crate::state::InnerState) {
         }
 
         let pooled_card = state.card_pool[0];
+
+        // 状態変更前にスナップショットを history へ記録 (back_board によるロールバックを可能にする)
+        let board_snap = match state.board.as_ref() {
+            Some(b) => b.clone(),
+            None => break,
+        };
+        let deck_snap = state.deck.clone();
+        let burn_count_snap = state.burn_count;
+        let burn_card_snap = state.burn_card;
+        state
+            .history
+            .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
+        if state.history.len() > MAX_HISTORY {
+            let excess = state.history.len() - MAX_HISTORY;
+            state.history.drain(0..excess);
+        }
 
         let board_mut = match state.board.as_mut() {
             Some(b) => b,
