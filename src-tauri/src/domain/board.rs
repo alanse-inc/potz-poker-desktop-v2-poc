@@ -1228,6 +1228,11 @@ pub fn board_raise(
     deck: &mut Vec<Card>,
     min_chip: u32,
 ) -> Result<(), BoardError> {
+    if board.current_bet == 0 {
+        return Err(BoardError::InvalidAction(
+            "use bet when there is no current bet".into(),
+        ));
+    }
     if min_chip > 0 && to % min_chip != 0 {
         return Err(BoardError::InvalidAction(format!(
             "amount {} must be a multiple of min_chip {}",
@@ -5343,6 +5348,97 @@ mod tests {
         assert_eq!(
             new_board.dealer_position, 2,
             "dealer should skip stack=0 player and land on position=2"
+        );
+    }
+
+    // ================================================================
+    // Bug 3 (raise): current_bet=0 のとき board_raise はエラーを返すべき
+    // ================================================================
+
+    /// current_bet=0, last_raise_size=0 のとき board_raise(to=1) はエラーを返す。
+    /// フロップ開始直後（ベットなし状態）で raise コマンドを直接呼び出した場合の検証。
+    #[test]
+    fn raise_when_no_current_bet_is_rejected() {
+        use super::super::card::{Card, CardValue, Suit};
+        let community = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Four,
+            },
+        ];
+        let hand_a: [Card; 2] = [
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::King,
+            },
+        ];
+        let hand_b: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Jack,
+            },
+        ];
+        // フロップ開始直後: current_bet=0, last_raise_size=0
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 900,
+                    hand: Some(hand_a),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: false,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 900,
+                    hand: Some(hand_b),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: false,
+                    total_invested: 100,
+                },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+
+        // current_bet=0 の状態で raise を呼ぶ → エラー（board_bet を使うべき）
+        let result = board_raise(&mut board, 1, &mut deck, 1);
+        assert!(
+            result.is_err(),
+            "raise with no current bet should be rejected (use bet instead)"
         );
     }
 }
