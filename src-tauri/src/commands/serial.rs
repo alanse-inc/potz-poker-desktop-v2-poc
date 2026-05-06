@@ -211,25 +211,26 @@ async fn run_serial_listener(app: AppHandle) {
         }
 
         // 接続失敗 / 切断時は切断状態を通知して待機
-        // Mutex lock を解放してから emit する（lock 保持中の emit はデッドロックリスクがある）
+        // serial_state と app_state のロックを別スコープで取得する。
+        // ネストロック（serial_state 保持中に app_state を取得）はデッドロックの原因になるため、
+        // try_connect_and_listen と同じパターン（逐次取得）に揃える。
         let should_emit_disconnected = {
             let mut ss = serial_state.lock();
-            if ss.connected {
+            let was_connected = ss.connected;
+            if was_connected {
                 ss.connected = false;
                 ss.port_name = None;
-                {
-                    let app_state: State<AppState> = app.state();
-                    let mut inner = app_state.lock();
-                    inner.serial_connected = false;
-                    inner.serial_port_name = None;
-                    inner.register_mode = false;
-                }
-                true
-            } else {
-                false
             }
+            was_connected
             // ss はここで drop される
         };
+        if should_emit_disconnected {
+            let app_state: State<AppState> = app.state();
+            let mut inner = app_state.lock();
+            inner.serial_connected = false;
+            inner.serial_port_name = None;
+            inner.register_mode = false;
+        }
         if should_emit_disconnected {
             let _ = app.emit(
                 SERIAL_STATUS_UPDATED,
