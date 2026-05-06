@@ -141,6 +141,7 @@ export class VoiceInputService {
   private startPromise: Promise<void> | null = null;
   private speechStartTime: number | null = null;
   private lastInterimTranscript: string | null = null;
+  private connectionGeneration = 0;
 
   // ---------------------------------------------------------------------------
   // Getters
@@ -277,6 +278,7 @@ export class VoiceInputService {
 
     this.intentionallyStopped = false;
     this.reconnectAttempts = 0;
+    this.connectionGeneration++;
 
     this.startPromise = (async () => {
       try {
@@ -301,6 +303,7 @@ export class VoiceInputService {
 
   stop(): void {
     this.intentionallyStopped = true;
+    this.connectionGeneration++;
     this.cleanup();
     this.emitStatus("stopped");
   }
@@ -412,9 +415,13 @@ export class VoiceInputService {
           MAX_RECONNECT_DELAY_MS,
         );
         this.reconnectAttempts++;
+        const capturedGeneration = this.connectionGeneration;
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
-          if (!this.intentionallyStopped) {
+          if (
+            !this.intentionallyStopped &&
+            this.connectionGeneration === capturedGeneration
+          ) {
             this.connectWebSocket(apiKey, stream);
           }
         }, delay);

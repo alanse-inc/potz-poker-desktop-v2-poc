@@ -565,6 +565,128 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// connectionGeneration による二重接続防止 (Bug 5 / R33)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – connectionGeneration prevents double reconnect on applySettings (R33 Bug 5)", () => {
+  let service: VoiceInputService;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    setupAudioContextMock();
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("stop()→start() 後に旧世代の reconnect タイマーが発火しても connectWebSocket が呼ばれない", async () => {
+    // start() してから WS を open → 異常切断で reconnect タイマー登録
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    // 異常切断 → reconnect タイマーが登録される（まだ発火していない）
+    ws0.simulateAbnormalClose(1006);
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    // stop() → connectionGeneration が変わる
+    service.stop();
+    expect(service.status).toBe("stopped");
+
+    // start() → connectionGeneration がさらに変わる
+    const restartPromise = service.start();
+    await flushPromises();
+    await restartPromise;
+
+    // 新しい WS が作られている（start() による接続）
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    // 旧世代のタイマーを全部発火させる
+    vi.runAllTimers();
+
+    // タイマーは旧世代のものなので新たな WS は作られない
+    // （connectionGeneration チェックにより connectWebSocket が呼ばれない）
+    expect(MockWebSocket.instances.length).toBe(2);
+  });
+
+  it("stop() のみの場合（start() なし）も旧世代タイマーが発火しても接続されない", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    // 異常切断 → reconnect タイマー登録
+    ws0.simulateAbnormalClose(1006);
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    // stop() → connectionGeneration インクリメント + intentionallyStopped=true
+    service.stop();
+
+    // タイマーを発火 → intentionallyStopped=true + 世代不一致 どちらかで防がれる
+    vi.runAllTimers();
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(service.status).toBe("stopped");
+  });
+
+  it("異常切断後に stop()→start() で再起動した新接続が異常切断しても正常に再接続できる（世代チェックが新接続を妨げない）", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    // 1回目の異常切断 → reconnect タイマー登録 (世代=1)
+    ws0.simulateAbnormalClose(1006);
+
+    // stop()→start() で世代が変わる
+    service.stop();
+    const restartPromise = service.start();
+    await flushPromises();
+    await restartPromise;
+
+    // 新接続 (ws1) が作られている
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws1 = MockWebSocket.instances[1];
+    ws1.simulateOpen();
+
+    // ws1 が異常切断 → 新世代のタイマーが登録される
+    ws1.simulateAbnormalClose(1006);
+
+    // 旧世代タイマーを含む全タイマーを発火
+    vi.runAllTimers();
+
+    // 新世代のタイマーが正常に動作して ws2 が作られる
+    // 旧世代のタイマーは無効化されているので1回だけ新規 WS が作られるはず
+    expect(MockWebSocket.instances.length).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // applySettings — deviceId/sttModel 変更時の再起動 (Bug A)
 // ---------------------------------------------------------------------------
 
