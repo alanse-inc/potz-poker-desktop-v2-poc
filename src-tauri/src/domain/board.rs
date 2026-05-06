@@ -572,8 +572,15 @@ impl TexasHoldemBoard {
                 .saturating_add(carry_over);
 
             // このポットの勝者候補: total_invested >= threshold かつ has_folded でない
+            // かつ pending hand (hole[0] == hole[1]) でない。
+            // pending hand プレイヤーは手役評価されないため evals に現れず、
+            // best_eval_pot=None のフォールバックで不正受取が起きるのを防ぐ。
             let eligible_for_pot: Vec<usize> = (0..self.players.len())
-                .filter(|&i| total_invested[i] >= threshold && !self.players[i].has_folded)
+                .filter(|&i| {
+                    total_invested[i] >= threshold
+                        && !self.players[i].has_folded
+                        && !self.players[i].hand.is_some_and(|h| h[0] == h[1])
+                })
                 .collect();
 
             if eligible_for_pot.is_empty() {
@@ -5893,6 +5900,158 @@ mod tests {
         assert!(
             !board.winners.contains(&1),
             "position=1 (pending) は winners に含まれないべき"
+        );
+    }
+
+    // ================================================================
+    // R35 Bug 1 リグレッションテスト
+    // ================================================================
+
+    /// Bug 1: resolve_showdown でサイドポットの best_eval_pot=None フォールバックが
+    /// pending hand プレイヤーを eligible_for_pot に含めてしまい、
+    /// 手役を持たないプレイヤーがサイドポットを不正受取する問題の回帰テスト。
+    ///
+    /// シナリオ:
+    ///   - Player A (pos=0): pending hand, total_invested=200
+    ///   - Player B (pos=1): confirmed hand (強い手), total_invested=100
+    ///   - Player C (pos=2): confirmed hand (弱い手), total_invested=100
+    ///   - community 5 枚, pot = 400
+    ///
+    /// サイドポット計算:
+    ///   threshold=100 (contributors=3): pot=300, eligible=[A,B,C], best=B → B が 300 取得
+    ///   threshold=200 (contributors=1): pot=100, eligible_before_fix=[A] → best_eval_pot=None
+    ///     → 修正前: フォールバックで A が 100 取得 (不正)
+    ///     → 修正後: eligible_for_pot から A が除外されるため空になり carry_over へ → undistributed として B に渡る
+    #[test]
+    fn r35_bug1_pending_hand_excluded_from_side_pot_fallback() {
+        use super::super::card::{Card, CardValue, Suit};
+
+        let community = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Four,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Five,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Seven,
+            },
+        ];
+
+        let pending_card = Card {
+            suit: Suit::Club,
+            value: CardValue::King,
+        };
+        // B: ストレート (A♠ + community 2-3-4-5-7 → A-2-3-4-5 straight)
+        let hand_b: [Card; 2] = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Six,
+            },
+        ];
+        // C: 弱い手
+        let hand_c: [Card; 2] = [
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Nine,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Ten,
+            },
+        ];
+
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                // A: pending hand, overinvested
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 0,
+                    hand: Some([pending_card, pending_card]),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 200,
+                },
+                // B: confirmed hand, normal
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 0,
+                    hand: Some(hand_b),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                // C: confirmed hand, normal
+                Player {
+                    position: 2,
+                    name: "C".into(),
+                    stack: 0,
+                    hand: Some(hand_c),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+            ],
+            community_cards: community,
+            // pot = 200 + 100 + 100 = 400
+            pots: vec![Pot { amount: 400 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+            bb_ante_amount: 0,
+        };
+
+        board.resolve_showdown();
+
+        // A (pending hand) はサイドポットを受取ってはならない
+        assert_eq!(
+            board.players[0].stack, 0,
+            "pending hand の A はポットを獲得しないべき"
+        );
+
+        // pot は全額分配される (B が全部受け取るか、undistributed が B に渡る)
+        assert_eq!(board.total_pot(), 0, "ポットは全額分配されるべき");
+
+        // B + C の合計スタックが 400 でチップ保全が維持される
+        let total_out: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(
+            total_out, 400,
+            "チップ保全: 全スタック合計は 400 であるべき"
+        );
+
+        // A は winners に含まれない
+        assert!(
+            !board.winners.contains(&0),
+            "pending hand の A は winners に含まれないべき"
         );
     }
 
