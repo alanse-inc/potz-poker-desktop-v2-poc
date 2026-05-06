@@ -188,6 +188,9 @@ export function VoiceInputSettings() {
           <span className="font-bold text-sm text-white">音声入力</span>
           <button
             type="button"
+            role="switch"
+            aria-checked={isEnabled}
+            aria-label="音声入力を有効化"
             onClick={handleToggle}
             disabled={apiKeyMissing}
             className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${
