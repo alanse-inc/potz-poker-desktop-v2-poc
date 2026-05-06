@@ -34,8 +34,12 @@ function isActionableBoard(board: TexasHoldemBoard): boolean {
 function canChangeRound(board: TexasHoldemBoard): boolean {
   const activePlayers = board.players.filter((p) => !p.hasFolded && !p.isAllIn);
   if (activePlayers.length === 0) return true;
-  const maxBet = Math.max(...board.players.map((p) => p.betInRound), 0);
-  return activePlayers.every((p) => p.hasActed && p.betInRound === maxBet);
+  // Rust 側 is_round_complete (board.rs) と整合させる:
+  // all-in プレイヤーの betInRound を maxBet 算出に含めると基準値がブレるため
+  // board.currentBet を基準に「活動中プレイヤー全員が acted かつ currentBet 以上」で判定する。
+  return activePlayers.every(
+    (p) => p.hasActed && p.betInRound >= board.currentBet,
+  );
 }
 
 function canCheck(board: TexasHoldemBoard): boolean {
