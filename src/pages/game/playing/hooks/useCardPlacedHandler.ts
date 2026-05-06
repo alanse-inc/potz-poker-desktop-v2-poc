@@ -56,7 +56,9 @@ export function useCardPlacedHandler() {
 
     const setup = async () => {
       const processNext = async (): Promise<void> => {
-        while (pendingQueueRef.current.length > 0) {
+        // unmount 後 (cancelled === true) は新規 IPC 呼び出し / toast / state 更新を行わず
+        // そのまま終了する。
+        while (!cancelled && pendingQueueRef.current.length > 0) {
           const next = pendingQueueRef.current.shift();
           if (!next) break;
 
@@ -70,8 +72,10 @@ export function useCardPlacedHandler() {
 
           try {
             await api.rfid.applyCardPlaced(next.rfid, next.card, next.position);
+            if (cancelled) return;
             toast.success("カードを読み込みました");
           } catch (e) {
+            if (cancelled) return;
             popEventHistory();
             const message =
               e instanceof Error ? e.message : "カード配置に失敗しました";
@@ -83,6 +87,7 @@ export function useCardPlacedHandler() {
 
       const unlistenCardPlaced = await api.notifications.onCardPlaced(
         async (payload: CardPlacedPayload) => {
+          if (cancelled) return;
           if (processingRef.current) {
             pendingQueueRef.current.push(payload);
             return;
@@ -104,15 +109,21 @@ export function useCardPlacedHandler() {
               payload.card,
               payload.position,
             );
+            if (cancelled) return;
             toast.success("カードを読み込みました");
           } catch (e) {
+            if (cancelled) return;
             // エラー時は履歴からロールバック
             popEventHistory();
             const message =
               e instanceof Error ? e.message : "カード配置に失敗しました";
             toast.error(message);
           } finally {
-            await processNext();
+            if (!cancelled) {
+              await processNext();
+            } else {
+              processingRef.current = false;
+            }
           }
         },
       );
@@ -172,6 +183,9 @@ export function useCardPlacedHandler() {
   const clearEventHistory = useCallback(() => {
     eventHistoryRef.current = [];
     setEventHistory([]);
+    // 履歴クリア後にキューに残ったイベントを処理すると history が再増加するため
+    // pendingQueue も同時に空にする。
+    pendingQueueRef.current = [];
   }, []);
 
   return { eventHistory, clearEventHistory };

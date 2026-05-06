@@ -280,6 +280,109 @@ describe("useCardPlacedHandler", () => {
     expect(result.current.eventHistory).toHaveLength(2);
   });
 
+  it("unmount 後に進行中の applyCardPlaced 解決後に toast が呼ばれない (Bug 3)", async () => {
+    const toast = await import("react-hot-toast");
+    vi.mocked(toast.default.success).mockClear();
+    let resolveApply!: () => void;
+    const applyPromise = new Promise<void>((resolve) => {
+      resolveApply = resolve;
+    });
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(
+      async () => applyPromise,
+    );
+
+    const { unmount } = renderHook(() => useCardPlacedHandler());
+
+    const payload = {
+      rfid: "RFID_BUG3_TEST",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+
+    await act(async () => {
+      void onCardPlacedCb?.(payload);
+      // applyCardPlaced は保留 → unmount
+      unmount();
+      // unmount 後に解決
+      resolveApply();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // unmount 後の解決なので success toast は呼ばれない
+    expect(toast.default.success).not.toHaveBeenCalled();
+  });
+
+  it("unmount 後に進行中の applyCardPlaced エラー解決後に error toast が呼ばれない (Bug 3)", async () => {
+    const toast = await import("react-hot-toast");
+    vi.mocked(toast.default.error).mockClear();
+    let rejectApply!: (e: Error) => void;
+    const applyPromise = new Promise<void>((_resolve, reject) => {
+      rejectApply = reject;
+    });
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(
+      async () => applyPromise,
+    );
+
+    const { unmount } = renderHook(() => useCardPlacedHandler());
+
+    const payload = {
+      rfid: "RFID_BUG3_ERR",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "burnCard" as const },
+    };
+
+    await act(async () => {
+      void onCardPlacedCb?.(payload);
+      unmount();
+      rejectApply(new Error("apply failed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(toast.default.error).not.toHaveBeenCalled();
+  });
+
+  it("clearEventHistory が pendingQueue もクリアする (Bug 8)", async () => {
+    let resolveFirst!: () => void;
+    const firstCallPromise = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let applyCallCount = 0;
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(async () => {
+      applyCallCount += 1;
+      if (applyCallCount === 1) {
+        await firstCallPromise;
+      }
+    });
+
+    const { result } = renderHook(() => useCardPlacedHandler());
+
+    const payload1 = {
+      rfid: "RFID_BUG8_001",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+    const payload2 = {
+      rfid: "RFID_BUG8_002",
+      card: { suit: "heart" as const, value: "K" as const },
+      position: { type: "communityCard" as const, slot: 1 },
+    };
+
+    // 1件目を処理中にし、2件目をキューへ積む。clearEventHistory を呼ぶと
+    // pendingQueue もクリアされ、1件目完了後に2件目が処理されないこと。
+    await act(async () => {
+      const firstDone = onCardPlacedCb?.(payload1);
+      void onCardPlacedCb?.(payload2);
+      result.current.clearEventHistory();
+      resolveFirst();
+      await firstDone;
+    });
+
+    // 1件目のみ実行され、2件目は pendingQueue クリアにより破棄される
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
+  });
+
   it("onCardPlaced 登録後 / onCardPlacedUnregistered 登録前にアンマウントしても unlistenCardPlaced が呼ばれる", async () => {
     // onCardPlaced の unlisten spy
     const unlistenCardPlacedSpy = vi.fn();
