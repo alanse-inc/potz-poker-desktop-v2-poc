@@ -222,7 +222,7 @@ fn numeric_to_card_value(n: u8) -> CardValue {
         12 => CardValue::Queen,
         13 => CardValue::King,
         14 => CardValue::Ace,
-        _ => panic!("invalid card numeric value: {}", n),
+        _ => unreachable!("invalid card numeric value: {}", n),
     }
 }
 
