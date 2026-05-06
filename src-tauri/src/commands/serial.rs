@@ -646,6 +646,7 @@ pub fn apply_card_placed(
                 }
                 Some((_, true)) => {
                     // スキャンが無視されたケース: deck を変更しない
+                    guard.last_emitted_position = None;
                     return Ok(());
                 }
                 Some((true, false)) => {
@@ -710,6 +711,8 @@ pub fn apply_card_placed(
                     // lock 解放後の emit のためプールのスナップショットを取得
                     #[cfg(not(test))]
                     let pool_snapshot = guard.card_pool.clone();
+                    // pool 入りも成功扱いなので per-position デバウンスキャッシュをクリアする
+                    guard.last_emitted_position = None;
                     drop(guard);
                     #[cfg(not(test))]
                     let _ = app.emit(CARD_POOL_UPDATED, &pool_snapshot);
@@ -1579,6 +1582,8 @@ mod tests {
                         return Err(format!("player at seat {} not found", seat));
                     }
                     Some((_, true)) => {
+                        // スキャンが無視されたケース: apply_card_placed と同様にリセットして返す
+                        state.last_emitted_position = None;
                         return Ok(());
                     }
                     Some((true, false)) => {
@@ -1627,7 +1632,12 @@ mod tests {
                         Ok(())
                     }
                 };
-                slot_result?;
+                if slot_result.is_err() {
+                    // スロット不一致: apply_card_placed と同様にプールに保留して成功扱い
+                    super::add_to_card_pool(&mut state.card_pool, card);
+                    state.last_emitted_position = None;
+                    return Ok(());
+                }
                 state
                     .history
                     .push((board_snap, deck_snap, burn_count_snap, burn_card_snap));
@@ -1734,15 +1744,25 @@ mod tests {
         let mut state = make_state_with_board();
 
         let card = Card::new(Suit::Club, CardValue::Three);
-        // slot 1 を指定するが community_cards は空なので slot 0 が期待されエラーになる
+        // slot 1 を指定するが community_cards は空なので slot 0 が期待される。
+        // apply_card_placed (および apply_card_with_history) ではスロット不一致は
+        // プールに保留して Ok(()) を返す設計のため、history は増えない。
         let result =
             apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot: 1 });
 
-        assert!(result.is_err(), "should return error for wrong slot");
+        assert!(
+            result.is_ok(),
+            "slot mismatch should pool the card and return Ok"
+        );
         assert_eq!(
             state.history.len(),
             0,
-            "history should be empty after error rollback"
+            "history should not grow on slot mismatch (pool entry, not a board change)"
+        );
+        assert_eq!(
+            state.card_pool.len(),
+            1,
+            "card should be in pool after slot mismatch"
         );
     }
 
@@ -2563,6 +2583,180 @@ mod tests {
         assert!(
             state.card_pool.is_empty(),
             "card_pool should be cleared after move_next_game"
+        );
+    }
+
+    // ---- last_emitted_position リセット: 全成功パス ----
+
+    /// PlayerHand 1枚目スキャン (pending 遷移) 後に last_emitted_position がリセットされること。
+    #[test]
+    fn last_emitted_position_reset_on_player_hand_pending() {
+        use crate::domain::board::build_remaining_deck;
+        use std::time::Instant;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card = state.deck[0];
+        state.last_emitted_position = Some((CardPosition::PlayerHand { seat: 0 }, Instant::now()));
+
+        apply_card_with_history(&mut state, card, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be None after PlayerHand pending (1st scan)"
+        );
+    }
+
+    /// PlayerHand 2枚目スキャン (confirmed 遷移) 後に last_emitted_position がリセットされること。
+    #[test]
+    fn last_emitted_position_reset_on_player_hand_confirmed() {
+        use crate::domain::board::build_remaining_deck;
+        use std::time::Instant;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card1 = state.deck[0];
+        let card2 = state.deck[1];
+        // 1枚目スキャンで pending 状態にする
+        apply_card_with_history(&mut state, card1, CardPosition::PlayerHand { seat: 0 }).unwrap();
+        // last_emitted_position を再設定（2枚目スキャン前を模擬）
+        state.last_emitted_position = Some((CardPosition::PlayerHand { seat: 0 }, Instant::now()));
+
+        // 2枚目スキャンで confirmed 遷移
+        apply_card_with_history(&mut state, card2, CardPosition::PlayerHand { seat: 0 }).unwrap();
+
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be None after PlayerHand confirmed (2nd scan)"
+        );
+    }
+
+    /// CommunityCard 正常配置 (slot 一致) 後に last_emitted_position がリセットされること。
+    #[test]
+    fn last_emitted_position_reset_on_community_card_success() {
+        use crate::domain::board::build_remaining_deck;
+        use std::time::Instant;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card = state.deck[0];
+        state.last_emitted_position =
+            Some((CardPosition::CommunityCard { slot: 0 }, Instant::now()));
+
+        // slot 0 は community_cards が空のときに有効
+        apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot: 0 }).unwrap();
+
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be None after CommunityCard slot match"
+        );
+    }
+
+    /// CommunityCard slot 不一致 (pool 入り) 後に last_emitted_position がリセットされること。
+    /// これが今回修正したバグの直接的な回帰テスト。
+    #[test]
+    fn last_emitted_position_reset_on_community_card_pool_entry() {
+        use crate::domain::board::build_remaining_deck;
+        use std::time::Instant;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card = state.deck[0];
+        // slot 1 を指定するが community_cards は空 (expected = 0) → slot 不一致でプール入り
+        state.last_emitted_position =
+            Some((CardPosition::CommunityCard { slot: 1 }, Instant::now()));
+
+        apply_card_with_history(&mut state, card, CardPosition::CommunityCard { slot: 1 }).unwrap();
+
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be None after CommunityCard slot mismatch (pool entry)"
+        );
+        // カードがプールに入っていること
+        assert_eq!(
+            state.card_pool.len(),
+            1,
+            "card should be in pool after slot mismatch"
+        );
+    }
+
+    /// CommunityCard pool から drain されて community に確定した後に
+    /// last_emitted_position がリセットされること。
+    #[test]
+    fn last_emitted_position_reset_on_community_card_after_pool_drain() {
+        use crate::domain::board::{start_game_with_deck, GameSettings, Phase};
+        use std::time::Instant;
+
+        // 3人ゲームを Flop 直前の状態で作成
+        let settings = GameSettings {
+            small_blind: 50,
+            big_blind: 100,
+            min_chip: 50,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let (mut board, deck) = start_game_with_deck(settings.clone(), names, 0, 1, None).unwrap();
+
+        // 全員 confirmed 状態にする
+        let card_a = Card::new(Suit::Spade, CardValue::Ace);
+        let card_b = Card::new(Suit::Heart, CardValue::King);
+        for p in &mut board.players {
+            p.hand = Some([card_a, card_b]);
+        }
+        // PreFlop ベッティング完了
+        let current_bet = board.current_bet;
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = current_bet;
+        }
+
+        let mut state = InnerState {
+            settings: settings.clone(),
+            board: Some(board),
+            deck,
+            ..Default::default()
+        };
+
+        // Flop 1枚目を slot 1 (不一致) でプールに入れる
+        let flop1 = state.deck[0];
+        apply_card_with_history(&mut state, flop1, CardPosition::CommunityCard { slot: 1 })
+            .unwrap();
+        assert_eq!(state.card_pool.len(), 1, "flop1 should be in pool");
+        assert!(state.board.as_ref().unwrap().phase == Phase::PreFlop);
+
+        // バーンカードを処理して Flop フェーズへ進める
+        state.last_emitted_position = Some((CardPosition::BurnCard, Instant::now()));
+        let burn_card = state.deck[1];
+        apply_card_with_history(&mut state, burn_card, CardPosition::BurnCard).unwrap();
+
+        // BurnCard 処理後 last_emitted_position がリセットされていること
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be None after BurnCard"
+        );
+    }
+
+    /// BurnCard 配置後に last_emitted_position がリセットされること。
+    #[test]
+    fn last_emitted_position_reset_on_burn_card() {
+        use crate::domain::board::build_remaining_deck;
+        use std::time::Instant;
+
+        let mut state = make_state_with_board();
+        state.deck = build_remaining_deck(state.board.as_ref().unwrap());
+
+        let card = state.deck[0];
+        state.last_emitted_position = Some((CardPosition::BurnCard, Instant::now()));
+
+        apply_card_with_history(&mut state, card, CardPosition::BurnCard).unwrap();
+
+        assert!(
+            state.last_emitted_position.is_none(),
+            "last_emitted_position should be None after BurnCard"
         );
     }
 }
