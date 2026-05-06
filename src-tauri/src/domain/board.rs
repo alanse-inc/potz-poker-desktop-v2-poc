@@ -599,7 +599,7 @@ impl TexasHoldemBoard {
             };
             leftover_candidates.sort_by_key(|&i| dealer_left_key(i));
             if let Some(&widx) = leftover_candidates.first() {
-                self.players[widx].stack += undistributed;
+                self.players[widx].stack = self.players[widx].stack.saturating_add(undistributed);
                 let pos = self.players[widx].position;
                 if !all_winner_positions.contains(&pos) {
                     all_winner_positions.push(pos);
@@ -3860,6 +3860,124 @@ mod tests {
         );
         // p1 は端数を受け取らない
         assert_eq!(loser.stack, 500, "loser should not receive undistributed");
+    }
+
+    /// R33 Bug 1: undistributed 加算時に stack=u32::MAX-5 + undistributed=10 が
+    /// panic も wrap もせず u32::MAX に saturate すること。
+    #[test]
+    fn resolve_showdown_undistributed_saturating_add_no_panic() {
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_winner: [Card; 2] = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::King,
+            },
+        ];
+        let hand_loser: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Three,
+            },
+        ];
+        let community = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Jack,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ten,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Five,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Six,
+            },
+        ];
+        // 勝者の stack を u32::MAX-5 に設定し、undistributed=10 が発生しても
+        // overflow panic / wrap が起きず u32::MAX に saturate することを確認する。
+        // dealer=0 → dealer-left 順は p1→p2→p0
+        // p0: winner, stack=u32::MAX-5; pot=100 distributed to p0, remaining undistributed=10
+        let near_max: u32 = u32::MAX - 5;
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "Winner".into(),
+                    stack: near_max,
+                    hand: Some(hand_winner),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "Loser".into(),
+                    stack: 500,
+                    hand: Some(hand_loser),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: false,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 2,
+                    name: "Folded".into(),
+                    stack: 500,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: true,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+            ],
+            community_cards: community,
+            // pots[0].amount=110: distributed=100 → undistributed=10
+            // winner の stack=near_max に 10 を加算 → saturate → u32::MAX
+            pots: vec![Pot { amount: 110 }],
+            phase: Phase::River,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+        // should not panic
+        board_check(&mut board, &mut deck).unwrap();
+
+        assert_eq!(board.phase, Phase::Showdown);
+        let winner = &board.players[0];
+        // near_max(u32::MAX-5) + distributed(100) は saturating_add で u32::MAX になり、
+        // さらに undistributed(10) の saturating_add も u32::MAX のまま。wrap しない。
+        assert_eq!(
+            winner.stack,
+            u32::MAX,
+            "stack should saturate at u32::MAX, got {}",
+            winner.stack
+        );
     }
 
     // ================================================================
