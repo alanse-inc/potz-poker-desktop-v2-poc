@@ -359,7 +359,12 @@ impl TexasHoldemBoard {
             }
             // last_raise_size をここで確定させる。advance_phase 後の末尾書き込みによる
             // 二重更新を防ぐため、current_bet 変更が確定したタイミングで更新する。
-            self.last_raise_size = new_current_bet.saturating_sub(self.current_bet);
+            // サブミニマム all-in（差分 < 現在の last_raise_size）はアクションを再オープン
+            // しないため、last_raise_size は変更しない（ポーカールール準拠）。
+            let raise_size = new_current_bet.saturating_sub(self.current_bet);
+            if raise_size >= self.last_raise_size {
+                self.last_raise_size = raise_size;
+            }
         }
         self.current_bet = new_current_bet;
 
@@ -7549,6 +7554,152 @@ mod tests {
         assert_eq!(board.community_cards.len(), 3);
         // 先に置いたカードが community_cards[0] に残っている
         assert_eq!(board.community_cards[0], card0);
+    }
+
+    // ================================================================
+    // R36 Bug 1 リグレッションテスト: サブミニマム all-in で last_raise_size を下げない
+    // ================================================================
+
+    /// Bug 1: サブミニマム all-in (差分 < last_raise_size) が last_raise_size を上書き
+    /// しないことを確認する。
+    ///
+    /// シナリオ:
+    /// - 3 人テーブル、PreFlop
+    /// - current_bet=200, last_raise_size=200 の状態を手動構築
+    /// - Player C (position=2, current_turn) が all-in: bet_in_round → 250 (差分 50)
+    /// - last_raise_size が 200 のまま維持されることを assert
+    /// - Player A (position=0) が board_raise(to=300) → エラー (min_raise 違反)
+    /// - Player A が board_raise(to=400) → 成功
+    #[test]
+    fn r36_bug1_subminimum_allin_does_not_lower_last_raise_size() {
+        use super::super::card::{Card, CardValue, Suit};
+
+        let hand_a: [Card; 2] = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::King,
+            },
+        ];
+        let hand_b: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Jack,
+            },
+        ];
+        let hand_c: [Card; 2] = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+        ];
+
+        // プリフロップ状態を手動構築:
+        // A (position=0): SB 相当, bet_in_round=200, stack=800, has_acted=false (現在の turn)
+        // B (position=1): BB 相当, bet_in_round=200, stack=800, has_acted=true
+        // C (position=2): UTG 相当, bet_in_round=200, stack=50, has_acted=false, current_turn
+        // current_bet=200, last_raise_size=200
+        // C のターン: board_allin → bet_in_round=250 (差分 50, サブミニマム)
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 2,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 2,
+            current_bet: 200,
+            last_raise_size: 200,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 800,
+                    hand: Some(hand_a),
+                    bet_in_round: 200,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 200,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 800,
+                    hand: Some(hand_b),
+                    bet_in_round: 200,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 200,
+                },
+                Player {
+                    position: 2,
+                    name: "C".into(),
+                    stack: 50,
+                    hand: Some(hand_c),
+                    bet_in_round: 200,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: false,
+                    total_invested: 200,
+                },
+            ],
+            community_cards: Vec::new(),
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::PreFlop,
+            winners: Vec::new(),
+            bb_ante_amount: 0,
+        };
+
+        // deck は空 (can_advance_with_available_cards = false → フェーズ進行しない)
+        let mut deck: Vec<Card> = Vec::new();
+
+        // C が all-in: bet_in_round=200+50=250, stack=0
+        board_allin(&mut board, &mut deck).expect("C should be able to go all-in");
+
+        // サブミニマム all-in (差分=50 < last_raise_size=200) なので last_raise_size は 200 のまま
+        assert_eq!(
+            board.last_raise_size, 200,
+            "last_raise_size must stay 200 after sub-minimum all-in (was {} before)",
+            200
+        );
+
+        // current_bet は 250 に更新されている
+        assert_eq!(
+            board.current_bet, 250,
+            "current_bet should be updated to 250"
+        );
+
+        // C の all-in 後、A が current_turn になっている
+        assert_eq!(
+            board.current_turn, 0,
+            "turn should advance to A (position=0)"
+        );
+
+        // A が raise to=300 を試みる → エラー (min_raise_to = 250 + 200 = 450)
+        let err = board_raise(&mut board, 300, &mut deck, 0);
+        assert!(
+            err.is_err(),
+            "raise to 300 should be rejected: min_raise_to = current_bet(250) + last_raise_size(200) = 450"
+        );
+
+        // A が raise to=450 を試みる → 成功 (ちょうど min_raise)
+        let ok = board_raise(&mut board, 450, &mut deck, 0);
+        assert!(
+            ok.is_ok(),
+            "raise to 450 should succeed (= current_bet + last_raise_size): {:?}",
+            ok.err()
+        );
     }
 
     /// Bug 2: RFID で burn_count=1 が既にセットされた状態で advance_phase(Flop) を呼ぶと
