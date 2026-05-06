@@ -1294,7 +1294,7 @@ pub fn board_raise(
             .current_player_idx()
             .ok_or_else(|| BoardError::InvalidAction("current player not found".into()))?;
         let p = &board.players[p_idx];
-        let all_in_total = p.stack + p.bet_in_round;
+        let all_in_total = p.stack.saturating_add(p.bet_in_round);
         if to < min_raise_to && to != all_in_total {
             return Err(BoardError::InvalidAction(format!(
                 "raise must be at least {} (or all-in {}); got {}",
@@ -1304,7 +1304,7 @@ pub fn board_raise(
     }
     board.apply_action(
         |p, _current_bet| {
-            let all_in_total = p.stack + p.bet_in_round;
+            let all_in_total = p.stack.saturating_add(p.bet_in_round);
             if to < min_raise_to && to != all_in_total {
                 return Err(BoardError::InvalidAction(format!(
                     "raise must be at least {} (or all-in {}); got {}",
@@ -6383,6 +6383,114 @@ mod tests {
             new_board.hand_number,
             u32::MAX,
             "hand_number should saturate at u32::MAX, not wrap to 0"
+        );
+    }
+
+    // ================================================================
+    // Bug A1: all_in_total の u32 overflow 防止
+    // ================================================================
+
+    /// `all_in_total` の saturating_add が正しい値を返すことを確認する。
+    ///
+    /// 実際の min_raise_to 超えシナリオ:
+    ///   stack=100, bet_in_round=500, min_raise_to=700 (current_bet=500, last_raise=200)
+    ///   all_in_total=600 < min_raise_to=700 だが all-in 例外 (to==all_in_total) で ok になるべき。
+    ///
+    /// さらに saturating_add の数値的正しさを単体確認:
+    ///   (u32::MAX-100).saturating_add(200) == u32::MAX (オーバーフローせず)
+    #[test]
+    fn all_in_total_saturating_add_prevents_overflow() {
+        // saturating_add の数値的正しさを確認
+        let big_stack: u32 = u32::MAX - 100;
+        let big_bet: u32 = 200;
+        assert_eq!(
+            big_stack.saturating_add(big_bet),
+            u32::MAX,
+            "saturating_add of (u32::MAX-100)+200 should yield u32::MAX, not wrap"
+        );
+
+        // 実際のゲームシナリオ: all_in_total < min_raise_to で all-in 例外が機能すること
+        use super::super::card::{Card, CardValue, Suit};
+        let hand_a: [Card; 2] = [
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::King,
+            },
+        ];
+        let hand_b: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Jack,
+            },
+        ];
+        // stack=100, bet_in_round=500 → all_in_total=600
+        // current_bet=500, last_raise_size=200 → min_raise_to=700
+        // to=600 (=all_in_total) は min_raise_to=700 未満だが all-in 例外で ok
+        let stack_val: u32 = 100;
+        let bet_val: u32 = 500;
+        let current_bet: u32 = 500;
+        let last_raise_size: u32 = 200;
+        let all_in_total = stack_val.saturating_add(bet_val); // 600
+        let min_raise_to = current_bet.saturating_add(last_raise_size); // 700
+        assert!(
+            all_in_total < min_raise_to,
+            "scenario requires all_in_total < min_raise_to"
+        );
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet,
+            last_raise_size,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: stack_val,
+                    hand: Some(hand_a),
+                    bet_in_round: bet_val,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: false,
+                    total_invested: bet_val,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 1000,
+                    hand: Some(hand_b),
+                    bet_in_round: current_bet,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: current_bet,
+                },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::PreFlop,
+            winners: vec![],
+        };
+        let mut deck = Vec::new();
+        let result = board_raise(&mut board, all_in_total, &mut deck, 0);
+        assert!(
+            result.is_ok(),
+            "all-in raise below min_raise_to should be allowed via all-in exception, got: {:?}",
+            result.err()
+        );
+        assert!(
+            board.players[0].is_all_in,
+            "player with stack=100 should be all-in after raising to all_in_total=600"
         );
     }
 }
