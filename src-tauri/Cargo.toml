@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2" }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
@@ -33,6 +33,9 @@ serialport = "4"
 regex = "1"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
 
 [features]
 default = ["custom-protocol"]
