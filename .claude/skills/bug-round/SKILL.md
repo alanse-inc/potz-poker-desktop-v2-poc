@@ -109,4 +109,10 @@ Implementer agent が「該当バグの前提が誤っている」と報告し�
 - 衝突解決後の amend は禁止。新規コミットを作る
 - `--no-verify` 等のフックスキップは原則禁止
 
+## 参照ルール
+
+- 詳細な運用規約: [.claude/rules/subagent-orchestration.md](../../rules/subagent-orchestration.md)
+- Tauri/Rust 落とし穴: [.claude/rules/tauri-pitfalls.md](../../rules/tauri-pitfalls.md)
+- Frontend 落とし穴: [.claude/rules/frontend-pitfalls.md](../../rules/frontend-pitfalls.md)
+
 $ARGUMENTS

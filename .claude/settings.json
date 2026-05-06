@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cargo *)",
+      "Bash(pnpm *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(node *)",
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(mkdir *)",
+      "Bash(rm *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(touch *)",
+      "Bash(jq *)",
+      "Bash(rg *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(tree *)",
+      "Bash(wc *)",
+      "Bash(cat *)",
+      "Bash(date)",
+      "Bash(date *)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(cargo publish *)",
+      "Bash(git push --force *)",
+      "Bash(rm -rf /)",
+      "Bash(sudo *)"
+    ],
+    "defaultMode": "auto"
+  },
+  "worktree": {
+    "symlinkDirectories": ["node_modules", ".cache"]
+  },
+  "env": {
+    "RUST_BACKTRACE": "1"
+  }
+}
