@@ -99,6 +99,10 @@ pub struct TexasHoldemBoard {
     pub phase: Phase,
     /// ショーダウン時の勝者ポジション一覧。
     pub winners: Vec<u8>,
+    /// bb_ante 徴収時のアンティ額。サイドポット計算で BB の total_invested から控除するために保持する。
+    /// bb_ante=false のときは 0。
+    #[serde(default)]
+    pub bb_ante_amount: u32,
 }
 
 impl TexasHoldemBoard {
@@ -487,7 +491,25 @@ impl TexasHoldemBoard {
 
         // サイドポット計算:
         // 各プレイヤーの total_invested をしきい値として使いポットを切り分ける。
-        let total_invested: Vec<u32> = self.players.iter().map(|p| p.total_invested).collect();
+        //
+        // bb_ante 補正: bb_ante=true のとき BB の total_invested にはアンティ分が含まれているが、
+        // アンティはポットに直接加算されるだけでサイドポットの境界を変えるべきではない。
+        // BB の「ゲームベット」としての投資額は total_invested - bb_ante_amount。
+        // これを補正しないと BB だけ余分なしきい値が生まれ、short-stack プレイヤーがいる場合に
+        // サイドポット境界が狂う。
+        let bb_ante = self.bb_ante_amount;
+        let bb_pos = self.bb_position;
+        let total_invested: Vec<u32> = self
+            .players
+            .iter()
+            .map(|p| {
+                if p.position == bb_pos {
+                    p.total_invested.saturating_sub(bb_ante)
+                } else {
+                    p.total_invested
+                }
+            })
+            .collect();
         let mut thresholds: Vec<u32> = total_invested.clone();
         thresholds.sort_unstable();
         thresholds.dedup();
@@ -504,7 +526,10 @@ impl TexasHoldemBoard {
         let total_pot_before = self.total_pot();
         // Bug D 対策: distributed を u64 に昇格してオーバーフローを防ぐ
         let mut distributed: u64 = 0;
-        let mut carry_over: u64 = 0;
+        // bb_ante 補正: アンティ分は total_invested ベースのサイドポット計算に現れないが、
+        // ポットには含まれている。最初のしきい値（最もスタックの低い全員参加ポット）に
+        // carry_over として加算することで、アンティが適切に全参加プレイヤーに分配される。
+        let mut carry_over: u64 = bb_ante as u64;
 
         for &threshold in &thresholds {
             let level_amount = threshold - prev_threshold;
@@ -968,6 +993,7 @@ fn start_game_with_stacks_and_deck(
         }],
         phase: Phase::PreFlop,
         winners: Vec::new(),
+        bb_ante_amount: ante_amount,
     };
     // ハンド配布後の残デッキをそのまま返す（再シャッフルしない）。
     Ok((board, deck))
@@ -2061,6 +2087,7 @@ mod tests {
             pots: vec![Pot { amount: 300 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -2126,6 +2153,7 @@ mod tests {
             pots: vec![Pot { amount: 301 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -2190,6 +2218,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -2298,6 +2327,7 @@ mod tests {
             pots: vec![Pot { amount: 300 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -2403,6 +2433,7 @@ mod tests {
             pots: vec![Pot { amount: 300 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new(); // deck は空でも ok（advance_phase で pop するが Flop 後は不要）
 
@@ -2513,6 +2544,7 @@ mod tests {
             pots: vec![Pot { amount: 300 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -2616,6 +2648,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -2755,6 +2788,7 @@ mod tests {
             pots: vec![Pot { amount: 1000 }], // 200+400+400
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -2877,6 +2911,7 @@ mod tests {
             pots: vec![Pot { amount: 1000 }], // 200+400+400
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -3001,6 +3036,7 @@ mod tests {
             pots: vec![Pot { amount: 300 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -3159,6 +3195,7 @@ mod tests {
             pots: vec![Pot { amount: 301 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -3242,6 +3279,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::PreFlop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -3326,6 +3364,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -3413,6 +3452,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -3497,6 +3537,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -3603,6 +3644,7 @@ mod tests {
             pots: vec![Pot { amount: 400 }],
             phase: Phase::PreFlop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -3739,6 +3781,302 @@ mod tests {
     }
 
     // ================================================================
+    // R33 Bug 2: bb_ante=true でのサイドポット境界テスト
+    // ================================================================
+
+    /// bb_ante=true, short-stack SB あり → サイドポット境界が正しく分離されること。
+    ///
+    /// シナリオ:
+    ///   - big_blind=200, small_blind=100, bb_ante=true
+    ///   - dealer=2(BTN,stack=1000), SB=0(stack=150), BB=1(stack=400)
+    ///   - SB: all-in 150, BB: BB200+ante200=400 all-in, BTN: call 200
+    ///   - total_pot = 200(ante) + 150 + 200 + 200 = 750
+    ///
+    /// 修正前の誤った分配 (BTN が全ハンドで最強役の場合):
+    ///   - threshold=150: 450, threshold=200: 100, threshold=400(BBのみ): 200
+    ///   - BTN wins threshold=150(450) + threshold=200(100) = 550
+    ///   - BB 単独受取 threshold=400(200) → BB=200 (誤: BB は BTN に全部負けたのに200受取)
+    ///
+    /// 修正後の正しい分配:
+    ///   - BB.total_invested 補正: 400-200=200, carry_over=200(ante)
+    ///   - threshold=150: 150*3+200=650, threshold=200: 50*2=100
+    ///   - BTN wins all → BTN=1550, BB=0, SB=0
+    #[test]
+    fn bb_ante_sidepot_boundary_btn_wins_all() {
+        use super::super::card::{Card, CardValue, Suit};
+
+        // コミュニティカード: A♠ A♥ A♦ K♠ K♥
+        let community: Vec<Card> = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::King,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::King,
+            },
+        ];
+
+        // BTN hand: A♣ 2♣ → Four of a Kind Aces (最強)
+        let btn_hand: [Card; 2] = [
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Two,
+            },
+        ];
+        // BB hand: K♦ K♣ → Four of a Kind Kings
+        let bb_hand: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::King,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::King,
+            },
+        ];
+        // SB hand: 3♦ 3♣ → Full House AAA-KK
+        let sb_hand: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Three,
+            },
+        ];
+
+        // dealer=2(BTN), SB=0, BB=1
+        // initial stacks: SB=150, BB=400, BTN=1000
+        // SB: total_invested=150(all-in), BB: total_invested=400(all-in, 200+200ante), BTN: total_invested=200(call)
+        // total_pot = ante200 + SB150 + BB200 + BTN200 = 750
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 2,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: u8::MAX,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "SB".into(),
+                    stack: 0,
+                    hand: Some(sb_hand),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 150,
+                },
+                Player {
+                    position: 1,
+                    name: "BB".into(),
+                    stack: 0,
+                    hand: Some(bb_hand),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 400, // 200(BB) + 200(ante)
+                },
+                Player {
+                    position: 2,
+                    name: "BTN".into(),
+                    stack: 800, // 1000 - 200(call)
+                    hand: Some(btn_hand),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 200,
+                },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 750 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+            bb_ante_amount: 200,
+        };
+
+        board.resolve_showdown();
+
+        // BTN が全ポット獲得: 1000 - 200(call) + 750(pot) = 1550
+        assert_eq!(
+            board.players[2].stack, 1550,
+            "BTN should win all 750 chips (800 + 750 pot = 1550)"
+        );
+        // BB は threshold=400 の独自ポットを不当受取しないこと (修正前は 200 受取)
+        assert_eq!(
+            board.players[1].stack, 0,
+            "BB should win nothing when BTN has stronger hand"
+        );
+        assert_eq!(
+            board.players[0].stack, 0,
+            "SB should win nothing when BTN has stronger hand"
+        );
+        // チップ保全
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(
+            total, 1550,
+            "total chips must be preserved: SB(150)+BB(400)+BTN(1000)=1550"
+        );
+    }
+
+    /// bb_ante=true, SB short-stack, BB が全ポット獲得するケース。
+    ///
+    /// BB が勝つ場合: メインポット+サイドポット = 750 すべてを BB が受取ること。
+    /// 修正前後でチップ保全は同じだが、内訳が正しいことを確認する。
+    #[test]
+    fn bb_ante_sidepot_boundary_bb_wins_all() {
+        use super::super::card::{Card, CardValue, Suit};
+
+        // コミュニティカード: A♠ A♥ A♦ K♠ K♥
+        let community: Vec<Card> = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::King,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::King,
+            },
+        ];
+
+        // BB hand: A♣ 2♣ → Four of a Kind Aces (最強)
+        let bb_hand: [Card; 2] = [
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Two,
+            },
+        ];
+        // BTN hand: K♦ K♣ → Four of a Kind Kings
+        let btn_hand: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::King,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::King,
+            },
+        ];
+        // SB hand: 3♦ 3♣ → Full House
+        let sb_hand: [Card; 2] = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Three,
+            },
+        ];
+
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 2,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: u8::MAX,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "SB".into(),
+                    stack: 0,
+                    hand: Some(sb_hand),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 150,
+                },
+                Player {
+                    position: 1,
+                    name: "BB".into(),
+                    stack: 0,
+                    hand: Some(bb_hand),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: true,
+                    has_acted: true,
+                    total_invested: 400, // 200(BB) + 200(ante)
+                },
+                Player {
+                    position: 2,
+                    name: "BTN".into(),
+                    stack: 800,
+                    hand: Some(btn_hand),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 200,
+                },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 750 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+            bb_ante_amount: 200,
+        };
+
+        board.resolve_showdown();
+
+        // BB が全ポット獲得: 0 + 750 = 750
+        // threshold=150: pot=650(ante込), eligible=全員 → BB wins → BB+650
+        // threshold=200: pot=100, BB+BTN → BB wins → BB+100
+        assert_eq!(
+            board.players[1].stack, 750,
+            "BB should win all 750 chips (0 + 750 pot)"
+        );
+        assert_eq!(
+            board.players[2].stack, 800,
+            "BTN should keep their remaining stack (1000 - 200 call = 800)"
+        );
+        assert_eq!(board.players[0].stack, 0, "SB should win nothing");
+        // チップ保全
+        let total: u32 = board.players.iter().map(|p| p.stack).sum();
+        assert_eq!(total, 1550, "total chips must be preserved");
+    }
+
+    // ================================================================
     // Bug 7 (resolve_showdown undistributed): 勝者に端数を渡す
     // ================================================================
 
@@ -3845,6 +4183,7 @@ mod tests {
             pots: vec![Pot { amount: 110 }],
             phase: Phase::River,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         // p1 が check → is_round_complete → advance_phase → Showdown → resolve_showdown
         let mut deck = Vec::new();
@@ -4096,6 +4435,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -4185,6 +4525,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -4256,6 +4597,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::PreFlop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -4346,6 +4688,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -4466,6 +4809,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         // ターン用カードのデッキ (Vec::pop は末尾から取るので逆順で積む)
         // pop() 順: Six (バーン) → Five (ターン)
@@ -4583,6 +4927,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Turn,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         // リバー用デッキ (Vec::pop は末尾から取るので逆順で積む)
         // pop() 順: Eight (バーン) → Seven (リバー)
@@ -4861,6 +5206,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Showdown,
             winners: vec![0],
+            bb_ante_amount: 0,
         };
 
         // dealer=0 の次は P1(stack=0) → スキップ → P2(stack=0) → スキップ → P3(stack=1000) が dealer
@@ -5490,6 +5836,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -5648,6 +5995,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Showdown,
             winners: vec![0],
+            bb_ante_amount: 0,
         };
 
         // バグ e) 確認: next_game で dealer 候補 P1(stack=0) がスキップされ P2 が dealer になる
@@ -5788,6 +6136,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Showdown,
             winners: vec![0],
+            bb_ante_amount: 0,
         };
 
         let result = next_game(&board, &settings);
@@ -5867,6 +6216,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Showdown,
             winners: vec![0],
+            bb_ante_amount: 0,
         };
 
         let result = next_game(&board, &settings);
@@ -5967,6 +6317,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
 
@@ -6064,6 +6415,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -6177,6 +6529,7 @@ mod tests {
             pots: vec![Pot { amount: pot_total }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
@@ -6275,6 +6628,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Flop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         // deck: pop() 順 = Six (先頭に burn 相当) → Five (Turn カード)
         let mut deck = vec![
@@ -6381,6 +6735,7 @@ mod tests {
             pots: vec![Pot { amount: 200 }],
             phase: Phase::Turn,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         // deck: pop() 順 = Eight (burn 相当) → Seven (River カード)
         let mut deck = vec![
@@ -6517,6 +6872,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::Showdown,
             winners: vec![0],
+            bb_ante_amount: 0,
         };
         let result = next_game(&board, &settings);
         assert!(
@@ -6626,6 +6982,7 @@ mod tests {
             pots: vec![Pot { amount: 0 }],
             phase: Phase::PreFlop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
         let result = board_raise(&mut board, all_in_total, &mut deck, 0);
@@ -6667,6 +7024,7 @@ mod tests {
             ],
             phase: Phase::PreFlop,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         let expected: u64 = (half_max as u64) * 4;
@@ -6826,6 +7184,7 @@ mod tests {
             pots: vec![Pot { amount: pot_a }, Pot { amount: pot_b }],
             phase: Phase::Showdown,
             winners: vec![],
+            bb_ante_amount: 0,
         };
 
         board.resolve_showdown();
