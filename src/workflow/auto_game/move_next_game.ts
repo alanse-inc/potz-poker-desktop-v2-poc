@@ -4,6 +4,7 @@
  * Electron 版の workflow/texas_holdem/auto/move_next_game.ts を TypeScript で移植
  */
 
+import { err, ok, type Result } from "neverthrow";
 import {
   assignPositions,
   determineNextButtonPlayerId,
@@ -14,9 +15,7 @@ import type {
   AutoModeInitialBoard,
 } from "../../domain/auto_game/types";
 
-export type MoveNextGameResult =
-  | { ok: true; board: AutoModeInitialBoard }
-  | { ok: false; error: string };
+export type MoveNextGameError = { kind: "no_btn_candidate" };
 
 /**
  * 現在のボードから次のゲームの初期ボードを生成する
@@ -26,7 +25,9 @@ export type MoveNextGameResult =
  * 3. 次の BTN を決定
  * 4. ポジションを割り当て
  */
-export function moveNextGame(board: AutoModeBoard): MoveNextGameResult {
+export function moveNextGame(
+  board: AutoModeBoard,
+): Result<AutoModeInitialBoard, MoveNextGameError> {
   const nextHandNumber = board.handNumber + 1;
 
   // プレイヤーの初期化
@@ -46,7 +47,7 @@ export function moveNextGame(board: AutoModeBoard): MoveNextGameResult {
   );
 
   if (!nextBtnId) {
-    return { ok: false, error: "No active player found for next BTN" };
+    return err({ kind: "no_btn_candidate" });
   }
 
   // ポジションを割り当て
@@ -58,5 +59,5 @@ export function moveNextGame(board: AutoModeBoard): MoveNextGameResult {
     handNumber: nextHandNumber,
   };
 
-  return { ok: true, board: nextBoard };
+  return ok(nextBoard);
 }

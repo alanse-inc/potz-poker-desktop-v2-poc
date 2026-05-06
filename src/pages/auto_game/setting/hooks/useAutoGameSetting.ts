@@ -4,12 +4,8 @@ import { useLocation, useNavigate } from "react-router";
 import { useAutoBoard } from "../../../../contexts/auto_board_context";
 import { useAutoModeInitializeBoardCommand } from "../../../../contexts/auto_mode_initialize_board_command_context";
 import { useSession } from "../../../../contexts/session_context";
-import {
-  assignPositions,
-  initializePlayers,
-} from "../../../../domain/auto_game/player";
-import type { AutoModeBoard } from "../../../../domain/auto_game/types";
 import { trackClientSideError } from "../../../../features/error_tracker";
+import { initializeBoard } from "../../../../workflow/auto_game/initialize_board";
 import { useAutoGameSettings } from "./useAutoGameSettings";
 
 export function useAutoGameSetting() {
@@ -40,51 +36,32 @@ export function useAutoGameSetting() {
   const handleGameStart = useCallback(async () => {
     if (!isStartable) return;
 
-    try {
-      const btnPlayer = players.find(
-        (p) => p.position === "btn" || p.position === "btn_sb",
-      );
-      if (!btnPlayer) {
-        toast.error("BTNプレイヤーが設定されていません");
-        return;
-      }
+    const result = initializeBoard({
+      setting: { name: setting.name },
+      players: players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        icon: p.icon ?? null,
+        seat: p.seat,
+        position: p.position,
+      })),
+      handNumber: lastHandNumber + 1,
+    });
 
-      const initializedPlayers = initializePlayers(
-        players.map((p) => ({
-          id: p.id,
-          name: p.name,
-          icon: p.icon ?? null,
-          seat: p.seat,
-        })),
-      );
-
-      const playersWithPositions = assignPositions(
-        initializedPlayers,
-        btnPlayer.id,
-      );
-
-      const startingHandNumber = lastHandNumber + 1;
-
-      const board: AutoModeBoard = {
-        setting: { name: setting.name },
-        players: playersWithPositions,
-        communityCards: [],
-        burnCards: [],
-        handNumber: startingHandNumber,
-        winners: null,
-      };
-
-      setBoard(board);
-    } catch (error) {
+    if (result.isErr()) {
+      const { kind } = result.error;
+      const message =
+        kind === "insufficient_players"
+          ? "プレイヤーは 2 人以上必要です"
+          : "BTNプレイヤーが設定されていません";
       trackClientSideError("[AutoGameSetting] Failed to initialize board", {
-        cause: error,
-        stack: error instanceof Error ? error.stack : undefined,
-        name: error instanceof Error ? error.name : undefined,
+        cause: kind,
       });
-      toast.error("ボード初期化に失敗しました");
+      toast.error(message);
       return;
     }
 
+    setBoard(result.value);
     navigate("/auto-game/playing");
   }, [isStartable, players, setting.name, lastHandNumber, setBoard, navigate]);
 

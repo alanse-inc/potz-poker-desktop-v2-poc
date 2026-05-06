@@ -41,9 +41,9 @@ describe("executeFold", () => {
       makePlayer({ id: "p2", seat: 2 }),
     ]);
     const result = executeFold(board, "p1");
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const p1 = result.board.players.find((p) => p.id === "p1");
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const p1 = result.value.players.find((p) => p.id === "p1");
       expect(p1?.action).toBe("fold");
     }
   });
@@ -51,7 +51,11 @@ describe("executeFold", () => {
   it("存在しないプレイヤー ID はエラー", () => {
     const board = makeBoard([makePlayer({ id: "p1", seat: 1 })]);
     const result = executeFold(board, "nonexistent");
-    expect(result.ok).toBe(false);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.kind).toBe("player_not_found");
+      expect(result.error.playerId).toBe("nonexistent");
+    }
   });
 });
 
@@ -62,9 +66,9 @@ describe("executeUnfold", () => {
       makePlayer({ id: "p2", seat: 2 }),
     ]);
     const result = executeUnfold(board, "p1");
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const p1 = result.board.players.find((p) => p.id === "p1");
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const p1 = result.value.players.find((p) => p.id === "p1");
       expect(p1?.action).toBeNull();
     }
   });
@@ -72,9 +76,9 @@ describe("executeUnfold", () => {
   it("fold していないプレイヤーの unfold は変更なし", () => {
     const board = makeBoard([makePlayer({ id: "p1", seat: 1, action: null })]);
     const result = executeUnfold(board, "p1");
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const p1 = result.board.players.find((p) => p.id === "p1");
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const p1 = result.value.players.find((p) => p.id === "p1");
       expect(p1?.action).toBeNull();
     }
   });

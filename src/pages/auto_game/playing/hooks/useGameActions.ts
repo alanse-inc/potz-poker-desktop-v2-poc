@@ -62,11 +62,11 @@ export function useGameActions() {
             ? executeFold(currentBoard, operation.playerId)
             : executeUnfold(currentBoard, operation.playerId);
 
-        if (result.ok) {
-          currentBoard = result.board;
-          setBoard(result.board);
+        if (result.isOk()) {
+          currentBoard = result.value;
+          setBoard(result.value);
         } else {
-          toast.error(result.error);
+          toast.error(`プレイヤーが見つかりません: ${result.error.playerId}`);
         }
       }
     } finally {
@@ -82,10 +82,10 @@ export function useGameActions() {
       if (!baseBoard) return;
 
       const result = executeFold(baseBoard, playerId);
-      if (!result.ok) return;
+      if (result.isErr()) return;
 
-      optimisticBoardRef.current = result.board;
-      setOptimisticBoard(result.board);
+      optimisticBoardRef.current = result.value;
+      setOptimisticBoard(result.value);
 
       foldQueueRef.current.push({ playerId, type: "fold" });
       processFoldQueue();
@@ -99,10 +99,10 @@ export function useGameActions() {
       if (!baseBoard) return;
 
       const result = executeUnfold(baseBoard, playerId);
-      if (!result.ok) return;
+      if (result.isErr()) return;
 
-      optimisticBoardRef.current = result.board;
-      setOptimisticBoard(result.board);
+      optimisticBoardRef.current = result.value;
+      setOptimisticBoard(result.value);
 
       foldQueueRef.current.push({ playerId, type: "unfold" });
       processFoldQueue();
@@ -140,12 +140,12 @@ export function useGameActions() {
     }
 
     const result = moveNextGame(currentBoard);
-    if (!result.ok) {
-      toast.error(result.error);
+    if (result.isErr()) {
+      toast.error("次のゲームへの移行に失敗しました");
       return;
     }
 
-    const nextInitial = result.board;
+    const nextInitial = result.value;
     const nextBoard: AutoModeBoard = {
       setting: nextInitial.setting,
       players: nextInitial.players,

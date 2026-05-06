@@ -44,9 +44,9 @@ describe("moveNextGame", () => {
       3,
     );
     const result = moveNextGame(board);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.board.handNumber).toBe(4);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.handNumber).toBe(4);
     }
   });
 
@@ -65,9 +65,9 @@ describe("moveNextGame", () => {
       makePlayer({ id: "p2", seat: 2, position: "bb" }),
     ]);
     const result = moveNextGame(board);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      for (const player of result.board.players) {
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      for (const player of result.value.players) {
         expect(player.action).toBeNull();
         expect(player.hand).toEqual([]);
         expect(player.odds).toBeNull();
@@ -82,13 +82,23 @@ describe("moveNextGame", () => {
       makePlayer({ id: "p3", seat: 3, position: "bb" }),
     ]);
     const result = moveNextGame(board);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
       // 前の BTN は p1 (seat 1)、次の BTN は p2 (seat 2)
-      const nextBtn = result.board.players.find(
+      const nextBtn = result.value.players.find(
         (p) => p.position === "btn" || p.position === "btn_sb",
       );
       expect(nextBtn?.id).toBe("p2");
+    }
+  });
+
+  it("プレイヤーが空の場合はエラー (no_btn_candidate)", () => {
+    // プレイヤーなし = 次の BTN を決定できない
+    const board = makeBoard([]);
+    const result = moveNextGame(board);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.kind).toBe("no_btn_candidate");
     }
   });
 });

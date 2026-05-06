@@ -5,12 +5,11 @@
  * ターン管理・履歴保存なし
  */
 
+import { err, ok, type Result } from "neverthrow";
 import { foldPlayerOnBoard } from "../../domain/auto_game/board";
 import type { AutoModeBoard } from "../../domain/auto_game/types";
 
-export type FoldResult =
-  | { ok: true; board: AutoModeBoard }
-  | { ok: false; error: string };
+export type FoldError = { kind: "player_not_found"; playerId: string };
 
 /**
  * 指定プレイヤーを fold 状態にする
@@ -20,14 +19,14 @@ export type FoldResult =
 export function executeFold(
   board: AutoModeBoard,
   playerId: string,
-): FoldResult {
+): Result<AutoModeBoard, FoldError> {
   const player = board.players.find((p) => p.id === playerId);
   if (!player) {
-    return { ok: false, error: `Player not found: ${playerId}` };
+    return err({ kind: "player_not_found", playerId });
   }
 
   const updatedBoard = foldPlayerOnBoard(board, playerId);
-  return { ok: true, board: updatedBoard };
+  return ok(updatedBoard);
 }
 
 /**
@@ -36,12 +35,12 @@ export function executeFold(
 export function executeUnfold(
   board: AutoModeBoard,
   playerId: string,
-): FoldResult {
+): Result<AutoModeBoard, FoldError> {
   const updatedPlayers = board.players.map((p) => {
     if (p.id === playerId && p.action === "fold") {
       return { ...p, action: null };
     }
     return p;
   });
-  return { ok: true, board: { ...board, players: updatedPlayers } };
+  return ok({ ...board, players: updatedPlayers });
 }
