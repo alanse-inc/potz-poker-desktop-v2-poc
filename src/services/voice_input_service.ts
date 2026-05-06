@@ -420,9 +420,10 @@ export class VoiceInputService {
           this.reconnectTimer = null;
           if (
             !this.intentionallyStopped &&
-            this.connectionGeneration === capturedGeneration
+            this.connectionGeneration === capturedGeneration &&
+            this.mediaStream !== null
           ) {
-            this.connectWebSocket(apiKey, stream);
+            this.connectWebSocket(apiKey, this.mediaStream);
           }
         }, delay);
       } else {

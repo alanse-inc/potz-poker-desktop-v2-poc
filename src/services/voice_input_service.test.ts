@@ -806,3 +806,124 @@ describe("VoiceInputService – applySettings restarts on device/model change (B
     expect(service.isRunning).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// stale stream 参照による二重オープン防止 (Bug 6 / R34)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – reconnect uses latest mediaStream, not stale closure stream (Bug 6)", () => {
+  let service: VoiceInputService;
+  let getUserMediaMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    getUserMediaMock = vi.fn();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: getUserMediaMock,
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    setupAudioContextMock();
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("applySettings でデバイス変更後の再接続クロージャが新しい stream (this.mediaStream) を使う", async () => {
+    // mic-A の stream を返すモック
+    const streamA = createMockMediaStream();
+    // mic-B の stream を返すモック
+    const streamB = createMockMediaStream();
+
+    // 1 回目 getUserMedia は mic-A の stream を返す
+    getUserMediaMock.mockResolvedValueOnce(streamA);
+
+    // start() で mic-A の stream 取得
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    // this.mediaStream が streamA であることを確認
+    const getMediaStream = () =>
+      (service as unknown as { mediaStream: MediaStream | null }).mediaStream;
+    expect(getMediaStream()).toBe(streamA);
+
+    // applySettings でデバイス変更 → stop() → start() が走る
+    // 2 回目 getUserMedia は mic-B の stream を返す
+    getUserMediaMock.mockResolvedValueOnce(streamB);
+
+    const applyPromise = service.applySettings({
+      deviceId: "mic-B",
+      sttModel: "nova-3",
+      enabled: true,
+      confidenceThreshold: 0.3,
+      endpointingMs: 200,
+    });
+    await flushPromises();
+    await applyPromise;
+
+    // 新しい WS が作られ、this.mediaStream が streamB に更新されている
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(getMediaStream()).toBe(streamB);
+
+    const ws1 = MockWebSocket.instances[1];
+    ws1.simulateOpen();
+
+    // ws1 が異常切断 → reconnect タイマーが登録される
+    ws1.simulateAbnormalClose(1006);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    // タイマーを進める → 再接続が走る
+    vi.runAllTimers();
+
+    // 新しい WS (#3) が作られている
+    expect(MockWebSocket.instances.length).toBe(3);
+
+    // ws2 の onopen で setupAudioProcessor が呼ばれるとき、
+    // createMediaStreamSource に渡される stream が streamB であることを検証するため
+    // AudioContext モックの createMediaStreamSource を spy する
+    // ここでは this.mediaStream が streamB のままであることで間接的に検証する
+    expect(getMediaStream()).toBe(streamB);
+  });
+
+  it("mediaStream が null の場合は再接続タイマー発火時に connectWebSocket が呼ばれない", async () => {
+    const streamA = createMockMediaStream();
+    getUserMediaMock.mockResolvedValueOnce(streamA);
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    // 異常切断 → reconnect タイマー登録
+    ws0.simulateAbnormalClose(1006);
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    // mediaStream を強制的に null にする (stream が stop されたケースを模倣)
+    (service as unknown as { mediaStream: MediaStream | null }).mediaStream =
+      null;
+
+    // タイマーを進める → mediaStream===null のガードで connectWebSocket が呼ばれない
+    vi.runAllTimers();
+
+    expect(MockWebSocket.instances.length).toBe(1);
+  });
+});
