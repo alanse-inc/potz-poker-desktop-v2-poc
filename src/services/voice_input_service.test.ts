@@ -927,3 +927,238 @@ describe("VoiceInputService – reconnect uses latest mediaStream, not stale clo
     expect(MockWebSocket.instances.length).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// VoiceInputDiagnostics — メトリクス収集 (Issue #10)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – VoiceInputDiagnostics metrics collection (Issue #10)", () => {
+  let service: VoiceInputService;
+  let capturedProcessor: {
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+    onaudioprocess: ((e: AudioProcessingEvent) => void) | null;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    capturedProcessor = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      onaudioprocess: null,
+    };
+    const mockGain = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      gain: { value: 1.0 },
+    };
+    const mockCompressor = {
+      connect: vi.fn(),
+      threshold: { value: 0 },
+      knee: { value: 0 },
+      ratio: { value: 1 },
+      attack: { value: 0.003 },
+      release: { value: 0.1 },
+    };
+    const mockSource = { connect: vi.fn() };
+
+    class MockAudioContextCapture {
+      state = "running";
+      sampleRate = 16000;
+      destination = {};
+      createMediaStreamSource = vi.fn().mockReturnValue(mockSource);
+      createGain = vi.fn().mockReturnValue(mockGain);
+      createDynamicsCompressor = vi.fn().mockReturnValue(mockCompressor);
+      createScriptProcessor = vi.fn().mockReturnValue(capturedProcessor);
+      resume = vi.fn().mockResolvedValue(undefined);
+      close = vi.fn().mockResolvedValue(undefined);
+    }
+
+    vi.stubGlobal("AudioContext", MockAudioContextCapture);
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("start() 前は getDiagnostics() がゼロ初期値を返す", () => {
+    const d = service.getDiagnostics();
+    expect(d.connectionUptimeMs).toBeNull();
+    expect(d.framesSent).toBe(0);
+    expect(d.lastFrameSentAt).toBeNull();
+    expect(d.lastDisconnectReason).toBeNull();
+    expect(d.errorCount).toBe(0);
+    expect(d.reconnectAttempts).toBe(0);
+    expect(d.wsReadyState).toBeNull();
+  });
+
+  it("WebSocket open 後に connectionUptimeMs が増加する", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    // 2 秒進める
+    vi.advanceTimersByTime(2000);
+
+    const d = service.getDiagnostics();
+    expect(d.connectionUptimeMs).not.toBeNull();
+    expect(d.connectionUptimeMs).toBeGreaterThanOrEqual(2000);
+    expect(d.wsReadyState).toBe(WebSocket.OPEN);
+  });
+
+  it("onaudioprocess が呼ばれると framesSent が増加する", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+    await flushPromises();
+    expect(capturedProcessor.onaudioprocess).not.toBeNull();
+
+    // WS が OPEN のまま onaudioprocess を呼び出す
+    const float32Data = new Float32Array([0.5, -0.3, 0.1]);
+    const mockEvent = {
+      inputBuffer: {
+        getChannelData: vi.fn().mockReturnValue(float32Data),
+      },
+    } as unknown as AudioProcessingEvent;
+
+    capturedProcessor.onaudioprocess?.(mockEvent);
+
+    const d = service.getDiagnostics();
+    expect(d.framesSent).toBe(1);
+    expect(d.lastFrameSentAt).not.toBeNull();
+  });
+
+  it("onDiagnostics コールバックが 1 秒ごとに呼ばれる", async () => {
+    const diagnosticsEvents: import("../types/voice_input").VoiceInputDiagnostics[] =
+      [];
+    const unsub = service.onDiagnostics((d) => diagnosticsEvents.push(d));
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    // 3 秒進める → 3 回コールバックが呼ばれるはず
+    vi.advanceTimersByTime(3000);
+
+    expect(diagnosticsEvents.length).toBeGreaterThanOrEqual(3);
+    unsub();
+  });
+
+  it("stop() 後は onDiagnostics コールバックが呼ばれなくなる", async () => {
+    const diagnosticsEvents: import("../types/voice_input").VoiceInputDiagnostics[] =
+      [];
+    const unsub = service.onDiagnostics((d) => diagnosticsEvents.push(d));
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    vi.advanceTimersByTime(1000);
+    const countBeforeStop = diagnosticsEvents.length;
+    expect(countBeforeStop).toBeGreaterThanOrEqual(1);
+
+    service.stop();
+
+    // stop 後に時間を進めても増えない
+    vi.advanceTimersByTime(3000);
+    expect(diagnosticsEvents.length).toBe(countBeforeStop);
+    unsub();
+  });
+
+  it("onDiagnostics の unsub を呼ぶとコールバックが解除される", async () => {
+    const events: import("../types/voice_input").VoiceInputDiagnostics[] = [];
+    const unsub = service.onDiagnostics((d) => events.push(d));
+
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    vi.advanceTimersByTime(1000);
+    const countAfterFirstTick = events.length;
+    expect(countAfterFirstTick).toBeGreaterThanOrEqual(1);
+
+    // unsub 後はイベントが来ない
+    unsub();
+    vi.advanceTimersByTime(2000);
+    expect(events.length).toBe(countAfterFirstTick);
+  });
+
+  it("異常切断時に lastDisconnectReason が記録される", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    // 異常切断 (code=1006)
+    ws.simulateAbnormalClose(1006);
+
+    const d = service.getDiagnostics();
+    expect(d.lastDisconnectReason).toContain("1006");
+  });
+
+  it("start() 再呼び出し時にメトリクスがリセットされる", async () => {
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+    await flushPromises();
+
+    // フレームを送信
+    const float32Data = new Float32Array([0.5]);
+    capturedProcessor.onaudioprocess?.({
+      inputBuffer: { getChannelData: vi.fn().mockReturnValue(float32Data) },
+    } as unknown as AudioProcessingEvent);
+
+    expect(service.getDiagnostics().framesSent).toBe(1);
+
+    // 異常切断 → reconnect タイマー発火前に stop
+    ws.simulateAbnormalClose(1006);
+    service.stop();
+
+    // 再 start
+    const restartPromise = service.start();
+    await flushPromises();
+    await restartPromise;
+
+    const d = service.getDiagnostics();
+    expect(d.framesSent).toBe(0);
+    expect(d.lastFrameSentAt).toBeNull();
+    expect(d.lastDisconnectReason).toBeNull();
+    expect(d.errorCount).toBe(0);
+  });
+});

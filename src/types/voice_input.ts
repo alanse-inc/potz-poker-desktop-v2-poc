@@ -88,3 +88,27 @@ export interface VoiceInputSettings {
   confidenceThreshold: number;
   endpointingMs: number;
 }
+
+/**
+ * 音声入力の診断メトリクス。
+ * VoiceInputService が 1 秒ごとに収集し、onDiagnostics コールバックで通知する。
+ * 設定画面の診断パネルで表示する。
+ */
+export interface VoiceInputDiagnostics {
+  /** 接続開始からの経過ミリ秒 (stopped / error のときは null) */
+  connectionUptimeMs: number | null;
+  /** Deepgram WebSocket へ送信したフレーム数（累積） */
+  framesSent: number;
+  /** 最後にフレームを送信した時刻 (Unix ms)。未送信時は null */
+  lastFrameSentAt: number | null;
+  /** WebSocket 切断理由（最後の異常切断のコード＋理由。正常停止は null） */
+  lastDisconnectReason: string | null;
+  /** 累積エラー数（接続エラー・送信エラーを含む） */
+  errorCount: number;
+  /** 現在の再接続試行回数 */
+  reconnectAttempts: number;
+  /** Deepgram WebSocket の現在の readyState (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED, null=未生成) */
+  wsReadyState: number | null;
+}
+
+export type DiagnosticsCallback = (diagnostics: VoiceInputDiagnostics) => void;

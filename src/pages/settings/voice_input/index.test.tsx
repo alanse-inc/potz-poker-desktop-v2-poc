@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUnsubStatus = vi.fn();
 const mockUnsubCommand = vi.fn();
+const mockUnsubDiagnostics = vi.fn();
 
 vi.mock("../../../services/voice_input_service", () => {
   const mockStart = vi.fn().mockResolvedValue(undefined);
@@ -24,6 +25,7 @@ vi.mock("../../../services/voice_input_service", () => {
   const mockGetAudioDevices = vi.fn().mockResolvedValue([]);
   const mockOnStatus = vi.fn().mockReturnValue(vi.fn());
   const mockOnCommand = vi.fn().mockReturnValue(vi.fn());
+  const mockOnDiagnostics = vi.fn().mockReturnValue(vi.fn());
 
   return {
     voiceInputService: {
@@ -34,6 +36,7 @@ vi.mock("../../../services/voice_input_service", () => {
       endpointingMs: 300,
       onStatus: mockOnStatus,
       onCommand: mockOnCommand,
+      onDiagnostics: mockOnDiagnostics,
       start: mockStart,
       stop: mockStop,
       getAudioDevices: mockGetAudioDevices,
@@ -110,6 +113,9 @@ describe("VoiceInputSettings – BUG-T-1: useEffect 再登録ループ修正", (
     // beforeEach で改めて戻り値を設定する（clearAllMocks でリセットされるため）
     vi.mocked(voiceInputService.onStatus).mockReturnValue(mockUnsubStatus);
     vi.mocked(voiceInputService.onCommand).mockReturnValue(mockUnsubCommand);
+    vi.mocked(voiceInputService.onDiagnostics).mockReturnValue(
+      mockUnsubDiagnostics,
+    );
     vi.mocked(voiceInputService.getAudioDevices).mockResolvedValue([]);
     vi.mocked(voiceInputService.start).mockResolvedValue(undefined);
   });
@@ -164,6 +170,7 @@ describe("VoiceInputSettings – BUG-T-1: useEffect 再登録ループ修正", (
 
     expect(mockUnsubStatus).toHaveBeenCalledTimes(1);
     expect(mockUnsubCommand).toHaveBeenCalledTimes(1);
+    expect(mockUnsubDiagnostics).toHaveBeenCalledTimes(1);
   });
 
   it("アンマウント時に isMicTestRunning が false であれば stop は呼ばれない", async () => {

@@ -10,6 +10,7 @@ import {
   voiceInputService,
 } from "../../../services/voice_input_service";
 import type {
+  VoiceInputDiagnostics,
   VoiceInputStatus,
   VoiceInputStatusEvent,
   VoicePokerCommand,
@@ -61,6 +62,9 @@ export function VoiceInputSettings() {
   const [isMicTestRunning, setIsMicTestRunning] = useState(false);
   const isMicTestRunningRef = useRef(isMicTestRunning);
   const [commandLog, setCommandLog] = useState<VoicePokerCommand[]>([]);
+  const [diagnostics, setDiagnostics] = useState<VoiceInputDiagnostics | null>(
+    null,
+  );
 
   const apiKeyMissing = !DEEPGRAM_API_KEY;
 
@@ -89,9 +93,16 @@ export function VoiceInputSettings() {
       },
     );
 
+    const unsubDiagnostics = voiceInputService.onDiagnostics(
+      (d: VoiceInputDiagnostics) => {
+        setDiagnostics(d);
+      },
+    );
+
     return () => {
       unsubStatus();
       unsubCommand();
+      unsubDiagnostics();
       // ref で最新値を参照することでクロージャキャプチャ問題を回避する
       if (isMicTestRunningRef.current) {
         voiceInputService.stop();
@@ -319,6 +330,61 @@ export function VoiceInputSettings() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 診断パネル */}
+        {diagnostics !== null && (
+          <div className="rounded-lg border border-gray-700 bg-gray-900 p-3">
+            <p className="mb-2 font-bold text-gray-400 text-xs">
+              診断メトリクス
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-gray-300 text-xs">
+              <span className="text-gray-500">接続時間</span>
+              <span>
+                {diagnostics.connectionUptimeMs !== null
+                  ? `${(diagnostics.connectionUptimeMs / 1000).toFixed(0)}s`
+                  : "—"}
+              </span>
+              <span className="text-gray-500">送信フレーム数</span>
+              <span>{diagnostics.framesSent.toLocaleString()}</span>
+              <span className="text-gray-500">最終送信</span>
+              <span>
+                {diagnostics.lastFrameSentAt !== null
+                  ? `${((Date.now() - diagnostics.lastFrameSentAt) / 1000).toFixed(1)}s 前`
+                  : "—"}
+              </span>
+              <span className="text-gray-500">エラー数</span>
+              <span
+                className={
+                  diagnostics.errorCount > 0 ? "text-red-400" : "text-gray-300"
+                }
+              >
+                {diagnostics.errorCount}
+              </span>
+              <span className="text-gray-500">再接続試行</span>
+              <span>{diagnostics.reconnectAttempts}</span>
+              <span className="text-gray-500">WS 状態</span>
+              <span>
+                {diagnostics.wsReadyState === null
+                  ? "—"
+                  : diagnostics.wsReadyState === 0
+                    ? "CONNECTING"
+                    : diagnostics.wsReadyState === 1
+                      ? "OPEN"
+                      : diagnostics.wsReadyState === 2
+                        ? "CLOSING"
+                        : "CLOSED"}
+              </span>
+              {diagnostics.lastDisconnectReason !== null && (
+                <>
+                  <span className="text-gray-500">切断理由</span>
+                  <span className="break-all text-yellow-400">
+                    {diagnostics.lastDisconnectReason}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         )}
 

@@ -13,6 +13,8 @@
  */
 
 import type {
+  DiagnosticsCallback,
+  VoiceInputDiagnostics,
   VoiceInputSettings,
   VoiceInputStatus,
   VoiceInputStatusEvent,
@@ -60,6 +62,9 @@ interface DeepgramMessage {
 
 type CommandCallback = (command: VoicePokerCommand) => void;
 type StatusCallback = (event: VoiceInputStatusEvent) => void;
+
+// DiagnosticsCallback は types/voice_input から再エクスポートして参照可能にする
+export type { DiagnosticsCallback, VoiceInputDiagnostics };
 
 // ---------------------------------------------------------------------------
 // エラートラッカー (console.error フォールバック)
@@ -133,15 +138,32 @@ export class VoiceInputService {
   private silentGain: GainNode | null = null;
   private commandCallbacks: Set<CommandCallback> = new Set();
   private statusCallbacks: Set<StatusCallback> = new Set();
+  private diagnosticsCallbacks: Set<DiagnosticsCallback> = new Set();
   private reconnectAttempts = 0;
   private intentionallyStopped = false;
   private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private diagnosticsInterval: ReturnType<typeof setInterval> | null = null;
   private pendingAudio: ArrayBuffer[] = [];
   private startPromise: Promise<void> | null = null;
   private speechStartTime: number | null = null;
   private lastInterimTranscript: string | null = null;
   private connectionGeneration = 0;
+
+  // ---------------------------------------------------------------------------
+  // 診断メトリクス用フィールド
+  // ---------------------------------------------------------------------------
+
+  /** WebSocket が OPEN になった時刻 (Unix ms)。切断されたら null */
+  private connectionStartedAt: number | null = null;
+  /** Deepgram WebSocket へ送信したフレーム数（累積） */
+  private _framesSent = 0;
+  /** 最後にフレームを送信した時刻 (Unix ms) */
+  private _lastFrameSentAt: number | null = null;
+  /** 最後の異常切断理由（コード＋理由文字列） */
+  private _lastDisconnectReason: string | null = null;
+  /** 累積エラー数 */
+  private _errorCount = 0;
 
   // ---------------------------------------------------------------------------
   // Getters
@@ -204,6 +226,29 @@ export class VoiceInputService {
     this.statusCallbacks.add(callback);
     return () => {
       this.statusCallbacks.delete(callback);
+    };
+  }
+
+  onDiagnostics(callback: DiagnosticsCallback): () => void {
+    this.diagnosticsCallbacks.add(callback);
+    return () => {
+      this.diagnosticsCallbacks.delete(callback);
+    };
+  }
+
+  /** 現在の診断メトリクスのスナップショットを返す */
+  getDiagnostics(): VoiceInputDiagnostics {
+    return {
+      connectionUptimeMs:
+        this.connectionStartedAt !== null
+          ? Date.now() - this.connectionStartedAt
+          : null,
+      framesSent: this._framesSent,
+      lastFrameSentAt: this._lastFrameSentAt,
+      lastDisconnectReason: this._lastDisconnectReason,
+      errorCount: this._errorCount,
+      reconnectAttempts: this.reconnectAttempts,
+      wsReadyState: this.ws !== null ? this.ws.readyState : null,
     };
   }
 
@@ -279,6 +324,10 @@ export class VoiceInputService {
     this.intentionallyStopped = false;
     this.reconnectAttempts = 0;
     this.connectionGeneration++;
+    this._framesSent = 0;
+    this._lastFrameSentAt = null;
+    this._lastDisconnectReason = null;
+    this._errorCount = 0;
 
     this.startPromise = (async () => {
       try {
@@ -304,7 +353,9 @@ export class VoiceInputService {
   stop(): void {
     this.intentionallyStopped = true;
     this.connectionGeneration++;
+    this.stopDiagnosticsLoop();
     this.cleanup();
+    this.connectionStartedAt = null;
     this.emitStatus("stopped");
   }
 
@@ -383,10 +434,12 @@ export class VoiceInputService {
 
     ws.onopen = () => {
       this.reconnectAttempts = 0;
+      this.connectionStartedAt = Date.now();
       this.emitStatus("listening");
       this.setupAudioProcessor(stream);
       this.startKeepAlive();
       this.flushPendingAudio();
+      this.startDiagnosticsLoop();
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -394,12 +447,15 @@ export class VoiceInputService {
     };
 
     ws.onerror = (event: Event) => {
+      this._errorCount++;
       trackError(`DeepGram WebSocket 接続エラー: ${event.type}`);
       this.emitStatus("error", "DeepGram WebSocket 接続エラー");
     };
 
     ws.onclose = (event: CloseEvent) => {
       this.stopKeepAlive();
+      this.stopDiagnosticsLoop();
+      this.connectionStartedAt = null;
 
       if (this.intentionallyStopped) {
         if (this._status !== "stopped" && this._status !== "error") {
@@ -409,6 +465,12 @@ export class VoiceInputService {
       }
 
       const isAbnormalClose = event.code !== 1000;
+      if (isAbnormalClose) {
+        const reason = event.reason
+          ? `code=${event.code} reason=${event.reason}`
+          : `code=${event.code}`;
+        this._lastDisconnectReason = reason;
+      }
       if (isAbnormalClose && this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(
           RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts,
@@ -427,6 +489,7 @@ export class VoiceInputService {
           }
         }, delay);
       } else {
+        this._errorCount++;
         this.cleanup();
         this.emitStatus(
           "error",
@@ -487,6 +550,8 @@ export class VoiceInputService {
       }
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(int16.buffer);
+        this._framesSent++;
+        this._lastFrameSentAt = Date.now();
       } else {
         if (this.pendingAudio.length >= AUDIO_BUFFER_LIMIT) {
           this.pendingAudio.shift();
@@ -536,6 +601,31 @@ export class VoiceInputService {
     if (this.keepAliveInterval !== null) {
       clearInterval(this.keepAliveInterval);
       this.keepAliveInterval = null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 診断ループ
+  // ---------------------------------------------------------------------------
+
+  private startDiagnosticsLoop(): void {
+    this.stopDiagnosticsLoop();
+    this.diagnosticsInterval = setInterval(() => {
+      this.emitDiagnostics();
+    }, 1000);
+  }
+
+  private stopDiagnosticsLoop(): void {
+    if (this.diagnosticsInterval !== null) {
+      clearInterval(this.diagnosticsInterval);
+      this.diagnosticsInterval = null;
+    }
+  }
+
+  private emitDiagnostics(): void {
+    const diagnostics = this.getDiagnostics();
+    for (const cb of this.diagnosticsCallbacks) {
+      cb(diagnostics);
     }
   }
 
@@ -634,6 +724,7 @@ export class VoiceInputService {
       this.reconnectTimer = null;
     }
     this.stopKeepAlive();
+    this.stopDiagnosticsLoop();
     this.cleanupAudioProcessor();
 
     if (this.mediaStream) {
