@@ -4302,6 +4302,7 @@ mod tests {
             pots: vec![Pot { amount: 110 }],
             phase: Phase::River,
             winners: vec![],
+            bb_ante_amount: 0,
         };
         let mut deck = Vec::new();
         // should not panic
