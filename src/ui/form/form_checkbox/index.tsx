@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 type Props = {
   text: string;
   checked: boolean;
@@ -11,6 +13,7 @@ export function FormCheckbox({
   disabled = false,
   onChange,
 }: Props) {
+  const id = useId();
   // div
   const opacity = disabled ? "opacity-50" : "";
   // input
@@ -21,12 +24,12 @@ export function FormCheckbox({
     <div
       className={`flex h-12 w-full items-center justify-between rounded-md border-1 border-gray-800 bg-black-deep px-10 ${opacity}`}
     >
-      <label htmlFor="checkbox" className={`text-white ${cursor}`}>
+      <label htmlFor={id} className={`text-white ${cursor}`}>
         {text}
       </label>
       <div className="relative flex h-full items-center">
         <input
-          id="checkbox"
+          id={id}
           type="checkbox"
           checked={checked}
           onChange={onChange}
