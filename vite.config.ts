@@ -24,7 +24,17 @@ export default defineConfig(async () => ({
       : undefined,
     watch: {
       // src-tauri は Tauri CLI 側で監視
-      ignored: ["**/src-tauri/**"],
+      // .claude は subagent worktree 操作で reload しないよう除外
+      ignored: [
+        "**/src-tauri/**",
+        "**/.claude/**",
+        "**/.git/**",
+        "**/node_modules/**",
+        "**/coverage/**",
+        "**/dist/**",
+        "**/release/**",
+        "**/out/**",
+      ],
     },
   },
   build: {
