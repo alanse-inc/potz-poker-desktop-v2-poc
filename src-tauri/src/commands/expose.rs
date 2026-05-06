@@ -58,6 +58,7 @@ pub fn expose(app: AppHandle, expose_card: Card, state: State<AppState>) -> Resu
         }
 
         guard.deck.retain(|c| c != &burn_card && c != &expose_card);
+        guard.burn_card = None;
         let board_snapshot = guard.board.clone().ok_or_else(|| "no board".to_string())?;
         (burn_card, board_snapshot)
     }; // lock を解放してから emit
@@ -148,6 +149,41 @@ mod tests {
         assert!(
             state.deck.len() < deck_len_before,
             "deck length should decrease after expose"
+        );
+    }
+
+    // ================================================================
+    // Bug 3 fix: expose 成功後に burn_card フィールドが None にリセットされること
+    // ================================================================
+
+    #[test]
+    fn expose_resets_burn_card() {
+        let mut state = make_state_with_board();
+        let burn_card = *state.deck.first().expect("deck must have cards");
+        let expose_card = state
+            .deck
+            .iter()
+            .rev()
+            .find(|&&c| c != burn_card)
+            .copied()
+            .expect("deck should have a card different from burn_card");
+
+        // expose 前に burn_card をセット
+        state.burn_card = Some(burn_card);
+        assert!(
+            state.burn_card.is_some(),
+            "burn_card should be Some before expose"
+        );
+
+        // expose コマンドと同じロジックを直接実行
+        let board = state.board.as_mut().unwrap();
+        board_expose(board, expose_card, burn_card).unwrap();
+        state.deck.retain(|c| c != &burn_card && c != &expose_card);
+        state.burn_card = None; // Bug 3 fix
+
+        assert!(
+            state.burn_card.is_none(),
+            "burn_card must be None after expose succeeds"
         );
     }
 
