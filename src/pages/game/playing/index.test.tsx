@@ -6,6 +6,35 @@ import { api } from "../../../api/client";
 import type { TexasHoldemBoard } from "../../../types";
 import { GamePlaying } from "./index";
 
+// voice_input_service を mock (@livekit/krisp-noise-filter が jsdom で Worker を要求するため)
+vi.mock("../../../services/voice_input_service", () => ({
+  voiceInputService: {
+    onCommand: vi.fn().mockReturnValue(() => {}),
+    onStatus: vi.fn().mockReturnValue(() => {}),
+    onDiagnostics: vi.fn().mockReturnValue(() => {}),
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn(),
+    loadSettings: vi.fn().mockResolvedValue(undefined),
+    getDiagnostics: vi.fn().mockReturnValue({
+      connectionUptimeMs: null,
+      framesSent: 0,
+      lastFrameSentAt: null,
+      lastDisconnectReason: null,
+      errorCount: 0,
+      reconnectAttempts: 0,
+      wsReadyState: null,
+      bvcSupported: false,
+      bvcEnabled: false,
+    }),
+    get status() {
+      return "stopped";
+    },
+    get isRunning() {
+      return false;
+    },
+  },
+}));
+
 // api/client を mock
 vi.mock("../../../api/client", () => ({
   api: {

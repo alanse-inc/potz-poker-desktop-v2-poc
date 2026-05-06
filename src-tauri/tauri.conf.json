@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' wss://api.deepgram.com https://api.deepgram.com ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' wss://api.deepgram.com https://api.deepgram.com ipc: http://ipc.localhost; worker-src 'self' blob:"
     }
   },
   "bundle": {
