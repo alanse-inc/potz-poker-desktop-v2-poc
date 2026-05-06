@@ -14,6 +14,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import type { AutoModeBoard } from "../domain/auto_game/types";
@@ -58,7 +59,9 @@ export function AutoBoardProvider({ children }: { children: ReactNode }) {
     loadFromStorage,
   );
 
-  const myLabel = getCurrentWebviewWindow().label;
+  // getCurrentWebviewWindow().label はマウント中に変わらないため一度だけ評価する。
+  // useCallback の依存に渡すので参照を安定させて listener の再登録を抑止する。
+  const myLabel = useMemo(() => getCurrentWebviewWindow().label, []);
 
   const setBoard = useCallback(
     (b: AutoModeBoard) => {
