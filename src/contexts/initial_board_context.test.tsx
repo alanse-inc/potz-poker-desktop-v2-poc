@@ -143,4 +143,34 @@ describe("InitialBoardProvider", () => {
       expect(unsubscribe).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("getInitialBoard() resolve 前にアンマウントしても setInitialBoard が呼ばれない", async () => {
+    let resolveBoard!: (board: TexasHoldemInitialBoard) => void;
+    vi.mocked(api.initialBoard.getInitialBoard).mockReturnValue(
+      new Promise<TexasHoldemInitialBoard>((resolve) => {
+        resolveBoard = resolve;
+      }),
+    );
+
+    const { result, unmount } = renderHook(() => useInitialBoard(), {
+      wrapper,
+    });
+
+    // unmount 前は null のまま
+    expect(result.current.initialBoard).toBeNull();
+
+    // アンマウント (cancelled = true になる)
+    unmount();
+
+    // アンマウント後に Promise を resolve
+    const board = makeInitialBoard({ handNumber: 99 });
+    await act(async () => {
+      resolveBoard(board);
+      // microtask を flush して .then() コールバックが実行されるのを待つ
+      await Promise.resolve();
+    });
+
+    // cancelled フラグにより setInitialBoard は呼ばれず、initialBoard は null のまま
+    expect(result.current.initialBoard).toBeNull();
+  });
 });

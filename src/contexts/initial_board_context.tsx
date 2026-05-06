@@ -30,11 +30,13 @@ export const InitialBoardProvider = ({ children }: { children: ReactNode }) => {
     useState<TexasHoldemInitialBoard | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     // 初期状態を取得
     api.initialBoard
       .getInitialBoard()
       .then((board) => {
-        if (board) {
+        if (!cancelled && board) {
           setInitialBoard(board);
         }
       })
@@ -43,7 +45,6 @@ export const InitialBoardProvider = ({ children }: { children: ReactNode }) => {
       });
 
     // Tauri イベント経由で初期ボード更新を受け取る
-    let cancelled = false;
     let unlisten: (() => void) | null = null;
 
     api.notifications
