@@ -419,4 +419,27 @@ describe("useCardPlacedHandler", () => {
     // onCardPlaced のリスナーは解除されていること
     expect(unlistenCardPlacedSpy).toHaveBeenCalled();
   });
+
+  it("burnCard イベントが重複送信された場合は2回目をスキップする", async () => {
+    const { result } = renderHook(() => useCardPlacedHandler());
+
+    const payload = {
+      rfid: "BURN_RFID_001",
+      card: { suit: "club" as const, value: "2" as const },
+      position: { type: "burnCard" as const },
+    };
+
+    await act(async () => {
+      await onCardPlacedCb?.(payload);
+    });
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
+    expect(result.current.eventHistory).toHaveLength(1);
+
+    // 同一イベントを再送 → 重複排除でスキップされる
+    await act(async () => {
+      await onCardPlacedCb?.(payload);
+    });
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
+    expect(result.current.eventHistory).toHaveLength(1);
+  });
 });

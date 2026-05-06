@@ -18,12 +18,17 @@ const MAX_EVENT_HISTORY = 200;
  */
 function payloadKey(payload: CardPlacedPayload): string {
   const pos = payload.position;
-  const posKey =
-    pos.type === "playerHand"
-      ? `ph:${pos.seat}`
-      : pos.type === "communityCard"
-        ? `cc:${pos.slot}`
-        : "burn";
+  let posKey: string;
+  if (pos.type === "playerHand") {
+    posKey = `ph:${pos.seat}`;
+  } else if (pos.type === "communityCard") {
+    posKey = `cc:${pos.slot}`;
+  } else if (pos.type === "burnCard") {
+    posKey = pos.type;
+  } else {
+    pos satisfies never;
+    posKey = (pos as { type: string }).type;
+  }
   return `${payload.rfid}|${payload.card.suit}:${payload.card.value}|${posKey}`;
 }
 
