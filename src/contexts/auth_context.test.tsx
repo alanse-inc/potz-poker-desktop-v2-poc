@@ -314,9 +314,7 @@ describe("deep-link コールバック処理", () => {
     expect(mockAuth0Client.handleRedirectCallback).not.toHaveBeenCalled();
   });
 
-  test("code= を含む URL はコールバック処理される", async () => {
-    const mockUser = { sub: "auth0|abc", name: "User" };
-    mockAuth0Client.getUser.mockResolvedValue(mockUser);
+  test("com.potz.poker://callback で始まらない URL は code= を含んでもコールバック処理されない", async () => {
     mockAuth0Client.handleRedirectCallback.mockResolvedValue({});
 
     let capturedHandler: ((urls: string[]) => void) | null = null;
@@ -339,9 +337,7 @@ describe("deep-link コールバック処理", () => {
       }
     });
 
-    expect(mockAuth0Client.handleRedirectCallback).toHaveBeenCalledWith(
-      "myapp://auth?code=abc123&state=xyz",
-    );
+    expect(mockAuth0Client.handleRedirectCallback).not.toHaveBeenCalled();
   });
 });
 

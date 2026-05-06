@@ -414,6 +414,19 @@ export class VoiceInputService {
     // Krisp BVC の適用を試みる
     const stream = await this.applyBvc(rawStream);
 
+    // applyBvc 待機中に stop() が呼ばれた場合はストリームを解放して終了
+    if (this.intentionallyStopped) {
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      if (stream !== rawStream) {
+        for (const track of rawStream.getTracks()) {
+          track.stop();
+        }
+      }
+      return;
+    }
+
     this.mediaStream = stream;
     this.connectWebSocket(deepgramApiKey, stream);
   }
