@@ -803,7 +803,7 @@ pub fn next_game(
         new_settings,
         names,
         stacks,
-        prev.hand_number + 1,
+        prev.hand_number.saturating_add(1),
         new_dealer,
         new_sb,
         new_bb,
@@ -6318,6 +6318,71 @@ mod tests {
             total,
             u32::MAX,
             "sum of 10 * 600_000_000 should saturate to u32::MAX via try_into"
+        );
+    }
+
+    // ================================================================
+    // Bug A3: hand_number の u32 overflow 防止
+    // ================================================================
+
+    /// hand_number=u32::MAX のボードから next_game を呼んだとき
+    /// 新しいボードの hand_number が u32::MAX のまま (saturate) になること。
+    #[test]
+    fn hand_number_saturating_add_prevents_overflow() {
+        let settings = GameSettings {
+            small_blind: 100,
+            big_blind: 200,
+            min_chip: 100,
+            bb_ante: false,
+        };
+        let board = TexasHoldemBoard {
+            hand_number: u32::MAX,
+            dealer_position: 0,
+            sb_position: 0,
+            bb_position: 1,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 1000,
+                    hand: None,
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 0,
+                },
+            ],
+            community_cards: vec![],
+            pots: vec![Pot { amount: 0 }],
+            phase: Phase::Showdown,
+            winners: vec![0],
+        };
+        let result = next_game(&board, &settings);
+        assert!(
+            result.is_ok(),
+            "next_game with hand_number=u32::MAX should succeed, got: {:?}",
+            result.err()
+        );
+        let (new_board, _) = result.unwrap();
+        assert_eq!(
+            new_board.hand_number,
+            u32::MAX,
+            "hand_number should saturate at u32::MAX, not wrap to 0"
         );
     }
 }
