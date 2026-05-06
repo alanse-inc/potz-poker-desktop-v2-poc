@@ -309,7 +309,9 @@ impl TexasHoldemBoard {
                 .iter()
                 .find(|p| !p.has_folded)
                 .map(|p| p.position)
-                .unwrap();
+                .ok_or_else(|| {
+                    BoardError::InvalidAction("alive_count is 1 but no alive player found".into())
+                })?;
             let total_bet: u32 = self
                 .players
                 .iter()
