@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' wss://api.deepgram.com https://api.deepgram.com http://localhost:3838 http://localhost:8080 ipc: http://ipc.localhost; worker-src 'self' blob:; media-src 'self' blob: mediastream:"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' wss://api.deepgram.com https://api.deepgram.com ipc: http://ipc.localhost; worker-src 'self' blob:; media-src 'self' blob: mediastream:"
     }
   },
   "bundle": {
