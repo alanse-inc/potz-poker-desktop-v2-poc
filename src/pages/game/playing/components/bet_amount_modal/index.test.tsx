@@ -135,6 +135,59 @@ describe("BetAmountModal", () => {
     expect((input as HTMLInputElement).value).toBe("500");
   });
 
+  it("minChip 指定時に初期値が minChip の倍数に丸められる (bigBlind=75, minChip=100)", () => {
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={1}
+        maxAmount={10000}
+        bigBlind={75}
+        minChip={100}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton");
+    // bigBlind * 2 = 150 → round(150/100)*100 = 200
+    expect((input as HTMLInputElement).value).toBe("200");
+  });
+
+  it("minChip 指定時に初期値が minChip の倍数に丸められる (bigBlind=200, minChip=100)", () => {
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={1}
+        maxAmount={10000}
+        bigBlind={200}
+        minChip={100}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton");
+    // bigBlind * 2 = 400 → round(400/100)*100 = 400
+    expect((input as HTMLInputElement).value).toBe("400");
+  });
+
+  it("minChip 未指定の場合は初期値が丸められない", () => {
+    render(
+      <BetAmountModal
+        type="BET"
+        minAmount={1}
+        maxAmount={10000}
+        bigBlind={75}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton");
+    // bigBlind * 2 = 150、minChip なしなのでそのまま 150
+    expect((input as HTMLInputElement).value).toBe("150");
+  });
+
   it("小数値を手入力すると実行ボタンが disabled になる", async () => {
     const user = userEvent.setup();
     render(

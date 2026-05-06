@@ -23,9 +23,11 @@ export function BetAmountModal({
   onConfirm,
 }: Props) {
   const initial = useMemo(() => {
-    const candidate = Math.max(minAmount, bigBlind * 2);
+    const roundToMinChip = (v: number) =>
+      minChip && minChip > 0 ? Math.round(v / minChip) * minChip : v;
+    const candidate = Math.max(minAmount, roundToMinChip(bigBlind * 2));
     return Math.min(candidate, maxAmount);
-  }, [minAmount, maxAmount, bigBlind]);
+  }, [minAmount, maxAmount, bigBlind, minChip]);
 
   const [value, setValue] = useState<string>(initial.toString());
 
