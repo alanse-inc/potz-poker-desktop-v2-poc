@@ -34,10 +34,14 @@ export function EditCommunityCardModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     api.board
       .getRemainingDeck()
-      .then((cards) => setDeck(cards))
+      .then((cards) => {
+        if (!cancelled) setDeck(cards);
+      })
       .catch((e: unknown) => {
+        if (cancelled) return;
         const message =
           e instanceof Error
             ? e.message
@@ -46,6 +50,9 @@ export function EditCommunityCardModal({
               : "残デッキの取得に失敗しました";
         toast.error(message);
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleConfirm = async () => {
