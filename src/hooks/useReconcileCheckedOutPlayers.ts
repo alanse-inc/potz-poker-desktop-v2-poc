@@ -105,7 +105,11 @@ export function useReconcileCheckedOutPlayers(): void {
           currentSession.gameEventId,
           currentGameSessionId,
         );
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted) {
+          // unmount による abort の場合はキーを削除し、次回マウント時に再試行できるようにする
+          reconciledSessionKeys.delete(reconciliationKey);
+          return;
+        }
 
         if (!result.ok) {
           reconciledSessionKeys.delete(reconciliationKey);
@@ -125,7 +129,10 @@ export function useReconcileCheckedOutPlayers(): void {
             (id) => isCheckedInPlayerId(id) && !isReservedGuestPlayerId(id),
           );
 
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted) {
+          reconciledSessionKeys.delete(reconciliationKey);
+          return;
+        }
 
         await Promise.all(
           checkedOutPlayerIds.map((playerId) =>

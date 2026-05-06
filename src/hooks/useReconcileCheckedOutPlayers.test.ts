@@ -398,6 +398,58 @@ describe("useReconcileCheckedOutPlayers", () => {
     expect.soft(removeMock).not.toHaveBeenCalled();
   });
 
+  it("fetch 中に unmount (abort) された場合、次回 mount で reconciledSessionKeys が削除されて再試行できる（Bug 6）", async () => {
+    vi.mocked(useSession).mockReturnValue(buildSessionMock({}));
+
+    let resolveDetail: ((value: never) => void) | undefined;
+    vi.mocked(getGameEventDetail)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDetail = resolve as never;
+          }),
+      )
+      .mockResolvedValueOnce(
+        buildGameEventDetail([
+          buildPlayerRecord({
+            playerId: CHECKED_OUT_PLAYER_ID,
+            finishedHandNumber: 1,
+          }),
+        ]),
+      );
+
+    // 1 回目: fetch 中に unmount → abort
+    const { unmount } = renderHook(() => useReconcileCheckedOutPlayers());
+
+    // unmount → abortController.abort() が走る
+    unmount();
+
+    // fetch が pending のまま resolve する (abort 後)
+    resolveDetail?.(
+      buildGameEventDetail([
+        buildPlayerRecord({
+          playerId: CHECKED_OUT_PLAYER_ID,
+          finishedHandNumber: 1,
+        }),
+      ]) as never,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // abort されているので removePlayerFromGameSettings は呼ばれない
+    expect.soft(removeMock).not.toHaveBeenCalled();
+
+    // 2 回目: 同じ session キーで再マウント → reconciledSessionKeys が削除済みなので再試行される
+    renderHook(() => useReconcileCheckedOutPlayers());
+
+    await waitFor(() => {
+      expect(getGameEventDetail).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(removeMock).toHaveBeenCalledWith(CHECKED_OUT_PLAYER_ID);
+    });
+  });
+
   it("removePlayerFromGameSettings が err を返してもクラッシュせず Promise.all が完了する", async () => {
     vi.mocked(useSession).mockReturnValue(buildSessionMock({}));
     vi.mocked(getGameEventDetail).mockResolvedValue(
