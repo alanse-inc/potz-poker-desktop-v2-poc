@@ -187,7 +187,10 @@ impl TexasHoldemBoard {
     }
 
     /// ラウンドをリセットし次フェーズへ進める。community_cards を配る。
-    fn advance_phase(&mut self, deck: &mut Vec<Card>) {
+    /// `burn_count` は呼び出し元が管理する累積バーンカード枚数。
+    /// 自動モード（アクション経由）では常に 0 を渡す。
+    /// RFID モードでは `InnerState::burn_count` の現在値を渡す。
+    fn advance_phase(&mut self, deck: &mut Vec<Card>, burn_count: u8) {
         // ベット額をポットに移動
         let total_bet: u32 = self
             .players
@@ -219,11 +222,15 @@ impl TexasHoldemBoard {
         };
 
         // Manual モード (RFID) で既にカードが追加済みの場合は各フェーズでスキップ。
+        // burn_count を用いてバーンが既に外部（RFID スキャン）で消費済みかを確認し、
+        // 二重バーンを防ぐ。
         match self.phase {
             Phase::Flop if self.community_cards.len() < 3 => {
-                // board_expose により community_cards が既に 1 枚以上ある場合は
-                // expose 時にバーンを消費済みのため、ここでのバーンをスキップする。
-                if self.community_cards.is_empty() {
+                // board_expose や RFID バーンスキャンにより burn_count が既に 1 以上の場合は
+                // バーンを消費済みのため、ここでのバーンをスキップする。
+                // 加えて community_cards が空でない場合も expose/set_community_card 経由で
+                // バーン済みとみなしてスキップする。
+                if self.community_cards.is_empty() && burn_count == 0 {
                     let _ = deck.pop(); // burn card
                 }
                 while self.community_cards.len() < 3 {
@@ -238,7 +245,8 @@ impl TexasHoldemBoard {
                 // set_community_card(3, ...) により community_cards が既に Turn カードを
                 // 持っている場合（len==4）はガードで弾かれる。
                 // len < 3 の異常状態（部分配布済み）では burn が消費済みのためスキップする。
-                if self.community_cards.len() == 3 {
+                // burn_count <= 1 の場合はフロップ前の burn のみ消費済みのため、ターン前バーンが必要。
+                if self.community_cards.len() == 3 && burn_count <= 1 {
                     let _ = deck.pop(); // burn card
                 }
                 if let Some(card) = deck.pop() {
@@ -249,7 +257,8 @@ impl TexasHoldemBoard {
                 // set_community_card(4, ...) により community_cards が既に River カードを
                 // 持っている場合（len==5）はガードで弾かれる。
                 // len < 4 の異常状態（部分配布済み）では burn が消費済みのためスキップする。
-                if self.community_cards.len() == 4 {
+                // burn_count <= 2 の場合はターン前の burn のみ消費済みのため、リバー前バーンが必要。
+                if self.community_cards.len() == 4 && burn_count <= 2 {
                     let _ = deck.pop(); // burn card
                 }
                 if let Some(card) = deck.pop() {
@@ -359,14 +368,15 @@ impl TexasHoldemBoard {
             // 確保できないときは advance しない。後続の apply_card_placed 等で
             // カードが揃ったタイミングで再度進行する想定。
             if self.can_advance_with_available_cards(deck) {
-                self.advance_phase(deck);
+                // apply_action は自動モード（アクション経由）のため burn_count = 0 を渡す。
+                self.advance_phase(deck, 0);
                 // 全員 allin 等で誰もアクションできない場合は Showdown まで連続で進める。
                 // ただし各 iteration で必要なカード枚数を確認し、不足時はループを抜ける。
                 while self.phase != Phase::Showdown
                     && self.is_round_complete()
                     && self.can_advance_with_available_cards(deck)
                 {
-                    self.advance_phase(deck);
+                    self.advance_phase(deck, 0);
                 }
                 if self.phase == Phase::Showdown {
                     self.resolve_showdown();
@@ -1473,19 +1483,24 @@ pub fn evaluate_player_hand(
 /// RFID モードで全員 all-in 後に community card を 1 枚ずつ置いていく際に使用する。
 /// `deck` は通常 RFIDモードでは空だが、`can_advance_with_available_cards` が
 /// community_cards の枚数でも判定するため問題ない。
-pub fn try_advance_if_round_complete(board: &mut TexasHoldemBoard, deck: &mut Vec<Card>) {
+/// `burn_count` は RFID モードで外部管理されている累積バーンカード枚数。
+pub fn try_advance_if_round_complete(
+    board: &mut TexasHoldemBoard,
+    deck: &mut Vec<Card>,
+    burn_count: u8,
+) {
     if !board.is_round_complete() {
         return;
     }
     if !board.can_advance_with_available_cards(deck) {
         return;
     }
-    board.advance_phase(deck);
+    board.advance_phase(deck, burn_count);
     while board.phase != Phase::Showdown
         && board.is_round_complete()
         && board.can_advance_with_available_cards(deck)
     {
-        board.advance_phase(deck);
+        board.advance_phase(deck, burn_count);
     }
     if board.phase == Phase::Showdown {
         board.resolve_showdown();
@@ -3666,7 +3681,7 @@ mod tests {
         };
         let mut deck = Vec::new();
 
-        board.advance_phase(&mut deck);
+        board.advance_phase(&mut deck, 0);
 
         // 全員 all-in のため next_active_position_after は None → u8::MAX
         assert_eq!(
@@ -4740,7 +4755,7 @@ mod tests {
 
         let mut b = board.clone();
         // PreFlop → Flop: バーン 1 枚 + フロップ 3 枚 = 4 枚消費
-        b.advance_phase(&mut deck);
+        b.advance_phase(&mut deck, 0);
 
         assert_eq!(b.phase, Phase::Flop);
         assert_eq!(
@@ -4844,7 +4859,7 @@ mod tests {
         ];
         let deck_size_before = deck.len();
 
-        board.advance_phase(&mut deck);
+        board.advance_phase(&mut deck, 0);
 
         assert_eq!(board.phase, Phase::Turn);
         assert_eq!(
@@ -4962,7 +4977,7 @@ mod tests {
         ];
         let deck_size_before = deck.len();
 
-        board.advance_phase(&mut deck);
+        board.advance_phase(&mut deck, 0);
 
         assert_eq!(board.phase, Phase::River);
         assert_eq!(
@@ -6662,7 +6677,7 @@ mod tests {
         ];
         let deck_size_before = deck.len();
 
-        board.advance_phase(&mut deck);
+        board.advance_phase(&mut deck, 0);
 
         assert_eq!(board.phase, Phase::Turn);
         // community_cards.len() == 2 (< 3) のケースでは burn をスキップして
@@ -6769,7 +6784,7 @@ mod tests {
         ];
         let deck_size_before = deck.len();
 
-        board.advance_phase(&mut deck);
+        board.advance_phase(&mut deck, 0);
 
         assert_eq!(board.phase, Phase::River);
         // community_cards.len() == 3 (< 4) のケースでは burn をスキップして
@@ -7334,5 +7349,76 @@ mod tests {
         assert_eq!(board.players[0].stack, 0, "no chips distributed");
         assert_eq!(board.players[1].stack, 0, "no chips distributed");
         assert!(board.winners.is_empty(), "no winners set when aborted");
+    }
+
+    // ================================================================
+    // R34 Bug 2 リグレッションテスト: advance_phase の burn_count ベース判定
+    // ================================================================
+
+    /// Bug 2: set_community_card で 1 枚置いてから advance_phase(Flop) を呼ぶと
+    /// burn がスキップされること（community_cards が空でないため）。
+    /// このテストでは burn_count=0 でも community_cards.len() > 0 のため burn はスキップされる。
+    #[test]
+    fn r34_bug2_advance_phase_skips_burn_when_community_card_already_set() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+        let mut deck = build_remaining_deck(&board);
+
+        // PreFlop フェーズ中に set_community_card でフロップ 1 枚目を手動配置
+        let card0 = deck[deck.len() - 1];
+        set_community_card(&mut board, 0, card0, &mut deck).unwrap();
+        assert_eq!(board.community_cards.len(), 1);
+
+        // burn_count = 0 で advance_phase(Flop) を呼ぶ
+        // community_cards.is_empty() = false なので burn はスキップされるべき
+        let deck_len_before = deck.len();
+        board.advance_phase(&mut deck, 0);
+
+        assert_eq!(board.phase, Phase::Flop);
+        // フロップ 3 枚になるまで push されるため、2 枚追加（burn なし）
+        assert_eq!(
+            deck.len(),
+            deck_len_before - 2,
+            "burn should be skipped when community card already placed, only 2 cards added from deck"
+        );
+        assert_eq!(board.community_cards.len(), 3);
+        // 先に置いたカードが community_cards[0] に残っている
+        assert_eq!(board.community_cards[0], card0);
+    }
+
+    /// Bug 2: RFID で burn_count=1 が既にセットされた状態で advance_phase(Flop) を呼ぶと
+    /// 二重バーンが起きないこと。
+    /// burn_count=1 かつ community_cards.is_empty()=true → burn をスキップするべき。
+    #[test]
+    fn r34_bug2_advance_phase_skips_burn_when_burn_count_already_1() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+        let mut board = start_game(settings, names, 0).unwrap();
+        let mut deck = build_remaining_deck(&board);
+
+        // burn_count=1 は RFID で既にバーンカードがスキャン済みの状態を模倣する
+        // community_cards は空のまま
+        let deck_len_before = deck.len();
+        board.advance_phase(&mut deck, 1); // burn_count=1 を渡す
+
+        assert_eq!(board.phase, Phase::Flop);
+        // burn_count=1 のため burn をスキップ → フロップ 3 枚のみ消費
+        assert_eq!(
+            deck.len(),
+            deck_len_before - 3,
+            "burn should be skipped when burn_count=1 (already burned externally), only 3 cards added"
+        );
+        assert_eq!(board.community_cards.len(), 3);
     }
 }

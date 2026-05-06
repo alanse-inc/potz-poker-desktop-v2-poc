@@ -679,8 +679,13 @@ pub fn apply_card_placed(
             // 全員 all-in 等でラウンドが完了している場合は advance_phase を呼んで次フェーズへ進める。
             // 通常はプレイヤーアクション (apply_action) が advance_phase をトリガーするが、
             // 全員 all-in 後はアクション不要のため community card 配置だけでは進行しない。
+            let burn_count_for_advance = guard.burn_count;
             if let Some((board_ref, deck_ref)) = guard.split_board_and_deck() {
-                crate::domain::board::try_advance_if_round_complete(board_ref, deck_ref);
+                crate::domain::board::try_advance_if_round_complete(
+                    board_ref,
+                    deck_ref,
+                    burn_count_for_advance,
+                );
             }
         }
         CardPosition::BurnCard => {
@@ -1447,8 +1452,13 @@ mod tests {
                     .deck
                     .retain(|c| c.suit != card.suit || c.value != card.value);
 
+                let burn_count_for_advance = state.burn_count;
                 if let Some((board_ref, deck_ref)) = state.split_board_and_deck() {
-                    crate::domain::board::try_advance_if_round_complete(board_ref, deck_ref);
+                    crate::domain::board::try_advance_if_round_complete(
+                        board_ref,
+                        deck_ref,
+                        burn_count_for_advance,
+                    );
                 }
             }
             CardPosition::BurnCard => {
