@@ -22,14 +22,14 @@ export const initializeSentry = () => {
       enabled:
         import.meta.env.PROD ||
         import.meta.env.VITE_SENTRY_ENABLED_DEV === "true",
-      sendDefaultPii: true,
+      sendDefaultPii: false,
       environment: import.meta.env.VITE_BUILD_ENV,
       release: `desktop-app@${import.meta.env.VITE_APP_VERSION}`,
       integrations: [
         Sentry.browserTracingIntegration(),
         Sentry.replayIntegration({
-          maskAllText: false,
-          blockAllMedia: false,
+          maskAllText: true,
+          blockAllMedia: true,
         }),
       ],
       tracesSampleRate: import.meta.env.MODE === "production" ? 0.1 : 1.0,
