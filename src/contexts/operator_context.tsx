@@ -128,6 +128,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
   const loadGameTableRef = useRef<(tableId: string) => Promise<void>>(
     async () => {},
   );
+  const unmountedRef = useRef(false);
   const [operatorError, setOperatorError] = useState<string | null>(null);
   const [gameTableError, setGameTableError] = useState<string | null>(null);
 
@@ -194,6 +195,13 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isSignedIn]);
 
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
+
   const loadGameTable = useCallback(
     async (tableId: string) => {
       if (!operator) return;
@@ -201,6 +209,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       setIsLoadingGameTable(true);
       setGameTableError(null);
       const result = await fetchGameTable(operator.operatorId, tableId);
+      if (unmountedRef.current) return;
       if (result.ok) {
         setGameTable(result.data);
       } else {
