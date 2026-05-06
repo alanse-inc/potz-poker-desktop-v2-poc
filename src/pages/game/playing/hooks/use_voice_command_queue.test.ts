@@ -1354,4 +1354,41 @@ describe("useVoiceCommandQueue", () => {
       expect(api.action.call).not.toHaveBeenCalled();
     });
   });
+
+  describe("r37_bug3_process_next_breaks_after_unmount", () => {
+    it("enqueue 後に unmount すると、その後の dispatchCommand 呼び出しが行われない", async () => {
+      const board = buildMockBoard();
+      const boardRef = { current: board };
+
+      // call が pending 中に unmount → unmountedRef.current が true になる
+      let resolveCall!: () => void;
+      const callPromise = new Promise<void>((resolve) => {
+        resolveCall = resolve;
+      });
+      vi.mocked(api.action.call).mockImplementation(async () => {
+        await callPromise;
+        return buildMockBoard();
+      });
+
+      const { result, unmount } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // 1 件目（call）をキューへ積んで処理開始
+      result.current.enqueue(buildCommand({ action: "call" }));
+      // 2 件目（fold）を積む（1 件目の await 中なのでキューに残る）
+      result.current.enqueue(buildCommand({ action: "fold" }));
+
+      // コンポーネントをアンマウントして unmountedRef.current = true にする
+      unmount();
+
+      // 1 件目の IPC を解決
+      resolveCall();
+      await vi.runAllTimersAsync();
+
+      // 1 件目の call は既に呼ばれているが、unmount 後なので 2 件目の fold は呼ばれない
+      expect(api.action.call).toHaveBeenCalledTimes(1);
+      expect(api.action.fold).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -624,6 +624,7 @@ export function useVoiceCommandQueue(
       while (queueRef.current.length > 0) {
         const command = queueRef.current.shift();
         if (!command) break;
+        if (unmountedRef.current) break;
 
         if (command.confidence < voiceInputService.confidenceThreshold) {
           voiceInputService.emitStatusPublic(
@@ -635,6 +636,7 @@ export function useVoiceCommandQueue(
 
         try {
           const shouldContinue = await dispatchCommand(command);
+          if (unmountedRef.current) break;
           if (shouldContinue === BREAK_QUEUE) break;
         } catch (error) {
           trackClientSideError(
