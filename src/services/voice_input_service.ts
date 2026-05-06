@@ -589,7 +589,7 @@ export class VoiceInputService {
 
   private async processTranscript(
     text: string,
-    sttTime: number,
+    _sttTime: number,
   ): Promise<void> {
     const cleaned = cleanText(text);
 
@@ -599,16 +599,8 @@ export class VoiceInputService {
     }
 
     // TODO: LLM (Cerebras / OpenRouter 等) 呼び出しをここに実装する。
-    // 現時点では文字起こし結果をそのまま rawText として持つダミーコマンドを emit する。
-    const dummyCommand: VoicePokerCommand = {
-      action: null,
-      amount: null,
-      confidence: 0,
-      rawText: text,
-      timestamp: Date.now(),
-      sttTime,
-    };
-    this.emitCommand(dummyCommand);
+    // それまでは文字起こしのみで command emit は行わない。
+    // (action: null / confidence: 0 のダミー emit は購読側 status 連鎖の原因となるため削除)
     this.emitStatus("listening");
   }
 
@@ -673,6 +665,7 @@ export class VoiceInputService {
     }
   }
 
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: LLM 実装時に processTranscript から呼ぶ予定。onCommand 公開 API を維持するため残す。
   private emitCommand(command: VoicePokerCommand): void {
     for (const cb of this.commandCallbacks) {
       cb(command);
