@@ -106,8 +106,8 @@ impl TexasHoldemBoard {
         &self.pots
     }
 
-    pub fn total_pot(&self) -> u32 {
-        self.pots.iter().map(|p| p.amount).sum()
+    pub fn total_pot(&self) -> u64 {
+        self.pots.iter().map(|p| p.amount as u64).sum()
     }
 
     fn current_player_idx(&self) -> Option<usize> {
@@ -316,10 +316,11 @@ impl TexasHoldemBoard {
             }
             self.phase = Phase::Showdown;
             self.winners = vec![winner_pos];
-            // ポットを勝者に配分
+            // ポットを勝者に配分 (total_pot() は u64; stack は u32 なので saturating_add)
             let total = self.total_pot();
             if let Some(p) = self.players.iter_mut().find(|p| p.position == winner_pos) {
-                p.stack += total;
+                let add = u32::try_from(total).unwrap_or(u32::MAX);
+                p.stack = p.stack.saturating_add(add);
             }
             self.pots.clear();
             self.pots.push(Pot { amount: 0 });
@@ -384,7 +385,7 @@ impl TexasHoldemBoard {
         }
 
         let invested_sum: u64 = self.players.iter().map(|p| p.total_invested as u64).sum();
-        let pot_total = self.total_pot() as u64;
+        let pot_total = self.total_pot();
         if invested_sum != pot_total {
             tracing::warn!(
                 "resolve_showdown: total_invested sum ({}) != total_pot ({}); \
@@ -437,14 +438,15 @@ impl TexasHoldemBoard {
             // dealer_idx の「次」から始まる左回り順（dealer 自身は末尾）
             ordered.sort_by_key(|&i| (i + n - dealer_idx - 1) % n);
 
-            let total = self.total_pot();
-            let count = ordered.len() as u32;
+            let total = self.total_pot(); // u64
+            let count = ordered.len() as u64;
             let share = total / count;
             let remainder = total % count;
 
             for (i, &widx) in ordered.iter().enumerate() {
-                let extra = if i == 0 { remainder } else { 0 };
-                self.players[widx].stack += share + extra;
+                let extra: u64 = if i == 0 { remainder } else { 0 };
+                let add = u32::try_from(share + extra).unwrap_or(u32::MAX);
+                self.players[widx].stack = self.players[widx].stack.saturating_add(add);
             }
             self.pots.clear();
             self.pots.push(Pot { amount: 0 });
@@ -581,8 +583,8 @@ impl TexasHoldemBoard {
 
         // 端数が残っていたら dealer-left かつ勝者のプレイヤーに渡す。
         // 勝者がいない場合は dealer-left の最初の非フォールドプレイヤーに渡す。
-        // u64 で計算後 u32 にキャスト（saturating）
-        let undistributed = (total_pot_before as u64).saturating_sub(distributed) as u32;
+        // total_pot_before は u64; u64 で計算後 u32 にキャスト（saturating）
+        let undistributed = total_pot_before.saturating_sub(distributed) as u32;
         if undistributed > 0 {
             let mut leftover_candidates: Vec<usize> = if !all_winner_positions.is_empty() {
                 (0..self.players.len())
@@ -3622,7 +3624,7 @@ mod tests {
         // ポットにアンティが反映されている（ブラインドは bet_in_round にあるので advance_phase で加算）
         assert_eq!(
             board.total_pot(),
-            settings.big_blind,
+            settings.big_blind as u64,
             "pot should contain the ante amount at game start"
         );
 
@@ -6491,6 +6493,48 @@ mod tests {
         assert!(
             board.players[0].is_all_in,
             "player with stack=100 should be all-in after raising to all_in_total=600"
+        );
+    }
+
+    // ================================================================
+    // R32 Bug A1: total_pot() overflow リグレッション
+    // ================================================================
+
+    /// Pot.amount = u32::MAX / 2 を 4 つ持つ board の total_pot() が u64 で正しい合計を返すこと。
+    /// u32 のままなら sum がオーバーフローするが、u64 化後は正確な値を返すはず。
+    #[test]
+    fn total_pot_u64_no_overflow_with_large_pots() {
+        let half_max: u32 = u32::MAX / 2; // 2_147_483_647
+        let board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![],
+            community_cards: vec![],
+            pots: vec![
+                Pot { amount: half_max },
+                Pot { amount: half_max },
+                Pot { amount: half_max },
+                Pot { amount: half_max },
+            ],
+            phase: Phase::PreFlop,
+            winners: vec![],
+        };
+
+        let expected: u64 = (half_max as u64) * 4;
+        assert_eq!(
+            board.total_pot(),
+            expected,
+            "total_pot() は u64 で正確な合計を返すべき (overflow なし)"
+        );
+        // expected は約 8_589_934_588 で u32::MAX (4_294_967_295) を超えている
+        assert!(
+            expected > u32::MAX as u64,
+            "テスト前提: expected が u32::MAX を超えていること"
         );
     }
 }
