@@ -185,10 +185,16 @@ impl TexasHoldemBoard {
     /// ラウンドをリセットし次フェーズへ進める。community_cards を配る。
     fn advance_phase(&mut self, deck: &mut Vec<Card>) {
         // ベット額をポットに移動
-        let total_bet: u32 = self.players.iter().map(|p| p.bet_in_round).sum();
+        let total_bet: u32 = self
+            .players
+            .iter()
+            .map(|p| p.bet_in_round as u64)
+            .sum::<u64>()
+            .try_into()
+            .unwrap_or(u32::MAX);
         if total_bet > 0 {
             if let Some(pot) = self.pots.last_mut() {
-                pot.amount += total_bet;
+                pot.amount = pot.amount.saturating_add(total_bet);
             } else {
                 self.pots.push(Pot { amount: total_bet });
             }
@@ -291,10 +297,16 @@ impl TexasHoldemBoard {
                 .find(|p| !p.has_folded)
                 .map(|p| p.position)
                 .unwrap();
-            let total_bet: u32 = self.players.iter().map(|p| p.bet_in_round).sum();
+            let total_bet: u32 = self
+                .players
+                .iter()
+                .map(|p| p.bet_in_round as u64)
+                .sum::<u64>()
+                .try_into()
+                .unwrap_or(u32::MAX);
             if total_bet > 0 {
                 if let Some(pot) = self.pots.last_mut() {
-                    pot.amount += total_bet;
+                    pot.amount = pot.amount.saturating_add(total_bet);
                 } else {
                     self.pots.push(Pot { amount: total_bet });
                 }
@@ -6284,6 +6296,28 @@ mod tests {
         assert_eq!(
             board.current_turn, 3,
             "current_turn should point to dealer (position 3) as the next active player after BB"
+        );
+    }
+
+    // ================================================================
+    // Bug A2: total_bet sum() の u32 overflow 防止
+    // ================================================================
+
+    /// 10 人 × bet_in_round=600_000_000 → sum = 6_000_000_000 > u32::MAX
+    /// u64 経由で計算した後 try_into で u32::MAX に saturate することを確認。
+    #[test]
+    fn total_bet_u64_sum_saturates_to_u32_max() {
+        // 10 人 × 600_000_000 = 6_000_000_000 > u32::MAX (4_294_967_295)
+        let per_player: u32 = 600_000_000;
+        let total: u32 = (0..10u64)
+            .map(|_| per_player as u64)
+            .sum::<u64>()
+            .try_into()
+            .unwrap_or(u32::MAX);
+        assert_eq!(
+            total,
+            u32::MAX,
+            "sum of 10 * 600_000_000 should saturate to u32::MAX via try_into"
         );
     }
 }
