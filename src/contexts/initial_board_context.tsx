@@ -49,7 +49,9 @@ export const InitialBoardProvider = ({ children }: { children: ReactNode }) => {
 
     api.notifications
       .onInitialBoardUpdated((updatedBoard) => {
-        setInitialBoard(updatedBoard);
+        if (!cancelled) {
+          setInitialBoard(updatedBoard);
+        }
       })
       .then((fn) => {
         if (cancelled) {

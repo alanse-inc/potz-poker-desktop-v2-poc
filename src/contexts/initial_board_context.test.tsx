@@ -144,6 +144,37 @@ describe("InitialBoardProvider", () => {
     });
   });
 
+  it("アンマウント後に onInitialBoardUpdated コールバックが発火しても initialBoard が更新されない", async () => {
+    let capturedCb: ((board: TexasHoldemInitialBoard) => void) | undefined;
+    vi.mocked(api.notifications.onInitialBoardUpdated).mockImplementation(
+      async (cb) => {
+        capturedCb = cb;
+        return () => {};
+      },
+    );
+
+    const { result, unmount } = renderHook(() => useInitialBoard(), {
+      wrapper,
+    });
+
+    // コールバックが登録されるまで待つ
+    await waitFor(() => {
+      expect(api.notifications.onInitialBoardUpdated).toHaveBeenCalledTimes(1);
+    });
+
+    // アンマウント (cancelled = true になる)
+    unmount();
+
+    // アンマウント後にコールバックを発火
+    const updatedBoard = makeInitialBoard({ handNumber: 99 });
+    act(() => {
+      capturedCb?.(updatedBoard);
+    });
+
+    // cancelled フラグにより setInitialBoard は呼ばれず、initialBoard は null のまま
+    expect(result.current.initialBoard).toBeNull();
+  });
+
   it("getInitialBoard() resolve 前にアンマウントしても setInitialBoard が呼ばれない", async () => {
     let resolveBoard!: (board: TexasHoldemInitialBoard) => void;
     vi.mocked(api.initialBoard.getInitialBoard).mockReturnValue(
