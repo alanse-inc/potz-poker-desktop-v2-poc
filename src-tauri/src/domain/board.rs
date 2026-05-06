@@ -442,6 +442,10 @@ impl TexasHoldemBoard {
             .filter_map(|&idx| {
                 let p = &self.players[idx];
                 let hole = p.hand?;
+                // pending hand (1 枚目しかスキャンされていない) は除外
+                if hole[0] == hole[1] {
+                    return None;
+                }
                 let mut all_cards: Vec<Card> = self.community_cards.clone();
                 all_cards.push(hole[0]);
                 all_cards.push(hole[1]);
@@ -5069,6 +5073,115 @@ mod tests {
             msg.contains("player_stacks length must match"),
             "エラーメッセージが想定外: {}",
             msg
+        );
+    }
+
+    /// pending hand (hole[0] == hole[1]) を持つプレイヤーは showdown 評価から除外され、
+    /// 正常な hand を持つプレイヤーのみでポットが分配される。
+    #[test]
+    fn resolve_showdown_pending_hand_excluded() {
+        use super::super::card::{Card, CardValue, Suit};
+
+        // コミュニティ 5 枚
+        let community = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Four,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Five,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Seven,
+            },
+        ];
+
+        // プレイヤー 0: 通常の確定 hand（強い手）
+        let pending_card = Card {
+            suit: Suit::Club,
+            value: CardValue::King,
+        };
+        let hand_confirmed: [Card; 2] = [
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Ace,
+            },
+        ];
+        // プレイヤー 1: pending hand (hole[0] == hole[1])
+        let hand_pending: [Card; 2] = [pending_card, pending_card];
+
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 0,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 0,
+                    hand: Some(hand_confirmed),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 0,
+                    hand: Some(hand_pending),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+            ],
+            community_cards: community,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Showdown,
+            winners: vec![],
+        };
+
+        board.resolve_showdown();
+
+        // pending hand のプレイヤー 1 は除外されるため、プレイヤー 0 がポット全額を獲得する
+        assert_eq!(board.total_pot(), 0, "ポットは全額分配されるべき");
+        assert_eq!(
+            board.players[0].stack, 200,
+            "confirmed hand の A がポット全額を獲得すべき"
+        );
+        assert_eq!(
+            board.players[1].stack, 0,
+            "pending hand の B はポットを獲得しないべき"
+        );
+        // winners には position=0 のみ含まれる
+        assert!(
+            board.winners.contains(&0),
+            "position=0 が winners に含まれるべき"
+        );
+        assert!(
+            !board.winners.contains(&1),
+            "position=1 (pending) は winners に含まれないべき"
         );
     }
 }
