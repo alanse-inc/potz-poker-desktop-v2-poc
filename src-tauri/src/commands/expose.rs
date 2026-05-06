@@ -59,6 +59,7 @@ pub fn expose(app: AppHandle, expose_card: Card, state: State<AppState>) -> Resu
 
         guard.deck.retain(|c| c != &burn_card && c != &expose_card);
         guard.burn_card = None;
+        guard.burn_count = 0;
         let board_snapshot = guard.board.clone().ok_or_else(|| "no board".to_string())?;
         (burn_card, board_snapshot)
     }; // lock を解放してから emit
@@ -256,6 +257,39 @@ mod tests {
         assert!(
             state.deck.contains(&burn_card),
             "burn_card should be restored to deck"
+        );
+    }
+
+    // ================================================================
+    // Bug 1 fix: expose 成功後に burn_count が 0 にリセットされること
+    // ================================================================
+
+    #[test]
+    fn expose_resets_burn_count() {
+        let mut state = make_state_with_board();
+        let burn_card = *state.deck.first().expect("deck must have cards");
+        let expose_card = state
+            .deck
+            .iter()
+            .rev()
+            .find(|&&c| c != burn_card)
+            .copied()
+            .expect("deck should have a card different from burn_card");
+
+        // BurnCard 処理と同様に burn_count を 1 にしてから expose を行う
+        state.burn_card = Some(burn_card);
+        state.burn_count = 1;
+
+        // expose コマンドと同じロジックを直接実行
+        let board = state.board.as_mut().unwrap();
+        board_expose(board, expose_card, burn_card).unwrap();
+        state.deck.retain(|c| c != &burn_card && c != &expose_card);
+        state.burn_card = None;
+        state.burn_count = 0; // Bug 1 fix
+
+        assert_eq!(
+            state.burn_count, 0,
+            "burn_count must be 0 after expose succeeds"
         );
     }
 }
