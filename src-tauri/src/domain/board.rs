@@ -1096,13 +1096,19 @@ pub fn remove_player(board: &mut TexasHoldemBoard, position: u8) -> Result<(), B
         p.position = i as u8;
     }
     let n = board.players.len() as u8;
-    if board.dealer_position >= n {
+    if board.dealer_position > position {
+        board.dealer_position -= 1;
+    } else if board.dealer_position == position || board.dealer_position >= n {
         board.dealer_position = 0;
     }
-    if board.sb_position >= n {
+    if board.sb_position > position {
+        board.sb_position -= 1;
+    } else if board.sb_position == position || board.sb_position >= n {
         board.sb_position = 0;
     }
-    if board.bb_position >= n {
+    if board.bb_position > position {
+        board.bb_position -= 1;
+    } else if board.bb_position == position || board.bb_position >= n {
         board.bb_position = 0;
     }
     board.winners.retain(|&w| w < n);
@@ -1650,6 +1656,75 @@ mod tests {
             board.current_turn,
             u8::MAX,
             "current_turn should be u8::MAX when out of range after remove_player"
+        );
+    }
+
+    /// Bug 1 再現: 4人テーブルで dealer_position=2 のとき position=1 を削除すると
+    /// dealer_position が旧3番プレイヤーを誤指しするバグ。
+    #[test]
+    fn remove_player_dealer_position_adjusted_when_deleted_before_dealer() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into(), "Dave".into()];
+        let mut board = start_game(settings, names, 2).unwrap();
+        // dealer=2, sb=3, bb=0
+        assert_eq!(board.dealer_position, 2);
+        board.phase = Phase::Showdown;
+        // position=1 (dealer より前) を削除
+        remove_player(&mut board, 1).unwrap();
+        // 振り直し後: 旧0→0, 旧2→1, 旧3→2
+        // dealer_position は旧2→新1 に補正されるべき
+        assert_eq!(
+            board.dealer_position, 1,
+            "dealer_position must follow the dealer player after renumbering"
+        );
+    }
+
+    /// dealer と同じ position を削除した場合は 0 にリセットされる。
+    #[test]
+    fn remove_player_dealer_position_reset_when_dealer_deleted() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into(), "Dave".into()];
+        let mut board = start_game(settings, names, 2).unwrap();
+        assert_eq!(board.dealer_position, 2);
+        board.phase = Phase::Showdown;
+        // dealer 自身(position=2)を削除
+        remove_player(&mut board, 2).unwrap();
+        assert_eq!(
+            board.dealer_position, 0,
+            "dealer_position must be reset to 0 when the dealer player is removed"
+        );
+    }
+
+    /// dealer より後ろを削除しても dealer_position は変わらない。
+    #[test]
+    fn remove_player_dealer_position_unchanged_when_deleted_after_dealer() {
+        let settings = GameSettings {
+            small_blind: 10,
+            big_blind: 20,
+            min_chip: 10,
+            bb_ante: false,
+        };
+        let names = vec!["Alice".into(), "Bob".into(), "Carol".into(), "Dave".into()];
+        let mut board = start_game(settings, names, 1).unwrap();
+        assert_eq!(board.dealer_position, 1);
+        board.phase = Phase::Showdown;
+        // position=3 (dealer より後ろ) を削除
+        remove_player(&mut board, 3).unwrap();
+        // 振り直し後: 旧0→0, 旧1→1, 旧2→2
+        // dealer_position=1 はそのまま
+        assert_eq!(
+            board.dealer_position, 1,
+            "dealer_position must be unchanged when a player after the dealer is removed"
         );
     }
 
