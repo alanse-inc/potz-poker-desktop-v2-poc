@@ -139,11 +139,14 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    let cancelled = false;
+
     const fetchAll = async () => {
       // 1. operators/me を取得 (stub: get_operator_me)
       setIsLoadingOperator(true);
       setOperatorError(null);
       const operatorResult = await fetchOperatorMe();
+      if (cancelled) return;
       if (!operatorResult.ok) {
         setOperatorError(operatorResult.message);
         console.error(
@@ -158,6 +161,7 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
 
       // 2. シリアルポート接続状態からテーブル ID を取得し、game-table を取得
       const tableId = await fetchSerialStatus();
+      if (cancelled) return;
       if (!tableId) {
         // デバイス未接続の場合は gameTable なしで続行
         return;
@@ -167,6 +171,10 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       setIsLoadingGameTable(true);
       setGameTableError(null);
       const tableResult = await fetchGameTable(op.operatorId, tableId);
+      if (cancelled) {
+        isLoadingGameTableRef.current = false;
+        return;
+      }
       if (tableResult.ok) {
         setGameTable(tableResult.data);
       } else {
@@ -180,6 +188,10 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     };
 
     void fetchAll();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isSignedIn]);
 
   const loadGameTable = useCallback(

@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthProvider } from "./auth_context";
+import { AuthProvider, useAuth } from "./auth_context";
 import { OperatorProvider, useOperator } from "./operator_context";
 
 // @tauri-apps/api/core と @tauri-apps/api/event は setup.ts でモック済み
@@ -251,5 +251,75 @@ describe("OperatorProvider", () => {
     await result.current.loadGameTable("table-2");
 
     expect(listenCallCount).toBe(1);
+  });
+
+  it("fetchOperatorMe 待機中に isSignedIn が false になった場合、operator は null のままになる (Bug 4)", async () => {
+    // isSignedIn=true にして fetchAll を開始する
+    vi.stubEnv("VITE_SKIP_AUTH_SCREEN", "true");
+
+    // window.location.reload は logout 内部で呼ばれるためモックしておく
+    const reloadSpy = vi.spyOn(window, "location", "get").mockReturnValue({
+      ...window.location,
+      reload: vi.fn(),
+    });
+
+    // fetchOperatorMe を遅延させる — 手動で resolve するまでブロック
+    let resolveOperatorMe: ((value: unknown) => void) | null = null;
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "get_operator_me") {
+        return new Promise((resolve) => {
+          resolveOperatorMe = resolve;
+        });
+      }
+      return Promise.reject(new Error("command not found"));
+    });
+
+    const { result } = renderHook(
+      () => ({ operator: useOperator(), auth: useAuth() }),
+      { wrapper },
+    );
+
+    // isSignedIn=true になり fetchAll が開始されるまで待つ
+    await waitFor(() => {
+      expect(result.current.auth.isSignedIn).toBe(true);
+    });
+
+    // fetchAll が開始されたことを確認 (isLoadingOperator が true になる)
+    await waitFor(() => {
+      expect(result.current.operator.isLoadingOperator).toBe(true);
+    });
+
+    // isSignedIn を false に変化させる (logout を呼ぶ)
+    await act(async () => {
+      await result.current.auth.logout();
+    });
+
+    // isSignedIn が false になったことを確認
+    await waitFor(() => {
+      expect(result.current.auth.isSignedIn).toBe(false);
+    });
+
+    // operator は setOperator(null) で null になっているはず
+    expect(result.current.operator.operator).toBeNull();
+
+    // fetchOperatorMe の Promise を resolve させる
+    act(() => {
+      resolveOperatorMe?.({
+        operatorId: "op-1",
+        auth0Sub: "auth0|test",
+        name: "Test Op",
+        description: null,
+      });
+    });
+
+    // cancelled フラグが true のため、resolve 後も operator は null のままであるべき
+    // 少し待ってから確認する (Promise microtask が全て処理されるのを待つ)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(result.current.operator.operator).toBeNull();
+
+    reloadSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 });
