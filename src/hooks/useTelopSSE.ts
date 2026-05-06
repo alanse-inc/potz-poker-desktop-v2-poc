@@ -10,6 +10,7 @@
  * 購読するイベント:
  *   - telop-updated  : テロップ ID / 背景色 / 画面状態
  *   - board-updated  : ボード情報（テロップはボードも表示）
+ *   - game-settings-updated : ゲーム設定（現在のモード取得用）
  *
  * 初期値は useEffect 内で api.telopSettings.get* / api.board.getBoard を呼び出して同期。
  */
@@ -62,6 +63,7 @@ export function useTelopSSE(): TelopSSEState {
         setBoard(event.data);
         break;
       }
+      // game-settings-updated は現時点でテロップ側に必要な処理なし
       default:
         break;
     }
