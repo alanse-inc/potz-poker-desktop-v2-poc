@@ -891,6 +891,106 @@ describe("useVoiceCommandQueue", () => {
     });
   });
 
+  describe("waitForBoardUpdate - currentTurn 変化検知 (Bug 1)", () => {
+    it("同フェーズ内で currentTurn のみ変化した場合、waitForBoardUpdate が true を返しキューが継続される", async () => {
+      const board = buildMockBoard({
+        phase: "pre_flop",
+        handNumber: 1,
+        currentTurn: 0,
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // check 実行後に currentTurn だけ変化させ（handNumber・phase は同じ）
+      // waitForBoardUpdate が true を返しキューが継続することを確認する
+      vi.mocked(api.action.check).mockImplementation(async () => {
+        const newBoard = buildMockBoard({
+          phase: "pre_flop",
+          handNumber: 1,
+          currentTurn: 1, // currentTurn のみ変化
+        });
+        boardRef.current = newBoard;
+        return newBoard;
+      });
+
+      result.current.enqueue(buildCommand({ action: "check" }));
+      result.current.enqueue(buildCommand({ action: "check" }));
+
+      await vi.runAllTimersAsync();
+
+      // 2 件とも実行されキューが中断されていないこと
+      expect(api.action.check).toHaveBeenCalledTimes(2);
+    });
+
+    it("同フェーズ内の連続 check が BREAK_QUEUE せず処理される", async () => {
+      let currentTurn = 0;
+      const board = buildMockBoard({
+        phase: "flop",
+        handNumber: 1,
+        currentTurn,
+        currentBet: 0,
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // check 実行ごとに currentTurn をインクリメントして同フェーズ内の進行を模擬
+      vi.mocked(api.action.check).mockImplementation(async () => {
+        currentTurn = (currentTurn + 1) % 2;
+        const newBoard = buildMockBoard({
+          phase: "flop",
+          handNumber: 1,
+          currentTurn,
+          currentBet: 0,
+        });
+        boardRef.current = newBoard;
+        return newBoard;
+      });
+
+      result.current.enqueue(buildCommand({ action: "check" }));
+      result.current.enqueue(buildCommand({ action: "check" }));
+      result.current.enqueue(buildCommand({ action: "check" }));
+
+      await vi.runAllTimersAsync();
+
+      // BREAK_QUEUE されず全て実行されること
+      expect(api.action.check).toHaveBeenCalledTimes(3);
+    });
+
+    it("同フェーズかつ currentTurn も変化しない場合はタイムアウトしてキューが中断される", async () => {
+      const board = buildMockBoard({
+        phase: "pre_flop",
+        handNumber: 1,
+        currentTurn: 0,
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // boardRef.current を変更しない（handNumber も phase も currentTurn も同じまま）
+      vi.mocked(api.action.check).mockResolvedValue(board);
+
+      result.current.enqueue(buildCommand({ action: "check" }));
+      result.current.enqueue(buildCommand({ action: "check" }));
+
+      await vi.runAllTimersAsync();
+
+      // タイムアウトで 1 件目のあとにキューが中断され 2 件目は実行されない
+      expect(api.action.check).toHaveBeenCalledTimes(1);
+      expect(mockVoiceInputService.emitStatusPublic).toHaveBeenCalledWith(
+        "listening",
+        expect.stringContaining("ボード更新タイムアウトのためキューを中断しました"),
+      );
+    });
+  });
+
   describe("enqueue での check-around streetAtCapture 記録", () => {
     it("check-around コマンドにboardのフェーズがstreetAtCaptureとして記録される", async () => {
       const board = buildMockBoard({

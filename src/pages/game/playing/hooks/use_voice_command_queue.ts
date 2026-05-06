@@ -72,6 +72,7 @@ export function useVoiceCommandQueue(
       if (unmountedRef.current) return Promise.resolve(false);
       const prevHandNumber = prevBoard.handNumber;
       const prevPhase = prevBoard.phase;
+      const prevCurrentTurn = prevBoard.currentTurn;
       return new Promise((resolve) => {
         let elapsed = 0;
         const interval = setInterval(() => {
@@ -88,7 +89,8 @@ export function useVoiceCommandQueue(
           if (
             current &&
             (current.handNumber !== prevHandNumber ||
-              current.phase !== prevPhase)
+              current.phase !== prevPhase ||
+              current.currentTurn !== prevCurrentTurn)
           ) {
             clearInterval(interval);
             activeIntervalsRef.current = activeIntervalsRef.current.filter(
