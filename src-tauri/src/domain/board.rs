@@ -211,7 +211,11 @@ impl TexasHoldemBoard {
         // Manual モード (RFID) で既にカードが追加済みの場合は各フェーズでスキップ。
         match self.phase {
             Phase::Flop if self.community_cards.len() < 3 => {
-                let _ = deck.pop(); // burn card
+                // board_expose により community_cards が既に 1 枚以上ある場合は
+                // expose 時にバーンを消費済みのため、ここでのバーンをスキップする。
+                if self.community_cards.is_empty() {
+                    let _ = deck.pop(); // burn card
+                }
                 while self.community_cards.len() < 3 {
                     if let Some(card) = deck.pop() {
                         self.community_cards.push(card);
@@ -1831,6 +1835,54 @@ mod tests {
         let result = board_expose(&mut board, community_card, burn_card);
         // community_cards が空でないので "before any community card" エラーが先に出る
         assert!(result.is_err());
+    }
+
+    /// board_expose 後に全員 all-in した場合、Flop で burn が重複して消費されないことを確認する。
+    /// expose 時にバーンカードは deck から取り出さないため、advance_phase の Flop 分岐では
+    /// burn をスキップして残り 2 枚だけ追加するべき。
+    ///
+    /// 期待されるデッキ消費量:
+    ///   Flop: burn 0 (expose 済みなのでスキップ) + community 2 枚 = 2 枚
+    ///   Turn: burn 1 + community 1 枚 = 2 枚
+    ///   River: burn 1 + community 1 枚 = 2 枚
+    ///   合計: 6 枚
+    ///
+    /// バグ状態のデッキ消費量:
+    ///   Flop: burn 1 (余分) + community 2 枚 = 3 枚
+    ///   Turn: burn 1 + community 1 枚 = 2 枚
+    ///   River: burn 1 + community 1 枚 = 2 枚
+    ///   合計: 7 枚
+    #[test]
+    fn expose_then_allin_does_not_double_burn_on_flop() {
+        let (mut board, mut deck) = make_board();
+        let deck_len_before = deck.len();
+        let (expose_card, burn_card) = make_expose_card(&board, &deck);
+
+        // board_expose: community_cards が 1 枚になる (phase は PreFlop のまま)
+        // deck からは何も取り出さない
+        board_expose(&mut board, expose_card, burn_card).unwrap();
+        assert_eq!(board.community_cards.len(), 1);
+        assert_eq!(board.phase, Phase::PreFlop);
+        assert_eq!(deck.len(), deck_len_before);
+
+        // 全員 all-in → Showdown まで auto-advance
+        board_allin(&mut board, &mut deck).unwrap(); // UTG
+        board_allin(&mut board, &mut deck).unwrap(); // SB
+        board_allin(&mut board, &mut deck).unwrap(); // BB
+
+        // Showdown に到達していること
+        assert_eq!(board.phase, Phase::Showdown);
+        // community_cards は expose した 1 枚 + Flop 2 枚 + Turn 1 枚 + River 1 枚 = 5 枚
+        assert_eq!(board.community_cards.len(), 5);
+        // expose_card は community_cards[0] であること
+        assert_eq!(board.community_cards[0], expose_card);
+        // deck の正常な消費量: Flop(burn 0 + 2) + Turn(burn 1 + 1) + River(burn 1 + 1) = 6 枚
+        // バグ状態: Flop(burn 1 + 2) + Turn(burn 1 + 1) + River(burn 1 + 1) = 7 枚
+        assert_eq!(
+            deck.len(),
+            deck_len_before - 6,
+            "expose 後の Flop advance は burn をスキップするため合計 6 枚消費 (バグは 7 枚)"
+        );
     }
 
     // ---- shuffle テスト ----
