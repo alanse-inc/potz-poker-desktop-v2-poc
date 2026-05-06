@@ -1027,6 +1027,120 @@ describe("InitializeBoardCommandProvider", () => {
 
       expect(result.current.isStartable).toBe(true);
     });
+
+    it("miniChip=0 のときスタック 0 のアクティブプレイヤーが存在してもゲーム開始不可（Bug 4）", async () => {
+      const { result } = renderHook(() => useInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializeBoardCommand).toBeDefined();
+      });
+
+      act(() => {
+        result.current.updateInitializeBoardSetting("smallBlind", 50);
+      });
+      act(() => {
+        result.current.updateInitializeBoardSetting("bigBlind", 100);
+      });
+      // miniChip を 0 のままにする（初期値が 0 のことを前提とする）
+      // stack=0 のアクティブプレイヤーが存在する状態を作る
+      const player1 = createPlayer(
+        "playerId1",
+        "player1",
+        1,
+        "active",
+        0,
+        "sb",
+      );
+      const player2 = createPlayer(
+        "playerId2",
+        "player2",
+        2,
+        "active",
+        1000,
+        "bb",
+      );
+      const player3 = createPlayer(
+        "playerId3",
+        "player3",
+        3,
+        "active",
+        1000,
+        "btn",
+      );
+
+      act(() => result.current.updatePlayer(player1));
+      act(() => result.current.updatePlayer(player2));
+      act(() => result.current.updatePlayer(player3));
+
+      await waitFor(() => {
+        expect(
+          result.current.initializeBoardCommand.input.setting.miniChip,
+        ).toBe(0);
+      });
+
+      // miniChip=0 かつ stack=0 のアクティブプレイヤーが存在するので isStartable=false であるべき
+      expect(result.current.isStartable).toBe(false);
+    });
+
+    it("miniChip > 0 かつ全員がスタック >= miniChip を満たす場合のみゲーム開始可能", async () => {
+      const { result } = renderHook(() => useInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializeBoardCommand).toBeDefined();
+      });
+
+      act(() => {
+        result.current.updateInitializeBoardSetting("smallBlind", 50);
+      });
+      act(() => {
+        result.current.updateInitializeBoardSetting("bigBlind", 100);
+      });
+      act(() => {
+        result.current.updateInitializeBoardSetting("miniChip", 25);
+      });
+
+      // スタックが miniChip 未満のアクティブプレイヤーがいる場合は false
+      const player1 = createPlayer(
+        "playerId1",
+        "player1",
+        1,
+        "active",
+        10,
+        "sb",
+      );
+      const player2 = createPlayer(
+        "playerId2",
+        "player2",
+        2,
+        "active",
+        1000,
+        "bb",
+      );
+      const player3 = createPlayer(
+        "playerId3",
+        "player3",
+        3,
+        "active",
+        1000,
+        "btn",
+      );
+
+      act(() => result.current.updatePlayer(player1));
+      act(() => result.current.updatePlayer(player2));
+      act(() => result.current.updatePlayer(player3));
+
+      await waitFor(() => {
+        expect(
+          result.current.initializeBoardCommand.input.setting.miniChip,
+        ).toBe(25);
+      });
+
+      expect(result.current.isStartable).toBe(false);
+    });
   });
 
   describe("deletePlayer", () => {

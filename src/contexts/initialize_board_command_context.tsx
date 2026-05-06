@@ -474,15 +474,15 @@ export const InitializeBoardCommandProvider = ({
       ? hasBtnPosition && hasBbPosition
       : hasBtnPosition && hasSbPosition && hasBbPosition;
 
+    const miniChip = initializeBoardCommand.input.setting.miniChip;
+
     return (
       activePlayers.length >= 2 &&
       positionsValid &&
       initializeBoardCommand.input.setting.smallBlind > 0 &&
       initializeBoardCommand.input.setting.bigBlind > 0 &&
-      activePlayers.every(
-        (player) =>
-          player.stack >= initializeBoardCommand.input.setting.miniChip,
-      )
+      miniChip > 0 &&
+      activePlayers.every((player) => player.stack >= miniChip)
     );
   }, [
     initializeBoardCommand.input.players,
