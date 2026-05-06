@@ -287,7 +287,7 @@ export function useVoiceCommandQueue(
         const targetPlayer = initialBoard.players.find(
           (p) => p.position === targetSeat,
         );
-        if (!targetPlayer || targetPlayer.hasFolded) {
+        if (!targetPlayer || targetPlayer.hasFolded || targetPlayer.isAllIn) {
           return null;
         }
       }

@@ -1130,6 +1130,70 @@ describe("useVoiceCommandQueue", () => {
       expect(api.action.check).not.toHaveBeenCalled();
     });
 
+    it("r36_bug3_auto_fold_skips_when_target_is_all_in: target seat が isAllIn=true の場合、fold/check API は呼ばれず即座に null が返る", async () => {
+      // 4 人テーブルで seat 2 が all-in 済み
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 200,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+          {
+            position: 2,
+            name: "Charlie",
+            stack: 0,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: true, // all-in 済み（hasFolded=false）
+            hasActed: false,
+          },
+          {
+            position: 3,
+            name: "Dave",
+            stack: 9600,
+            hand: null,
+            betInRound: 0,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: false,
+          },
+        ],
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // seat 2（all-in 済み）を target に fold コマンドを発行
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 2 }));
+
+      await vi.runAllTimersAsync();
+
+      // fold/check が一切呼ばれないこと
+      expect(api.action.fold).not.toHaveBeenCalled();
+      expect(api.action.check).not.toHaveBeenCalled();
+    });
+
     it("target seat が folded 済みの場合、後続コマンドも実行されない（BREAK_QUEUE）", async () => {
       const board = buildMockBoard({
         currentTurn: 0,
