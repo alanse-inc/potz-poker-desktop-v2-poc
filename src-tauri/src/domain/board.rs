@@ -225,13 +225,23 @@ impl TexasHoldemBoard {
                 }
             }
             Phase::Turn if self.community_cards.len() < 4 => {
-                let _ = deck.pop(); // burn card
+                // set_community_card(3, ...) により community_cards が既に Turn カードを
+                // 持っている場合（len==4）はガードで弾かれる。
+                // len < 3 の異常状態（部分配布済み）では burn が消費済みのためスキップする。
+                if self.community_cards.len() == 3 {
+                    let _ = deck.pop(); // burn card
+                }
                 if let Some(card) = deck.pop() {
                     self.community_cards.push(card);
                 }
             }
             Phase::River if self.community_cards.len() < 5 => {
-                let _ = deck.pop(); // burn card
+                // set_community_card(4, ...) により community_cards が既に River カードを
+                // 持っている場合（len==5）はガードで弾かれる。
+                // len < 4 の異常状態（部分配布済み）では burn が消費済みのためスキップする。
+                if self.community_cards.len() == 4 {
+                    let _ = deck.pop(); // burn card
+                }
                 if let Some(card) = deck.pop() {
                     self.community_cards.push(card);
                 }
@@ -6020,6 +6030,219 @@ mod tests {
         assert_eq!(
             board.players[1].stack, 0,
             "弱い hand のプレイヤー B は受け取らないべき"
+        );
+    }
+
+    // ================================================================
+    // Bug F: advance_phase Turn/River でバーンスキップが Flop のみ実装されている非対称性
+    // ================================================================
+
+    /// RFID モードで community_cards.len() < 3 の場合に Turn ブロックへ入っても
+    /// burn が過剰消費されないことを確認するリグレッションテスト。
+    /// （Turn フェーズへの advance_phase 時に len() == 0..2 の異常状態での保護）
+    #[test]
+    fn advance_phase_turn_skips_burn_when_community_cards_less_than_3() {
+        let hand_a = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::King,
+            },
+        ];
+        let hand_b = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Jack,
+            },
+        ];
+        // community_cards に 2 枚のみ（Flop が部分配布された異常状態）
+        let partial_flop = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 900,
+                    hand: Some(hand_a),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 900,
+                    hand: Some(hand_b),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+            ],
+            community_cards: partial_flop,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Flop,
+            winners: vec![],
+        };
+        // deck: pop() 順 = Six (先頭に burn 相当) → Five (Turn カード)
+        let mut deck = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Five,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Six,
+            },
+        ];
+        let deck_size_before = deck.len();
+
+        board.advance_phase(&mut deck);
+
+        assert_eq!(board.phase, Phase::Turn);
+        // community_cards.len() == 2 (< 3) のケースでは burn をスキップして
+        // 1 枚だけ追加するため deck から 1 枚消費 (burn なし)。
+        assert_eq!(
+            deck.len(),
+            deck_size_before - 1,
+            "burn should be skipped when community_cards.len() < 3 on Flop->Turn"
+        );
+        assert_eq!(
+            board.community_cards.len(),
+            3,
+            "one card should be added to reach len==3"
+        );
+    }
+
+    /// RFID モードで community_cards.len() < 4 の場合に River ブロックへ入っても
+    /// burn が過剰消費されないことを確認するリグレッションテスト。
+    #[test]
+    fn advance_phase_river_skips_burn_when_community_cards_less_than_4() {
+        let hand_a = [
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Ace,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::King,
+            },
+        ];
+        let hand_b = [
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Queen,
+            },
+            Card {
+                suit: Suit::Club,
+                value: CardValue::Jack,
+            },
+        ];
+        // community_cards に 3 枚のみ（Flop のみで Turn カードがない異常状態）
+        let three_cards = vec![
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Two,
+            },
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Three,
+            },
+            Card {
+                suit: Suit::Diamond,
+                value: CardValue::Four,
+            },
+        ];
+        let mut board = TexasHoldemBoard {
+            hand_number: 1,
+            dealer_position: 0,
+            sb_position: 1,
+            bb_position: 2,
+            current_turn: 1,
+            current_bet: 0,
+            last_raise_size: 0,
+            players: vec![
+                Player {
+                    position: 0,
+                    name: "A".into(),
+                    stack: 900,
+                    hand: Some(hand_a),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+                Player {
+                    position: 1,
+                    name: "B".into(),
+                    stack: 900,
+                    hand: Some(hand_b),
+                    bet_in_round: 0,
+                    has_folded: false,
+                    is_all_in: false,
+                    has_acted: true,
+                    total_invested: 100,
+                },
+            ],
+            community_cards: three_cards,
+            pots: vec![Pot { amount: 200 }],
+            phase: Phase::Turn,
+            winners: vec![],
+        };
+        // deck: pop() 順 = Eight (burn 相当) → Seven (River カード)
+        let mut deck = vec![
+            Card {
+                suit: Suit::Heart,
+                value: CardValue::Seven,
+            },
+            Card {
+                suit: Suit::Spade,
+                value: CardValue::Eight,
+            },
+        ];
+        let deck_size_before = deck.len();
+
+        board.advance_phase(&mut deck);
+
+        assert_eq!(board.phase, Phase::River);
+        // community_cards.len() == 3 (< 4) のケースでは burn をスキップして
+        // 1 枚だけ追加するため deck から 1 枚消費 (burn なし)。
+        assert_eq!(
+            deck.len(),
+            deck_size_before - 1,
+            "burn should be skipped when community_cards.len() < 4 on Turn->River"
+        );
+        assert_eq!(
+            board.community_cards.len(),
+            4,
+            "one card should be added to reach len==4"
         );
     }
 }
