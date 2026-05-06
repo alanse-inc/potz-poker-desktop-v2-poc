@@ -40,12 +40,18 @@ vi.mock("./usePreferences", () => ({
   usePreferences: vi.fn(),
 }));
 
-// /api/game-event/set-active の呼び出しをモック (dynamic import)
-vi.mock("../api/fetch", () => ({
-  apiFetch: vi.fn().mockResolvedValue({ ok: true }),
+vi.mock("../api/backend_game_event", () => ({
+  setActiveGameEvent: vi.fn(),
 }));
 
+vi.mock("react-hot-toast", () => ({
+  default: { error: vi.fn() },
+}));
+
+import { err, ok } from "neverthrow";
+import toast from "react-hot-toast";
 import { getGameEventDetail } from "../api/backend";
+import { setActiveGameEvent } from "../api/backend_game_event";
 import { useOperator } from "../contexts/operator_context";
 import { useSession } from "../contexts/session_context";
 import { trackClientSideError } from "../features/error_tracker";
@@ -122,6 +128,7 @@ const buildOperatorMock = (tableId: string | null = null) => ({
 describe("useRestoreSessionFromPreferences", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(setActiveGameEvent).mockResolvedValue(ok(undefined));
   });
 
   it("started セッションが取得できたら session context を初期化する", async () => {
@@ -254,5 +261,83 @@ describe("useRestoreSessionFromPreferences", () => {
       expect(sessionMock.setCurrentSession).toHaveBeenCalled();
     });
     expect.soft(sessionMock.setCurrentGameSessionId).not.toHaveBeenCalled();
+  });
+
+  it("started セッション復元後に setActiveGameEvent を呼ぶ", async () => {
+    const sessionMock = buildSessionMock({});
+    vi.mocked(useSession).mockReturnValue(sessionMock);
+    vi.mocked(useOperator).mockReturnValue(buildOperatorMock());
+    vi.mocked(usePreferences).mockReturnValue(
+      buildPreferencesMock(GAME_EVENT_ID),
+    );
+    vi.mocked(getGameEventDetail).mockResolvedValue(
+      buildGameEventDetail([{ ...STARTED_SESSION, players: [] }]),
+    );
+
+    renderHook(() => useRestoreSessionFromPreferences("test"));
+
+    await waitFor(() => {
+      expect(setActiveGameEvent).toHaveBeenCalledWith(GAME_EVENT_ID);
+    });
+  });
+
+  it("setActiveGameEvent が network_error を返した場合は toast.error と trackClientSideError を呼ぶ", async () => {
+    const sessionMock = buildSessionMock({});
+    vi.mocked(useSession).mockReturnValue(sessionMock);
+    vi.mocked(useOperator).mockReturnValue(buildOperatorMock());
+    vi.mocked(usePreferences).mockReturnValue(
+      buildPreferencesMock(GAME_EVENT_ID),
+    );
+    vi.mocked(getGameEventDetail).mockResolvedValue(
+      buildGameEventDetail([{ ...STARTED_SESSION, players: [] }]),
+    );
+    vi.mocked(setActiveGameEvent).mockResolvedValue(
+      err({ kind: "network_error" as const, message: "connection refused" }),
+    );
+
+    renderHook(() => useRestoreSessionFromPreferences("test"));
+
+    await waitFor(() => {
+      expect(trackClientSideError).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to set active game event"),
+      );
+    });
+    expect
+      .soft(toast.error)
+      .toHaveBeenCalledWith("セッション復元時のアクティブ通知に失敗しました");
+    // ローカルセッション復元は続行されている
+    expect.soft(sessionMock.setCurrentSession).toHaveBeenCalled();
+  });
+
+  it("setActiveGameEvent が server_error を返した場合は toast.error と trackClientSideError を呼ぶ", async () => {
+    const sessionMock = buildSessionMock({});
+    vi.mocked(useSession).mockReturnValue(sessionMock);
+    vi.mocked(useOperator).mockReturnValue(buildOperatorMock());
+    vi.mocked(usePreferences).mockReturnValue(
+      buildPreferencesMock(GAME_EVENT_ID),
+    );
+    vi.mocked(getGameEventDetail).mockResolvedValue(
+      buildGameEventDetail([{ ...STARTED_SESSION, players: [] }]),
+    );
+    vi.mocked(setActiveGameEvent).mockResolvedValue(
+      err({
+        kind: "server_error" as const,
+        status: 503,
+        message: "POST /api/game-event/set-active failed: HTTP 503",
+      }),
+    );
+
+    renderHook(() => useRestoreSessionFromPreferences("test"));
+
+    await waitFor(() => {
+      expect(trackClientSideError).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to set active game event"),
+      );
+    });
+    expect
+      .soft(toast.error)
+      .toHaveBeenCalledWith("セッション復元時のアクティブ通知に失敗しました");
+    // ローカルセッション復元は続行されている
+    expect.soft(sessionMock.setCurrentSession).toHaveBeenCalled();
   });
 });

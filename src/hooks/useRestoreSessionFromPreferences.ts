@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
+import toast from "react-hot-toast";
 import type {
   GameEventDetailResponse,
   GameSessionResponse,
 } from "../api/backend";
 import { BackendApiError, getGameEventDetail } from "../api/backend";
+import { setActiveGameEvent } from "../api/backend_game_event";
 import { useOperator } from "../contexts/operator_context";
 import { useSession } from "../contexts/session_context";
 import { trackClientSideError } from "../features/error_tracker";
@@ -15,8 +17,9 @@ import { usePreferences } from "./usePreferences";
  *
  * Electron 版の `useRestoreSessionFromPreferences` を Tauri 向けに移植。
  * - `fetchGameEvent` → `getGameEventDetail` に置き換え
- * - `startGameEvent` / `apiFetch("/api/game-event/set-active")` は未実装のため stub 扱い
- *   (try/catch でエラーを吸収してログのみ記録)
+ * - `setActiveGameEvent` で /api/game-event/set-active を呼び出し、
+ *   バックエンドに「このゲームイベントがアクティブ」と通知する。
+ *   API 失敗時はローカルセッション復元を続行し、toast でエラーを通知する。
  * - `fromGameEventResponse` はここでは使わず、`GameEventDetailResponse` を
  *   `GameSessionResponse` として直接 setCurrentSession に渡す設計に簡略化
  *
@@ -101,18 +104,13 @@ export function useRestoreSessionFromPreferences(logLabel: string): void {
         setCurrentSession(sessionForContext);
         setLastHandNumber(resolvedSession?.currentHandNumber ?? 0);
 
-        // /api/game-event/set-active の Tauri 版 stub（未実装時はログのみ）
-        try {
-          const { apiFetch } = await import("../api/fetch");
-          await apiFetch("/api/game-event/set-active", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ gameEventId: sessionId }),
-          });
-        } catch (error) {
-          trackClientSideError(`${logPrefix} Failed to set active game event`, {
-            cause: error,
-          });
+        // バックエンドに「このゲームイベントがアクティブ」と通知する
+        const setActiveResult = await setActiveGameEvent(sessionId);
+        if (setActiveResult.isErr()) {
+          trackClientSideError(
+            `${logPrefix} Failed to set active game event: ${setActiveResult.error.message}`,
+          );
+          toast.error("セッション復元時のアクティブ通知に失敗しました");
         }
       } catch (error) {
         sessionInitializedRef.current = false;
