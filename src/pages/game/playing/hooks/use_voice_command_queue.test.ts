@@ -986,7 +986,9 @@ describe("useVoiceCommandQueue", () => {
       expect(api.action.check).toHaveBeenCalledTimes(1);
       expect(mockVoiceInputService.emitStatusPublic).toHaveBeenCalledWith(
         "listening",
-        expect.stringContaining("ボード更新タイムアウトのためキューを中断しました"),
+        expect.stringContaining(
+          "ボード更新タイムアウトのためキューを中断しました",
+        ),
       );
     });
   });

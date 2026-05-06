@@ -51,6 +51,9 @@ describe("SelectExposeCardModal", () => {
   beforeEach(() => {
     onClose.mockReset();
     onConfirmed.mockReset();
+    vi.mocked(api.board.getRemainingDeck).mockClear();
+    vi.mocked(api.action.expose).mockClear();
+    vi.mocked(api.notifications.onBoardUpdated).mockClear();
     // デフォルトは全52枚が残デッキ（使用済みカードなし）
     vi.mocked(api.board.getRemainingDeck).mockResolvedValue(
       (["spade", "heart", "diamond", "club"] as const).flatMap((suit) =>
