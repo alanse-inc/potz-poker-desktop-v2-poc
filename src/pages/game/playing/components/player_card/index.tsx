@@ -71,7 +71,7 @@ export function PlayerCard({
         >
           <div>{player.name || "NO NAME"}</div>
           <div>{formatChipWithSuffix(player.stack)}</div>
-          <div>{isCurrentTurn ? "▶" : ""}</div>
+          <div aria-hidden="true">{isCurrentTurn ? "▶" : ""}</div>
         </div>
         {/* アクションバッジ */}
         <div
