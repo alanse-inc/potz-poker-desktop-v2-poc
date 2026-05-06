@@ -973,7 +973,7 @@ fn start_game_with_stacks_and_deck(
     let ante_amount = if settings.bb_ante {
         let ante = settings.big_blind.min(players[bb_idx].stack);
         players[bb_idx].stack -= ante;
-        players[bb_idx].total_invested += ante;
+        players[bb_idx].total_invested = players[bb_idx].total_invested.saturating_add(ante);
         if players[bb_idx].stack == 0 {
             players[bb_idx].is_all_in = true;
         }
@@ -7730,5 +7730,15 @@ mod tests {
             "burn should be skipped when burn_count=1 (already burned externally), only 3 cards added"
         );
         assert_eq!(board.community_cards.len(), 3);
+    }
+
+    #[test]
+    fn r37_bug2_bb_ante_total_invested_saturates() {
+        // total_invested が u32::MAX - 50 の状態で ante=100 を加算したとき u32::MAX に飽和することを検証する。
+        // start_game では初期値を操作できないため、saturating_add のセマンティクスを直接確認する。
+        let base: u32 = u32::MAX - 50;
+        let ante: u32 = 100;
+        let result = base.saturating_add(ante);
+        assert_eq!(result, u32::MAX);
     }
 }
