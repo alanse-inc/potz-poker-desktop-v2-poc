@@ -41,7 +41,8 @@ export function DeckChoose() {
 
   useEffect(() => {
     if (showModal) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
     }
   }, [showModal]);
 
