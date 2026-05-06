@@ -62,7 +62,11 @@ export function useCardPlacedHandler() {
     const setup = async () => {
       const processNext = async (): Promise<void> => {
         // unmount 後 (cancelled === true) は新規 IPC 呼び出し / toast / state 更新を行わず
-        // そのまま終了する。
+        // そのまま終了する。processNext 呼び出し時点で既に cancelled であれば即リセットして戻る。
+        if (cancelled) {
+          processingRef.current = false;
+          return;
+        }
         while (!cancelled && pendingQueueRef.current.length > 0) {
           const next = pendingQueueRef.current.shift();
           if (!next) break;
@@ -77,10 +81,16 @@ export function useCardPlacedHandler() {
 
           try {
             await api.rfid.applyCardPlaced(next.rfid, next.card, next.position);
-            if (cancelled) return;
+            if (cancelled) {
+              processingRef.current = false;
+              return;
+            }
             toast.success("カードを読み込みました");
           } catch (e) {
-            if (cancelled) return;
+            if (cancelled) {
+              processingRef.current = false;
+              return;
+            }
             popEventHistory();
             const message =
               e instanceof Error ? e.message : "カード配置に失敗しました";

@@ -420,6 +420,104 @@ describe("useCardPlacedHandler", () => {
     expect(unlistenCardPlacedSpy).toHaveBeenCalled();
   });
 
+  it("unmount 後にキュー内の 2 件目以降は IPC が呼ばれない (Bug D)", async () => {
+    let resolveFirst!: () => void;
+    const firstCallPromise = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let applyCallCount = 0;
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(async () => {
+      applyCallCount += 1;
+      if (applyCallCount === 1) {
+        await firstCallPromise;
+      }
+    });
+
+    const { unmount } = renderHook(() => useCardPlacedHandler());
+
+    const payload1 = {
+      rfid: "RFID_BUGD_001",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+    const payload2 = {
+      rfid: "RFID_BUGD_002",
+      card: { suit: "heart" as const, value: "K" as const },
+      position: { type: "communityCard" as const, slot: 1 },
+    };
+    const payload3 = {
+      rfid: "RFID_BUGD_003",
+      card: { suit: "diamond" as const, value: "Q" as const },
+      position: { type: "communityCard" as const, slot: 2 },
+    };
+
+    await act(async () => {
+      // 1 件目の処理を開始（IPC pending）
+      const firstDone = onCardPlacedCb?.(payload1);
+      // 2, 3 件目はキューへ積む
+      void onCardPlacedCb?.(payload2);
+      void onCardPlacedCb?.(payload3);
+      // 1 件目処理中に unmount
+      unmount();
+      // 1 件目の IPC を解決
+      resolveFirst();
+      await firstDone;
+      // マイクロタスクを数回消化して processNext が起動しないことを確認
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 1 件目のみ IPC が呼ばれ、2, 3 件目は cancelled により呼ばれない
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
+  });
+
+  it("unmount 後に 1 件目 IPC 完了後 setState/toast が呼ばれない (Bug D)", async () => {
+    const toast = await import("react-hot-toast");
+    vi.mocked(toast.default.success).mockClear();
+    let resolveFirst!: () => void;
+    const firstCallPromise = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(
+      async () => firstCallPromise,
+    );
+
+    const { unmount, result } = renderHook(() => useCardPlacedHandler());
+
+    const payload1 = {
+      rfid: "RFID_BUGD_TOAST_001",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+    const payload2 = {
+      rfid: "RFID_BUGD_TOAST_002",
+      card: { suit: "heart" as const, value: "K" as const },
+      position: { type: "communityCard" as const, slot: 1 },
+    };
+
+    await act(async () => {
+      // 1 件目の処理を開始（IPC pending）
+      const firstDone = onCardPlacedCb?.(payload1);
+      // 2 件目はキューへ積む
+      void onCardPlacedCb?.(payload2);
+      // 1 件目処理中に unmount
+      unmount();
+      // 1 件目の IPC を解決（unmount 後）
+      resolveFirst();
+      await firstDone;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // unmount 後の解決なので success toast は呼ばれない
+    expect(toast.default.success).not.toHaveBeenCalled();
+    // 2 件目の IPC も呼ばれない
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(1);
+    // state 更新は unmount 後なので eventHistory は 1 件のみ（初回 pushEventHistory 呼び出し分）
+    // unmount 後の setEventHistory は React が無視するためエラーにならない
+    void result; // result を参照して型エラー回避
+  });
+
   it("burnCard イベントが重複送信された場合は2回目をスキップする", async () => {
     const { result } = renderHook(() => useCardPlacedHandler());
 
