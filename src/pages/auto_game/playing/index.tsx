@@ -78,6 +78,11 @@ export function AutoGamePlaying() {
         },
       );
 
+      if (cancelled) {
+        unlistenAutoCardPlaced();
+        return;
+      }
+
       const unlistenUnregistered =
         await api.notifications.onCardPlacedUnregistered(() => {
           if (cancelled) return;
