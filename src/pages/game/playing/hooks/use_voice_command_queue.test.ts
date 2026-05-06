@@ -1043,4 +1043,120 @@ describe("useVoiceCommandQueue", () => {
       expect(api.action.check).toHaveBeenCalled();
     });
   });
+
+  describe("Bug C: autoFoldUntilSeat が canChangeRound=true で null を返した後のキュー継続バグ", () => {
+    it("autoFoldUntilSeat が null を返した場合（canChangeRound=true による中断）、後続コマンドは実行されない", async () => {
+      // 席 0 が currentTurn、targetSeat=2 を目指すが canChangeRound=true のため
+      // autoFoldUntilSeat が null を返すシナリオ
+      // canChangeRound=true: activePlayers 全員が hasActed=true かつ betInRound >= currentBet
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 200,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9800,
+            hand: null,
+            betInRound: 200, // currentBet と同額
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: true, // hasActed=true → canChangeRound=true になる
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 200,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: true,
+          },
+          {
+            position: 2,
+            name: "Charlie",
+            stack: 9700,
+            hand: null,
+            betInRound: 200,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: true,
+          },
+        ],
+      });
+      // waitForActionableBoard が即座に board を返せるようにする（phase !== "showdown"）
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // fold → call の順でキューに積む
+      // fold は seatNumber=2 を指定（currentTurn=0 なので autoFoldUntilSeat が走る）
+      // ラウンド完了状態（canChangeRound=true）なので autoFoldUntilSeat は null を返す
+      // → 後続の call が実行されてはいけない
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 2 }));
+      result.current.enqueue(buildCommand({ action: "call" }));
+
+      await vi.runAllTimersAsync();
+
+      // fold 自体（api.action.fold）は autoFoldUntilSeat が canChangeRound で中断するため呼ばれない
+      expect(api.action.fold).not.toHaveBeenCalled();
+      // 後続の call は実行されてはいけない（BREAK_QUEUE により中断される）
+      expect(api.action.call).not.toHaveBeenCalled();
+      // 警告メッセージが発行されること
+      expect(mockVoiceInputService.emitStatusPublic).toHaveBeenCalledWith(
+        "listening",
+        expect.stringContaining(
+          "シート 2 へのフォールド自動進行を中断しました",
+        ),
+      );
+    });
+
+    it("autoFoldUntilSeat が null を返した場合、fold コマンド自体も実行されない", async () => {
+      // targetSeat に到達する前にラウンドが完了している状態（canChangeRound=true）
+      const board = buildMockBoard({
+        currentTurn: 0,
+        currentBet: 100,
+        players: [
+          {
+            position: 0,
+            name: "Alice",
+            stack: 9900,
+            hand: null,
+            betInRound: 100,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: true,
+          },
+          {
+            position: 1,
+            name: "Bob",
+            stack: 9900,
+            hand: null,
+            betInRound: 100,
+            hasFolded: false,
+            isAllIn: false,
+            hasActed: true,
+          },
+        ],
+      });
+      const boardRef = { current: board };
+
+      const { result } = renderHook(() =>
+        useVoiceCommandQueue(boardRef, mockOnBack, mockOnEditGame),
+      );
+
+      // seatNumber=1 に fold を積む。currentTurn=0 なので autoFoldUntilSeat が走るが
+      // canChangeRound=true で中断 → null が返る → BREAK_QUEUE
+      result.current.enqueue(buildCommand({ action: "fold", seatNumber: 1 }));
+
+      await vi.runAllTimersAsync();
+
+      // autoFoldUntilSeat 内で fold/check は呼ばれない（canChangeRound で即中断）
+      expect(api.action.fold).not.toHaveBeenCalled();
+      expect(api.action.call).not.toHaveBeenCalled();
+    });
+  });
 });

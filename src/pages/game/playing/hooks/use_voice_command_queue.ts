@@ -549,7 +549,7 @@ export function useVoiceCommandQueue(
         );
         if (currentPlayer && currentPlayer.position !== effectiveSeatNumber) {
           const resultBoard = await autoFoldUntilSeat(effectiveSeatNumber);
-          if (!resultBoard) return CONTINUE_QUEUE;
+          if (!resultBoard) return BREAK_QUEUE;
           currentBoard = resultBoard;
         }
       }
