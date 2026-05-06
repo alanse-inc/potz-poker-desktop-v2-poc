@@ -10,7 +10,7 @@
     "build": "tsgo --noEmit -p tsconfig.web.json && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.conf.dev.json",
     "tauri:build": "tauri build",
     "lint": "biome check .",
     "lint:fix": "biome check --write . --unsafe",
