@@ -1190,6 +1190,161 @@ describe("InitializeBoardCommandProvider", () => {
     });
   });
 
+  // ================================================================
+  // Bug f 回帰テスト: updatePlayer / deletePlayer / setBtnPosition が
+  // Tauri Store (gameSettingsGateway) に正しく永続化されること
+  // ================================================================
+
+  describe("updatePlayer - Tauri Store 永続化 (Bug f)", () => {
+    const makeExistingSettings = () => ({
+      currentMode: "manual" as const,
+      autoMode: {
+        players: [] as Array<{
+          id: string;
+          name: string;
+          icon: null;
+          seat: number;
+          position: null;
+        }>,
+        settings: { name: "" },
+        btnPlayerId: null as null,
+      },
+      manualMode: {
+        players: [] as Array<{
+          id: string;
+          name: string;
+          icon: null;
+          status: string;
+          stack: number;
+          seat: number;
+          position: null;
+        }>,
+        settings: {
+          name: "",
+          miniChip: 100,
+          smallBlind: 500,
+          bigBlind: 1000,
+          anteRule: "none" as const,
+          blindExceptionRule: "dead_button" as const,
+        },
+        btnPlayerId: null as null,
+      },
+      telopSettings: {
+        telopId: "basic",
+        backgroundColor: "#00FF00",
+      },
+    });
+
+    it("updatePlayer 後に Tauri Store (gameSettingsGateway.save) が呼ばれ、プレイヤーが永続化される", async () => {
+      const existingSettings = makeExistingSettings();
+      // biome-ignore lint/suspicious/noExplicitAny: テスト用の型アサーション
+      let savedSettings: any = null;
+
+      mockStoreGet.mockResolvedValue(existingSettings);
+      mockStoreSet.mockImplementation((_key: string, value: unknown) => {
+        savedSettings = value;
+        return Promise.resolve(undefined);
+      });
+
+      const { result } = renderHook(() => useInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializeBoardCommand).toBeDefined();
+      });
+
+      const newPlayer = createPlayer("player-bug-f", "BugF Player", 1);
+
+      await act(async () => {
+        result.current.updatePlayer(newPlayer);
+      });
+
+      // fetch が完了し store.save が呼ばれるまで待つ
+      await waitFor(() => {
+        expect(savedSettings).not.toBeNull();
+      });
+
+      // manualMode.players に追加したプレイヤーが含まれていること (Bug f 回帰確認)
+      const savedPlayers = savedSettings?.manualMode?.players ?? [];
+      const found = savedPlayers.find(
+        (p: { id: string }) => p.id === "player-bug-f",
+      );
+      expect(found).toBeDefined();
+      expect(found?.name).toBe("BugF Player");
+    });
+
+    it("deletePlayer 後に Tauri Store (gameSettingsGateway.save) が呼ばれ、削除が永続化される", async () => {
+      // ストアに 2 人のプレイヤーを保存した状態で初期化し、
+      // initializeBoardCommand がその 2 人をロードした後に deletePlayer を実行する。
+      // updatePlayer を経由しないことで非同期の競合を避ける。
+      const existingSettings = makeExistingSettings();
+      existingSettings.manualMode.players = [
+        {
+          id: "player-to-delete",
+          name: "To Delete",
+          icon: null,
+          status: "active",
+          stack: 1000,
+          seat: 1,
+          position: null,
+        },
+        {
+          id: "player-to-keep",
+          name: "To Keep",
+          icon: null,
+          status: "active",
+          stack: 1000,
+          seat: 2,
+          position: null,
+        },
+      ];
+
+      // biome-ignore lint/suspicious/noExplicitAny: テスト用の型アサーション
+      let lastSavedSettings: any = null;
+
+      mockStoreGet.mockResolvedValue(existingSettings);
+      mockStoreSet.mockImplementation((_key: string, value: unknown) => {
+        lastSavedSettings = value;
+        return Promise.resolve(undefined);
+      });
+
+      const { result } = renderHook(() => useInitializeBoardCommand(), {
+        wrapper,
+      });
+
+      // ストアから 2 人のプレイヤーがロードされるまで待つ
+      await waitFor(() => {
+        const players = result.current.initializeBoardCommand.input.players;
+        expect(players.some((p) => p.id === "player-to-delete")).toBe(true);
+      });
+
+      // lastSavedSettings をリセット (初期化時の save は対象外)
+      lastSavedSettings = null;
+
+      // deletePlayer を実行 (updatePlayer なしで削除)
+      await act(async () => {
+        result.current.deletePlayer("player-to-delete");
+      });
+
+      // deletePlayer の非同期処理 (fetch → gameSettingsGateway.save) が完了するまで待つ
+      await waitFor(() => {
+        expect(lastSavedSettings).not.toBeNull();
+      });
+
+      // 削除が永続化データに反映されていること (Bug f 回帰確認)
+      const savedPlayers = lastSavedSettings?.manualMode?.players ?? [];
+      const deleted = savedPlayers.find(
+        (p: { id: string }) => p.id === "player-to-delete",
+      );
+      const kept = savedPlayers.find(
+        (p: { id: string }) => p.id === "player-to-keep",
+      );
+      expect(deleted).toBeUndefined();
+      expect(kept).toBeDefined();
+    });
+  });
+
   describe("updateInitializeBoardSetting - テーブル名の同期", () => {
     it("トーナメント名を更新するとAutoMode設定にも同期される", async () => {
       const existingSettings = {
