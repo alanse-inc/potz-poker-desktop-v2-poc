@@ -135,7 +135,7 @@ impl TexasHoldemBoard {
     }
 
     /// ベットラウンドが完了しているか判定する。
-    fn is_round_complete(&self) -> bool {
+    pub(crate) fn is_round_complete(&self) -> bool {
         let actives: Vec<&Player> = self.players.iter().filter(|p| !p.has_folded).collect();
 
         // fold 以外が 1 人なら完了

@@ -105,8 +105,13 @@ fn are_all_players_dealt(board: &TexasHoldemBoard) -> bool {
 /// コミュニティカードの枚数で判断する（フェーズに依存しない）。
 pub fn should_burn_card(board: &TexasHoldemBoard, burn_count: u8) -> bool {
     let community_count = board.community_cards.len() as u8;
-    // フロップ前のバーン: プレイヤー全員配布済みでコミュニティ0枚、バーン0枚
+    // フロップ前のバーン: プレイヤー全員配布済みでコミュニティ0枚、バーン0枚。
+    // PreFlop ベッティングが完了していない場合はバーンを許可しない。
+    // これにより PreFlop ベッティング中の早期スキャンで誤って BurnCard を返すことを防ぐ。
     if burn_count == 0 && community_count == 0 {
+        if board.phase == Phase::PreFlop && !board.is_round_complete() {
+            return false;
+        }
         return true;
     }
     // ターン前のバーン: コミュニティ3枚、バーン1枚
@@ -304,9 +309,26 @@ mod tests {
                 Card::new(Suit::Heart, CardValue::King),
             ]);
         }
-        // 全員配布済み → burn_count=0, community=0 → BurnCard
+        // Bug 1 fix: PreFlop ベッティングが完了していない場合はバーンを返さない。
+        // PreFlop ベッティング未完了（has_acted=false のプレイヤーあり） → BurnCard にならない
         let pos = determine_next_card_position(&board, 0).unwrap();
-        assert_eq!(pos, CardPosition::BurnCard);
+        assert!(
+            matches!(pos, CardPosition::CommunityCard { slot: 0 }),
+            "should go to community flop1 (not BurnCard) when PreFlop betting is not complete, got {:?}",
+            pos
+        );
+
+        // PreFlop ベッティング完了後（全員 has_acted=true かつ bet 揃い） → BurnCard
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = board.current_bet;
+        }
+        let pos_after_round = determine_next_card_position(&board, 0).unwrap();
+        assert_eq!(
+            pos_after_round,
+            CardPosition::BurnCard,
+            "should return BurnCard after PreFlop betting is complete"
+        );
     }
 
     #[test]
@@ -466,6 +488,13 @@ mod tests {
         for p in &mut board.players {
             p.hand = Some([ace, king]);
         }
+        // Bug 1 fix: PreFlop ベッティングが完了していない状態では BurnCard を返さない。
+        // 全員配布済みでも PreFlop ベッティング未完了の場合は CommunityCard { slot: 0 } を返す。
+        // PreFlop ベッティングを完了させてから BurnCard を確認する。
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = board.current_bet;
+        }
         let pos = determine_next_card_position(&board, 0).unwrap();
         assert_eq!(pos, CardPosition::BurnCard);
     }
@@ -491,5 +520,64 @@ mod tests {
         // start seat = bb = 2
         let pos = determine_next_card_position(&board, 0).unwrap();
         assert_eq!(pos, CardPosition::PlayerHand { seat: 2 });
+    }
+
+    // ================================================================
+    // Bug 1 リグレッションテスト: PreFlop ベッティング中の早期バーンスキャン防止
+    // ================================================================
+
+    /// PreFlop 配布完了後、ベッティング途中では should_burn_card が false を返すこと。
+    /// これにより advance_phase 二重バーンを防ぐ。
+    #[test]
+    fn r34_bug1_should_burn_card_returns_false_during_preflop_betting() {
+        use crate::domain::card::{Card, CardValue, Suit};
+        let mut board = make_board_3p();
+        let ace = Card::new(Suit::Spade, CardValue::Ace);
+        let king = Card::new(Suit::Heart, CardValue::King);
+        // 全員ホールカード配布完了
+        for p in &mut board.players {
+            p.hand = Some([ace, king]);
+        }
+        // PreFlop ベッティング未完了（has_acted = false のプレイヤーあり）
+        // → should_burn_card は false を返すべき
+        assert!(
+            !should_burn_card(&board, 0),
+            "should_burn_card must return false during PreFlop betting (Bug 1 regression)"
+        );
+        // → determine_next_card_position も BurnCard を返さないこと
+        let pos = determine_next_card_position(&board, 0).unwrap();
+        assert!(
+            !matches!(pos, CardPosition::BurnCard),
+            "determine_next_card_position must not return BurnCard during PreFlop betting, got {:?}",
+            pos
+        );
+    }
+
+    /// PreFlop ベッティング完了後は should_burn_card が true を返すこと。
+    #[test]
+    fn r34_bug1_should_burn_card_returns_true_after_preflop_betting_complete() {
+        use crate::domain::card::{Card, CardValue, Suit};
+        let mut board = make_board_3p();
+        let ace = Card::new(Suit::Spade, CardValue::Ace);
+        let king = Card::new(Suit::Heart, CardValue::King);
+        // 全員ホールカード配布完了
+        for p in &mut board.players {
+            p.hand = Some([ace, king]);
+        }
+        // PreFlop ベッティング完了（全員 has_acted = true かつ bet 揃い）
+        for p in &mut board.players {
+            p.has_acted = true;
+            p.bet_in_round = board.current_bet;
+        }
+        assert!(
+            should_burn_card(&board, 0),
+            "should_burn_card must return true after PreFlop betting is complete"
+        );
+        let pos = determine_next_card_position(&board, 0).unwrap();
+        assert_eq!(
+            pos,
+            CardPosition::BurnCard,
+            "determine_next_card_position must return BurnCard after PreFlop betting is complete"
+        );
     }
 }
