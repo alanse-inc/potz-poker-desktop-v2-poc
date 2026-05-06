@@ -483,6 +483,53 @@ describe("useReconcileCheckedOutPlayers", () => {
     expect.soft(removeMock).toHaveBeenCalledWith(ANOTHER_CHECKED_OUT_PLAYER_ID);
   });
 
+  it("Promise.all 完了後に unmount されていた場合は reconciledSessionKeys を削除して副作用を走らせない（Bug 5）", async () => {
+    vi.mocked(useSession).mockReturnValue(buildSessionMock({}));
+
+    let resolveRemove: (() => void) | undefined;
+    vi.mocked(getGameEventDetail).mockResolvedValue(
+      buildGameEventDetail([
+        buildPlayerRecord({
+          playerId: CHECKED_OUT_PLAYER_ID,
+          finishedHandNumber: 1,
+        }),
+      ]),
+    );
+    // removePlayerFromGameSettings を pending にして Promise.all 完了のタイミングを制御する
+    removeMock.mockImplementation(
+      () =>
+        new Promise<ReturnType<typeof okAsync>>((resolve) => {
+          resolveRemove = () => resolve(okAsync(undefined) as never);
+        }),
+    );
+
+    const { unmount } = renderHook(() => useReconcileCheckedOutPlayers());
+
+    // getGameEventDetail が完了するまで待つ
+    await waitFor(() => {
+      expect(getGameEventDetail).toHaveBeenCalledTimes(1);
+    });
+
+    // Promise.all 実行中に unmount → abortController.abort()
+    unmount();
+
+    // Promise.all の中の remove を完了させる
+    resolveRemove?.();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // abort 後なので reconciledSessionKeys からキーが削除されているはず
+    // 2 回目のマウントで再試行できることを確認
+    removeMock.mockImplementation(() => okAsync(undefined));
+    renderHook(() => useReconcileCheckedOutPlayers());
+    await waitFor(() => {
+      expect(getGameEventDetail).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(removeMock).toHaveBeenCalledWith(CHECKED_OUT_PLAYER_ID);
+    });
+  });
+
   it("予期せぬ throw（ネットワーク例外等）でも次回再試行可能", async () => {
     vi.mocked(useSession).mockReturnValue(buildSessionMock({}));
     vi.mocked(getGameEventDetail)

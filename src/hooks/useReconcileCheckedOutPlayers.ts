@@ -139,6 +139,11 @@ export function useReconcileCheckedOutPlayers(): void {
             removePlayerFromGameSettings(playerId),
           ),
         );
+
+        if (abortController.signal.aborted) {
+          reconciledSessionKeys.delete(reconciliationKey);
+          return;
+        }
       } catch (error) {
         reconciledSessionKeys.delete(reconciliationKey);
         trackClientSideError("Reconciliation: unexpected error", {
