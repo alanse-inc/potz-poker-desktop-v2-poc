@@ -694,7 +694,7 @@ pub fn apply_card_placed(
             let burn_count_snap = guard.burn_count;
             let burn_card_snap = guard.burn_card;
 
-            guard.burn_count += 1;
+            guard.burn_count = guard.burn_count.saturating_add(1);
             guard.burn_card = Some(card);
             guard
                 .deck
@@ -813,7 +813,7 @@ mod tests {
                 board.community_cards.push(card);
             }
             CardPosition::BurnCard => {
-                state.burn_count += 1;
+                state.burn_count = state.burn_count.saturating_add(1);
                 state.burn_card = Some(card);
             }
         }
@@ -875,6 +875,29 @@ mod tests {
         assert_eq!(state.burn_count, 0);
         assert!(state.burn_card.is_none());
         assert!(state.event_history.is_empty());
+    }
+
+    // ---- Bug2: burn_count saturating_add (u8 overflow 防止) ----
+
+    #[test]
+    fn burn_count_saturates_at_u8_max() {
+        let mut state = make_state_with_board();
+        state.burn_count = u8::MAX;
+        let burn = Card::new(Suit::Club, CardValue::Two);
+
+        apply_card_to_state(&mut state, burn, CardPosition::BurnCard).unwrap();
+
+        assert_eq!(
+            state.burn_count,
+            u8::MAX,
+            "burn_count should remain u8::MAX (255) after saturating_add, not overflow"
+        );
+        // u8::MAX (255) > 2 なので二重バーン防止の閾値 (0, <=1, <=2) はいずれも false
+        // → advance_phase が二重バーンをスキップせず通常動作することを確認
+        assert!(
+            state.burn_count > 2,
+            "burn_count at u8::MAX should not satisfy any double-burn skip threshold (<= 2)"
+        );
     }
 
     // ---- BUG-K-2: BurnCard ケースで burn_card フィールドが更新される ----
