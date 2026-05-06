@@ -223,8 +223,10 @@ mod tests {
 
     #[test]
     fn active_route_can_be_set() {
-        let mut state = InnerState::default();
-        state.active_route = "/auto-game/playing".to_string();
+        let state = InnerState {
+            active_route: "/auto-game/playing".to_string(),
+            ..Default::default()
+        };
         assert_eq!(state.active_route, "/auto-game/playing");
         assert!(state.active_route.starts_with("/auto-game/"));
     }
