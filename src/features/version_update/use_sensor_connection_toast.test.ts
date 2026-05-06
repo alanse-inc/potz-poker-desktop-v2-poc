@@ -168,6 +168,6 @@ describe("useSensorConnectionToast", () => {
 
     unmount();
 
-    expect(unlistenFn).toHaveBeenCalled();
+    await vi.waitFor(() => expect(unlistenFn).toHaveBeenCalled());
   });
 });
