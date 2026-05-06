@@ -2,6 +2,7 @@
 
 pub mod action;
 pub mod board;
+pub mod debug;
 pub mod deck;
 pub mod expose;
 pub mod serial;

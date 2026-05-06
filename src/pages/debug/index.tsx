@@ -196,6 +196,16 @@ export function Debug() {
     }
   };
 
+  const handleAssignRandom = async () => {
+    try {
+      await api.debug.assignRandomCard();
+      toast.success("ランダムカードを次のスロットに配布しました");
+      void fetchSnapshot();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "ランダム配布失敗");
+    }
+  };
+
   const handleDealCard = async () => {
     let position: CardPosition;
     if (dealPositionType === "playerHand") {
@@ -332,9 +342,18 @@ export function Debug() {
         </section>
 
         <section className="flex flex-col gap-3">
-          <h2 className="font-bold text-gray-400 text-sm uppercase">
-            手動カード配布
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-gray-400 text-sm uppercase">
+              手動カード配布
+            </h2>
+            <button
+              type="button"
+              onClick={handleAssignRandom}
+              className="flex h-9 items-center justify-center rounded-lg bg-blue-600 px-4 font-semibold text-sm text-white transition-colors hover:opacity-80"
+            >
+              ランダム配布
+            </button>
+          </div>
           <div className="flex flex-col gap-3 rounded-lg bg-gray-900 p-4">
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-gray-300 text-xs">
