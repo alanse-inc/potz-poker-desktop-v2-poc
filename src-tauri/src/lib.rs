@@ -103,14 +103,31 @@ pub fn run() {
             get_current_deck,
         ])
         .setup(|app| {
-            use tracing_subscriber::{fmt, EnvFilter};
+            use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+            let log_dir = app
+                .path()
+                .app_log_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
+            std::fs::create_dir_all(&log_dir).ok();
+            let file_appender = tracing_appender::rolling::daily(&log_dir, "potz-poker.log");
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
             let filter =
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-            fmt()
-                .with_env_filter(filter)
+            let stderr_layer = fmt::layer().with_target(false).with_thread_ids(false);
+            let file_layer = fmt::layer()
                 .with_target(false)
                 .with_thread_ids(false)
+                .with_writer(non_blocking)
+                .with_ansi(false);
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(stderr_layer)
+                .with(file_layer)
                 .init();
+
+            // WorkerGuard を drop されないようアプリのライフタイムに紐付ける
+            app.manage(guard);
             // ストアからデッキを読み込む（legacy 移行含む）
             let app_state: tauri::State<AppState> = app.state();
             load_decks_from_store(app.handle(), &app_state);
