@@ -563,3 +563,124 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
     expect(slicedBuffer.byteLength).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// applySettings — deviceId/sttModel 変更時の再起動 (Bug A)
+// ---------------------------------------------------------------------------
+
+describe("VoiceInputService – applySettings restarts on device/model change (Bug A)", () => {
+  let service: VoiceInputService;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances.length = 0;
+
+    vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
+
+    const mockStream = createMockMediaStream();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    setupAudioContextMock();
+
+    service = new VoiceInputService();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("isRunning=true の状態で deviceId を変更すると stop→start が呼ばれ新しい WebSocket が作られる", async () => {
+    // 初回 start
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    expect(service.isRunning).toBe(true);
+
+    // deviceId を変更して applySettings を呼ぶ
+    const applyPromise = service.applySettings({
+      deviceId: "new-device-id",
+      sttModel: "nova-3",
+      enabled: true,
+      confidenceThreshold: 0.3,
+      endpointingMs: 200,
+    });
+    await flushPromises();
+    await applyPromise;
+
+    // 旧 WebSocket が閉じられ、新しい WebSocket が作られているはず
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(service.deviceId).toBe("new-device-id");
+  });
+
+  it("isRunning=true の状態で sttModel を変更すると stop→start が呼ばれ新しい WebSocket が作られる", async () => {
+    // 初回 start
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    expect(service.isRunning).toBe(true);
+
+    // 旧 URL に nova-3 が含まれることを確認
+    expect(ws0.url).toContain("model=nova-3");
+
+    // sttModel を変更して applySettings を呼ぶ
+    const applyPromise = service.applySettings({
+      deviceId: "",
+      sttModel: "nova-2",
+      enabled: true,
+      confidenceThreshold: 0.3,
+      endpointingMs: 200,
+    });
+    await flushPromises();
+    await applyPromise;
+
+    // 新しい WebSocket が作られ、URL に新しいモデルが含まれているはず
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws1 = MockWebSocket.instances[1];
+    expect(ws1.url).toContain("model=nova-2");
+  });
+
+  it("isRunning=true かつ deviceId も sttModel も変わらない場合は再起動しない", async () => {
+    // 初回 start
+    const startPromise = service.start();
+    await flushPromises();
+    await startPromise;
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws0 = MockWebSocket.instances[0];
+    ws0.simulateOpen();
+
+    expect(service.isRunning).toBe(true);
+
+    // 変更なしで applySettings を呼ぶ
+    const applyPromise = service.applySettings({
+      deviceId: "",
+      sttModel: "nova-3",
+      enabled: true,
+      confidenceThreshold: 0.5,
+      endpointingMs: 300,
+    });
+    await flushPromises();
+    await applyPromise;
+
+    // WebSocket の数は変わらない
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(service.isRunning).toBe(true);
+  });
+});

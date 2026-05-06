@@ -217,13 +217,22 @@ export class VoiceInputService {
     confidenceThreshold: number;
     endpointingMs: number;
   }): Promise<void> {
+    const prevDeviceId = this._deviceId;
+    const prevSttModel = this._sttModel;
+
     this._deviceId = params.deviceId || undefined;
     this._sttModel = params.sttModel;
     this._confidenceThreshold = params.confidenceThreshold;
     this._endpointingMs = params.endpointingMs;
     this._enabled = params.enabled;
 
-    if (params.enabled && !this.isRunning) {
+    const deviceChanged = prevDeviceId !== this._deviceId;
+    const modelChanged = prevSttModel !== this._sttModel;
+
+    if (params.enabled && this.isRunning && (deviceChanged || modelChanged)) {
+      this.stop();
+      await this.start();
+    } else if (params.enabled && !this.isRunning) {
       await this.start();
     } else if (!params.enabled && this.isRunning) {
       this.stop();
