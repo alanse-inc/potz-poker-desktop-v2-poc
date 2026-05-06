@@ -99,6 +99,12 @@ export type CardPlacedNoBoardPayload = {
   rfid: string;
 };
 
+/** Auto Mode 中に RFID カードが置かれたときのペイロード (auto_card_placed) */
+export type AutoCardPlacedPayload = {
+  rfid: string;
+  card: Card;
+};
+
 /** シリアル接続状態 */
 export type SerialStatus = {
   connected: boolean;
