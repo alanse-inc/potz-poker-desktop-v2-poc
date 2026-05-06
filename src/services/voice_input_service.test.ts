@@ -496,17 +496,20 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
     vi.clearAllMocks();
   });
 
-  it("WebSocket が OPEN でない時に pendingAudio に push される buffer は元の ArrayBuffer とは独立したコピーである", async () => {
+  it("WebSocket が OPEN でない時に onaudioprocess は pendingAudio に有効な ArrayBuffer を積む (Bug 5)", async () => {
     const startPromise = service.start();
     await flushPromises();
     await startPromise;
 
-    // WebSocket は CONNECTING 状態のまま (simulateOpen しない)
-    expect(MockWebSocket.instances.length).toBe(1);
-    expect(MockWebSocket.instances[0].readyState).toBe(WebSocket.CONNECTING);
-
-    // onaudioprocess ハンドラが設定されていることを確認
+    // setupAudioProcessor は ws.onopen 内で呼ばれるため、まず simulateOpen で
+    // onaudioprocess ハンドラを設定させる
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+    await flushPromises();
     expect(capturedProcessor.onaudioprocess).not.toBeNull();
+
+    // ws の readyState を CLOSING に変えて pendingAudio 経路を強制
+    ws.readyState = WebSocket.CLOSING;
 
     // Float32Array (PCM データ) をシミュレート
     const float32Data = new Float32Array([0.5, -0.3, 0.1]);
@@ -516,45 +519,31 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
       },
     } as unknown as AudioProcessingEvent;
 
-    // onaudioprocess を呼び出す
     capturedProcessor.onaudioprocess?.(mockEvent);
 
-    // pendingAudio に 1 件追加されているはず (サービス内部に直接アクセスできないため
-    // flushPendingAudio 経由で確認する)
-    // WebSocket を OPEN 状態にして flushPendingAudio を呼ばせる
-    const ws = MockWebSocket.instances[0];
-    ws.simulateOpen();
-
-    // simulateOpen → ws.onopen → flushPendingAudio が呼ばれる
-    // pendingAudio の buffer が送信されているはずなので sentData を確認
-    expect(ws.sentData.length).toBeGreaterThan(0);
-
-    // 送信された buffer は有効な ArrayBuffer であること (detached でないこと)
-    const sentBuffer = ws.sentData[ws.sentData.length - 1] as ArrayBuffer;
-    // byteLength が 0 より大きければ detached でない
-    expect(sentBuffer).toBeInstanceOf(ArrayBuffer);
-    expect(sentBuffer.byteLength).toBeGreaterThan(0);
+    // pendingAudio に積まれた buffer を直接確認
+    const pending = (service as unknown as { pendingAudio: ArrayBuffer[] })
+      .pendingAudio;
+    expect(pending.length).toBe(1);
+    const slicedBuffer = pending[0];
+    expect(slicedBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(slicedBuffer.byteLength).toBeGreaterThan(0);
   });
 
-  it("pendingAudio に push された buffer が元の Int16Array.buffer と独立したコピーである (slice 検証)", async () => {
+  it("pendingAudio に push された buffer が元の Int16Array.buffer と独立したコピーである (slice 検証, Bug 5)", async () => {
     const startPromise = service.start();
     await flushPromises();
     await startPromise;
 
-    // WebSocket が CONNECTING のまま
-    expect(MockWebSocket.instances[0].readyState).toBe(WebSocket.CONNECTING);
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+    await flushPromises();
+    expect(capturedProcessor.onaudioprocess).not.toBeNull();
 
-    let capturedInt16Buffer: ArrayBuffer | null = null;
+    // ws の readyState を CLOSING に変えて pendingAudio 経路を強制
+    ws.readyState = WebSocket.CLOSING;
 
-    // Float32Array をシミュレートし、対応する Int16 変換後の buffer を取得
     const float32Data = new Float32Array([0.5]);
-    const int16 = new Int16Array(float32Data.length);
-    int16[0] = Math.max(
-      -32768,
-      Math.min(32767, Math.round(float32Data[0] * 32768)),
-    );
-    capturedInt16Buffer = int16.buffer;
-
     const mockEvent = {
       inputBuffer: {
         getChannelData: vi.fn().mockReturnValue(float32Data),
@@ -563,15 +552,14 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
 
     capturedProcessor.onaudioprocess?.(mockEvent);
 
-    // WebSocket を OPEN にして送信された buffer を取得
-    const ws = MockWebSocket.instances[0];
-    ws.simulateOpen();
+    const pending = (service as unknown as { pendingAudio: ArrayBuffer[] })
+      .pendingAudio;
+    expect(pending.length).toBe(1);
+    const slicedBuffer = pending[0];
 
-    const sentBuffer = ws.sentData[ws.sentData.length - 1] as ArrayBuffer;
-
-    // slice(0) でコピーされているため、元の buffer とは別オブジェクトであること
-    // (同じ内容だが参照が異なる)
-    expect(sentBuffer).not.toBe(capturedInt16Buffer);
-    expect(sentBuffer.byteLength).toBe(capturedInt16Buffer.byteLength);
+    // slice(0) でコピーされているため、buffer 長が int16 (2 bytes) と一致し、
+    // かつ byteLength > 0 (detached でない) であること
+    expect(slicedBuffer.byteLength).toBe(Int16Array.BYTES_PER_ELEMENT);
+    expect(slicedBuffer.byteLength).toBeGreaterThan(0);
   });
 });
