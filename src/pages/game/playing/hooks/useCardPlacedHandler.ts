@@ -49,8 +49,8 @@ export function useCardPlacedHandler() {
     setEventHistory(eventHistoryRef.current);
   }, []);
 
-  const popEventHistory = useCallback(() => {
-    eventHistoryRef.current = eventHistoryRef.current.slice(0, -1);
+  const popEventHistory = useCallback((key: string) => {
+    eventHistoryRef.current = eventHistoryRef.current.filter((k) => k !== key);
     setEventHistory(eventHistoryRef.current);
   }, []);
 
@@ -91,7 +91,7 @@ export function useCardPlacedHandler() {
               processingRef.current = false;
               return;
             }
-            popEventHistory();
+            popEventHistory(eventKey);
             const message =
               e instanceof Error ? e.message : "カード配置に失敗しました";
             toast.error(message);
@@ -129,7 +129,7 @@ export function useCardPlacedHandler() {
           } catch (e) {
             if (cancelled) return;
             // エラー時は履歴からロールバック
-            popEventHistory();
+            popEventHistory(eventKey);
             const message =
               e instanceof Error ? e.message : "カード配置に失敗しました";
             toast.error(message);

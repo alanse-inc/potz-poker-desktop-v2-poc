@@ -518,6 +518,80 @@ describe("useCardPlacedHandler", () => {
     void result; // result を参照して型エラー回避
   });
 
+  it("連続エラー時に popEventHistory(key) が正しいキーのみ削除し他のキーを保持する (Bug 4)", async () => {
+    // シナリオ:
+    //   1. イベント A を push → applyCardPlaced がエラー → finally で processNext 呼び出し
+    //   2. processNext の実行中にイベント B が push されていた場合（キューに積まれる）
+    //   3. B の処理中にエラーが出ても A のキーは復活しないこと
+    //   4. A のエラーロールバックで B が誤削除されないこと
+    let applyCallCount = 0;
+    vi.spyOn(api.rfid, "applyCardPlaced").mockImplementation(async () => {
+      applyCallCount += 1;
+      throw new Error(`error-${applyCallCount}`);
+    });
+
+    const { result } = renderHook(() => useCardPlacedHandler());
+
+    const payloadA = {
+      rfid: "BUG4_RFID_A",
+      card: { suit: "spade" as const, value: "A" as const },
+      position: { type: "communityCard" as const, slot: 0 },
+    };
+    const payloadB = {
+      rfid: "BUG4_RFID_B",
+      card: { suit: "heart" as const, value: "K" as const },
+      position: { type: "communityCard" as const, slot: 1 },
+    };
+
+    // A を先に処理開始し（processingRef=true）B をキューへ積む
+    await act(async () => {
+      // A の処理を投げる（エラーになる）
+      const aDone = onCardPlacedCb?.(payloadA);
+      // B はキューへ積まれる（processingRef が true のため）
+      void onCardPlacedCb?.(payloadB);
+      await aDone;
+    });
+
+    // 両方エラーでロールバックされているため履歴は空になるはず
+    expect(result.current.eventHistory).toHaveLength(0);
+
+    // 重要: B のキーが A のロールバックで誤削除された場合、
+    // B は「履歴に存在しない」ので再度処理可能なはずだが、
+    // slice(0,-1) バグだと A のキーが残り B が誤削除されてしまう。
+    // key 指定 filter 修正後は両方正しく削除されることを確認する。
+    const keyA = "BUG4_RFID_A|spade:A|cc:0";
+    const keyB = "BUG4_RFID_B|heart:K|cc:1";
+    expect(result.current.eventHistory).not.toContain(keyA);
+    expect(result.current.eventHistory).not.toContain(keyB);
+  });
+
+  it("エラー後に同一イベントを再送すると再処理される（rollback 後のキー削除が正確なことの確認）(Bug 4)", async () => {
+    vi.spyOn(api.rfid, "applyCardPlaced")
+      .mockRejectedValueOnce(new Error("first fail"))
+      .mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useCardPlacedHandler());
+
+    const payload = {
+      rfid: "BUG4_RETRY_RFID",
+      card: { suit: "club" as const, value: "5" as const },
+      position: { type: "communityCard" as const, slot: 2 },
+    };
+
+    // 1回目: エラー → ロールバックにより履歴から削除される
+    await act(async () => {
+      await onCardPlacedCb?.(payload);
+    });
+    expect(result.current.eventHistory).toHaveLength(0);
+
+    // 2回目: 同一イベント → 履歴に存在しないため再処理される
+    await act(async () => {
+      await onCardPlacedCb?.(payload);
+    });
+    expect(result.current.eventHistory).toHaveLength(1);
+    expect(api.rfid.applyCardPlaced).toHaveBeenCalledTimes(2);
+  });
+
   it("burnCard イベントが重複送信された場合は2回目をスキップする", async () => {
     const { result } = renderHook(() => useCardPlacedHandler());
 
