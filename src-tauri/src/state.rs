@@ -61,6 +61,10 @@ pub struct InnerState {
     /// 配置失敗カードのプール。フェーズ進行後に再評価する。
     /// 上限は CARD_POOL_MAX 枚 (DoS 防止)。
     pub card_pool: Vec<Card>,
+    /// 現在アクティブなフロントエンドのルートパス。
+    /// フロントが set_active_route コマンドで通知する。
+    /// process_rfid で Auto/Manual モードの分岐に使用する。
+    pub active_route: String,
 }
 
 impl InnerState {
@@ -115,6 +119,7 @@ impl Default for InnerState {
             telop_current_screen: None,
             last_emitted_position: None,
             card_pool: Vec::new(),
+            active_route: "/".to_string(),
         }
     }
 }
@@ -208,5 +213,21 @@ mod tests {
         state.decks.push(RfidCardMapping::new("deck-1", "Deck 1"));
         state.current_deck_id = Some("nonexistent".to_string());
         assert!(state.current_deck().is_none());
+    }
+
+    #[test]
+    fn active_route_defaults_to_root() {
+        let state = InnerState::default();
+        assert_eq!(state.active_route, "/");
+    }
+
+    #[test]
+    fn active_route_can_be_set() {
+        let state = InnerState {
+            active_route: "/auto-game/playing".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(state.active_route, "/auto-game/playing");
+        assert!(state.active_route.starts_with("/auto-game/"));
     }
 }

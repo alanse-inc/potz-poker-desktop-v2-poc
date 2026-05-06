@@ -5,6 +5,7 @@ import { useAutoBoard } from "../../../contexts/auto_board_context";
 import {
   addBurnCard,
   addCommunityCard,
+  determineAutoNextCardPosition,
   updatePlayerHand,
 } from "../../../domain/auto_game/board";
 import type { AutoModeBoard } from "../../../domain/auto_game/types";
@@ -12,7 +13,7 @@ import { SmallCard } from "../../../features/card/face/small_size";
 import { SmallReverseCard } from "../../../features/card/reverse/small_size";
 import { ActionConfirmModal } from "../../../features/modal/action_confirm_modal";
 import { useAutoScale } from "../../../hooks/useAutoScale";
-import type { CardPlacedPayload } from "../../../types";
+import type { AutoCardPlacedPayload } from "../../../types";
 import { RoundButton } from "../../../ui/button/round_button";
 import { BasicPage } from "../../../ui/page/basic";
 import { Switch } from "../../../ui/switch";
@@ -46,12 +47,19 @@ export function AutoGamePlaying() {
     let cancelled = false;
 
     const setup = async () => {
-      const unlistenCardPlaced = await api.notifications.onCardPlaced(
-        async (payload: CardPlacedPayload) => {
+      // Auto Mode 中は auto_card_placed イベントを購読する。
+      // Rust board が None のため card_placed は発火しない。
+      // position はフロント側の AutoModeBoard から決定する。
+      const unlistenAutoCardPlaced = await api.notifications.onAutoCardPlaced(
+        (payload: AutoCardPlacedPayload) => {
+          if (cancelled) return;
           const currentBoard = optimisticBoardRef.current ?? boardRef.current;
           if (!currentBoard) return;
 
-          const { card, position } = payload;
+          const { card } = payload;
+          const position = determineAutoNextCardPosition(currentBoard);
+          if (!position) return;
+
           let updatedBoard: AutoModeBoard;
 
           if (position.type === "communityCard") {
@@ -72,17 +80,18 @@ export function AutoGamePlaying() {
 
       const unlistenUnregistered =
         await api.notifications.onCardPlacedUnregistered(() => {
+          if (cancelled) return;
           toast.error("デッキに登録されていないカードです");
         });
 
       if (cancelled) {
-        unlistenCardPlaced();
+        unlistenAutoCardPlaced();
         unlistenUnregistered();
         return;
       }
 
       unlisten = () => {
-        unlistenCardPlaced();
+        unlistenAutoCardPlaced();
         unlistenUnregistered();
       };
     };

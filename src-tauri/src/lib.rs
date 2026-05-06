@@ -18,7 +18,7 @@ use commands::deck::{
 use commands::expose::expose;
 use commands::serial::{
     apply_card_placed, get_rfid_card_mapping, get_serial_status, register_rfid_card,
-    set_register_mode, start_serial_listener, unregister_rfid_card,
+    set_active_route, set_register_mode, start_serial_listener, unregister_rfid_card,
 };
 use commands::settings::{load_game_settings, save_game_settings};
 use commands::table_name::{get_table_name, set_table_name};
@@ -89,6 +89,7 @@ pub fn run() {
             set_register_mode,
             get_serial_status,
             apply_card_placed,
+            set_active_route,
             // deck CRUD
             save_deck,
             get_all_decks,
