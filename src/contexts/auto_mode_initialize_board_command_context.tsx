@@ -232,9 +232,6 @@ export const AutoModeInitializeBoardCommandProvider = ({
   // 将来的にTauriイベントを追加した際にここを実装する。
   const handleSSEEvent = useCallback(() => {
     // Tauri版では auto-mode-initial-board-updated 経由の自動同期は未サポート。
-    console.log(
-      "[AutoModeInitializeBoardCommandContext] SSE event received (no-op in Tauri)",
-    );
   }, []);
 
   // SSE接続を確立してイベントをリッスン

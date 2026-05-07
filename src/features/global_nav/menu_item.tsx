@@ -19,6 +19,7 @@ export function MenuItem({ active, iconSvg, label, onClick }: Props) {
   // ローカルのアイコンSVGをインライン展開し、currentColor で stroke/fill を制御する
   const iconNode = (
     <span
+      aria-hidden="true"
       className={`block size-6 ${colorClass}`}
       dangerouslySetInnerHTML={{ __html: iconSvg }}
     />
