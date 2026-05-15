@@ -1,8 +1,9 @@
 import "./css/index.css";
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Toaster } from "react-hot-toast";
 import { RouterProvider } from "react-router";
+import { api } from "./api/client";
 import { AuthProvider } from "./contexts/auth_context";
 import { AutoBoardProvider } from "./contexts/auto_board_context";
 import { BoardProvider } from "./contexts/board_context";
@@ -22,6 +23,13 @@ initMixpanel();
 // biome-ignore lint/suspicious/noExplicitAny: React 19 Sentry ErrorBoundary type compatibility issue
 const ErrorBoundary = Sentry.ErrorBoundary as any;
 
+function AppReadyEffect() {
+  useEffect(() => {
+    api.window.closeSplash().catch(() => {});
+  }, []);
+  return null;
+}
+
 const rootElement = document.getElementById("root") as HTMLElement;
 const root = createRoot(rootElement);
 root.render(
@@ -32,6 +40,7 @@ root.render(
       )}
       showDialog={isSentryEnabled}
     >
+      <AppReadyEffect />
       <AuthProvider>
         <SessionProvider>
           <OperatorProvider>

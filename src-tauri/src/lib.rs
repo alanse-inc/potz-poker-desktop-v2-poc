@@ -29,6 +29,7 @@ use commands::telop::{
     set_telop_background_color, set_telop_color, set_telop_current_screen, set_telop_id,
     set_telop_message,
 };
+use commands::window::{close_splash, schedule_splash_timeout};
 use state::{AppState, InnerState};
 use tauri::Manager;
 
@@ -101,6 +102,8 @@ pub fn run() {
             delete_deck,
             choose_deck,
             get_current_deck,
+            // window
+            close_splash,
         ])
         .setup(|app| {
             use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -135,6 +138,8 @@ pub fn run() {
             load_telop_settings_from_store(app.handle(), &app_state);
             // シリアルリスナーを開始
             start_serial_listener(app.handle().clone());
+            // close_splash が来なかった場合の 5 秒フェイルセーフ
+            schedule_splash_timeout(app.handle().clone(), 5000);
             Ok(())
         })
         .run(tauri::generate_context!())

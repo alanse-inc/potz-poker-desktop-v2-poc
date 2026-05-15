@@ -169,6 +169,9 @@ export const api = {
         cb(e.payload),
       ),
   },
+  window: {
+    closeSplash: (): Promise<void> => invoke<void>("close_splash"),
+  },
   initialBoard: {
     getInitialBoard: (): Promise<TexasHoldemInitialBoard | null> =>
       invoke<TexasHoldemInitialBoard | null>("get_initial_board"),

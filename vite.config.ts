@@ -47,6 +47,7 @@ export default defineConfig(async () => ({
       input: {
         main: resolve(__dirname, "index.html"),
         telop: resolve(__dirname, "telop.html"),
+        splash: resolve(__dirname, "splash.html"),
       },
     },
   },
