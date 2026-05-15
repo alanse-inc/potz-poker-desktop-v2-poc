@@ -7,8 +7,8 @@
  * API キーが未設定の場合は start() が即座に "error" ステータスを発行し、
  * UI 側で「APIキー未設定」メッセージを表示する。
  *
- * フロー: getUserMedia → AudioContext(16kHz) → ScriptProcessor →
- *         Int16 PCM → WebSocket(Deepgram) → is_final transcript →
+ * フロー: getUserMedia → AudioContext(16kHz) → AudioWorklet(pcm-frame-processor) →
+ *         Float32 → Int16 PCM → WebSocket(Deepgram) → is_final transcript →
  *         (将来 LLM 呼び出し) → VoicePokerCommand emit
  */
 
@@ -25,9 +25,9 @@ import type {
   VoiceInputStatusEvent,
   VoicePokerCommand,
 } from "../types/voice_input";
+import type { PcmFrameWorkletHandle } from "./audio/pcm_frame_worklet";
 import {
   AUDIO_BUFFER_LIMIT,
-  AUDIO_PROCESSOR_BUFFER_SIZE,
   COMPRESSOR_ATTACK_S,
   COMPRESSOR_KNEE_DB,
   COMPRESSOR_RATIO,
@@ -149,8 +149,7 @@ export class VoiceInputService {
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
-  private scriptProcessor: ScriptProcessorNode | null = null;
-  private silentGain: GainNode | null = null;
+  private workletHandle: PcmFrameWorkletHandle | null = null;
   private commandCallbacks: Set<CommandCallback> = new Set();
   private statusCallbacks: Set<StatusCallback> = new Set();
   private diagnosticsCallbacks: Set<DiagnosticsCallback> = new Set();
@@ -595,8 +594,6 @@ export class VoiceInputService {
       audioContext.resume().catch(() => {});
     }
 
-    const source = audioContext.createMediaStreamSource(stream);
-
     const gainNode = audioContext.createGain();
     gainNode.gain.value = MIC_GAIN;
 
@@ -607,57 +604,66 @@ export class VoiceInputService {
     compressor.attack.value = COMPRESSOR_ATTACK_S;
     compressor.release.value = COMPRESSOR_RELEASE_S;
 
-    const processor = audioContext.createScriptProcessor(
-      AUDIO_PROCESSOR_BUFFER_SIZE,
-      1,
-      1,
-    );
-    this.scriptProcessor = processor;
-
-    const silentGain = audioContext.createGain();
-    silentGain.gain.value = 0;
-    this.silentGain = silentGain;
-
+    const source = audioContext.createMediaStreamSource(stream);
     source.connect(gainNode);
     gainNode.connect(compressor);
-    compressor.connect(processor);
-    processor.connect(silentGain);
-    silentGain.connect(audioContext.destination);
 
-    processor.onaudioprocess = (e: AudioProcessingEvent) => {
-      const float32 = e.inputBuffer.getChannelData(0);
-      const int16 = new Int16Array(float32.length);
-      for (let i = 0; i < float32.length; i++) {
-        int16[i] = Math.max(
-          -32768,
-          Math.min(32767, Math.round(float32[i] * 32768)),
-        );
-      }
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(int16.buffer);
-        this._framesSent++;
-        this._lastFrameSentAt = Date.now();
-      } else {
-        if (this.pendingAudio.length >= AUDIO_BUFFER_LIMIT) {
-          this.pendingAudio.shift();
+    // compressor の出力を MediaStreamDestination に繋いで processed stream を取得する
+    const destination = audioContext.createMediaStreamDestination();
+    compressor.connect(destination);
+
+    import("./audio/pcm_frame_worklet")
+      .then(({ attachPcmFrameWorklet }) => {
+        if (this.audioContext !== audioContext) {
+          return;
         }
-        // int16.buffer を slice でコピーして保存する。WebSocket.send により
-        // 元の ArrayBuffer が transferred (detached) になった場合でも
-        // pendingAudio の buffer は独立したコピーとして残る。
-        this.pendingAudio.push(int16.buffer.slice(0));
-      }
-    };
+        return attachPcmFrameWorklet(audioContext, destination.stream, {
+          onFrame: ({ data }) => {
+            const int16 = new Int16Array(data.length);
+            for (let i = 0; i < data.length; i++) {
+              int16[i] = Math.max(
+                -32768,
+                Math.min(32767, Math.round(data[i] * 32768)),
+              );
+            }
+            if (this.ws?.readyState === WebSocket.OPEN) {
+              this.ws.send(int16.buffer);
+              this._framesSent++;
+              this._lastFrameSentAt = Date.now();
+            } else {
+              if (this.pendingAudio.length >= AUDIO_BUFFER_LIMIT) {
+                this.pendingAudio.shift();
+              }
+              this.pendingAudio.push(int16.buffer.slice(0));
+            }
+          },
+        });
+      })
+      .then((handle) => {
+        if (handle === undefined) {
+          return;
+        }
+        if (this.audioContext !== audioContext) {
+          handle.dispose().catch(() => {});
+          return;
+        }
+        this.workletHandle = handle;
+      })
+      .catch((error: unknown) => {
+        trackError(
+          `AudioWorklet の初期化に失敗: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
   }
 
   private cleanupAudioProcessor(): void {
-    if (this.scriptProcessor) {
-      this.scriptProcessor.disconnect();
-      this.scriptProcessor.onaudioprocess = null;
-      this.scriptProcessor = null;
-    }
-    if (this.silentGain) {
-      this.silentGain.disconnect();
-      this.silentGain = null;
+    if (this.workletHandle) {
+      this.workletHandle.dispose().catch((error: unknown) => {
+        trackError(
+          `AudioWorklet dispose error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      this.workletHandle = null;
     }
     if (this.audioContext) {
       this.audioContext.close().catch((error: unknown) => {
