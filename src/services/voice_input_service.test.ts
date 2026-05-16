@@ -10,6 +10,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const flushPromises = () =>
   new Promise<void>((resolve) => queueMicrotask(resolve));
 
+/**
+ * 複数段の Promise チェーンを完全に解決するヘルパー。
+ * 動的 import など非同期ステップが複数段あるケースに使う。
+ */
+const drainMicrotasks = async (times = 10): Promise<void> => {
+  for (let i = 0; i < times; i++) {
+    await flushPromises();
+  }
+};
+
 // ---------------------------------------------------------------------------
 // @tauri-apps/plugin-store モック (loadPersistedSettings / savePersistedSettings)
 // ---------------------------------------------------------------------------
@@ -21,6 +31,35 @@ vi.mock("@tauri-apps/plugin-store", () => ({
       save: vi.fn().mockResolvedValue(undefined),
     }),
   },
+}));
+
+// ---------------------------------------------------------------------------
+// AudioWorklet (pcm_frame_worklet) モック
+// ---------------------------------------------------------------------------
+
+type OnFrameCallback = (payload: {
+  data: Float32Array;
+  sequenceNumber: number;
+  timestampMs: number;
+}) => void;
+
+let capturedOnFrame: OnFrameCallback | null = null;
+
+vi.mock("./audio/pcm_frame_worklet", () => ({
+  attachPcmFrameWorklet: vi
+    .fn()
+    .mockImplementation(
+      (
+        _audioContext: AudioContext,
+        _stream: MediaStream,
+        options: { onFrame: OnFrameCallback },
+      ) => {
+        capturedOnFrame = options.onFrame;
+        return Promise.resolve({
+          dispose: vi.fn().mockResolvedValue(undefined),
+        });
+      },
+    ),
 }));
 
 // ---------------------------------------------------------------------------
@@ -97,11 +136,6 @@ function createMockMediaStream(): MediaStream {
 // ---------------------------------------------------------------------------
 
 function setupAudioContextMock(): void {
-  const mockProcessor = {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    onaudioprocess: null as ((e: AudioProcessingEvent) => void) | null,
-  };
   const mockGain = {
     connect: vi.fn(),
     disconnect: vi.fn(),
@@ -116,6 +150,11 @@ function setupAudioContextMock(): void {
     release: { value: 0.1 },
   };
   const mockSource = { connect: vi.fn() };
+  const mockDestinationStream = {
+    getTracks: () => [],
+    getAudioTracks: () => [],
+  } as unknown as MediaStream;
+  const mockMediaStreamDestination = { stream: mockDestinationStream };
 
   class MockAudioContext {
     state = "running";
@@ -124,7 +163,9 @@ function setupAudioContextMock(): void {
     createMediaStreamSource = vi.fn().mockReturnValue(mockSource);
     createGain = vi.fn().mockReturnValue(mockGain);
     createDynamicsCompressor = vi.fn().mockReturnValue(mockCompressor);
-    createScriptProcessor = vi.fn().mockReturnValue(mockProcessor);
+    createMediaStreamDestination = vi
+      .fn()
+      .mockReturnValue(mockMediaStreamDestination);
     resume = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
   }
@@ -432,14 +473,10 @@ describe("VoiceInputService – reconnectAttempts reset on open (Bug 7)", () => 
 
 describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
   let service: VoiceInputService;
-  let capturedProcessor: {
-    connect: ReturnType<typeof vi.fn>;
-    disconnect: ReturnType<typeof vi.fn>;
-    onaudioprocess: ((e: AudioProcessingEvent) => void) | null;
-  };
 
   beforeEach(() => {
     vi.useFakeTimers();
+    capturedOnFrame = null;
     MockWebSocket.instances.length = 0;
 
     vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
@@ -452,40 +489,7 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
       },
     });
 
-    // AudioContext モック (processor の参照をキャプチャ)
-    capturedProcessor = {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      onaudioprocess: null,
-    };
-    const mockGain = {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      gain: { value: 1.0 },
-    };
-    const mockCompressor = {
-      connect: vi.fn(),
-      threshold: { value: 0 },
-      knee: { value: 0 },
-      ratio: { value: 1 },
-      attack: { value: 0.003 },
-      release: { value: 0.1 },
-    };
-    const mockSource = { connect: vi.fn() };
-
-    class MockAudioContextWithCapture {
-      state = "running";
-      sampleRate = 16000;
-      destination = {};
-      createMediaStreamSource = vi.fn().mockReturnValue(mockSource);
-      createGain = vi.fn().mockReturnValue(mockGain);
-      createDynamicsCompressor = vi.fn().mockReturnValue(mockCompressor);
-      createScriptProcessor = vi.fn().mockReturnValue(capturedProcessor);
-      resume = vi.fn().mockResolvedValue(undefined);
-      close = vi.fn().mockResolvedValue(undefined);
-    }
-
-    vi.stubGlobal("AudioContext", MockAudioContextWithCapture);
+    setupAudioContextMock();
 
     service = new VoiceInputService();
   });
@@ -496,30 +500,27 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
     vi.clearAllMocks();
   });
 
-  it("WebSocket が OPEN でない時に onaudioprocess は pendingAudio に有効な ArrayBuffer を積む (Bug 5)", async () => {
+  it("WebSocket が OPEN でない時に onFrame は pendingAudio に有効な ArrayBuffer を積む (Bug 5)", async () => {
     const startPromise = service.start();
     await flushPromises();
     await startPromise;
 
-    // setupAudioProcessor は ws.onopen 内で呼ばれるため、まず simulateOpen で
-    // onaudioprocess ハンドラを設定させる
+    // setupAudioProcessor は ws.onopen 内で呼ばれ、attachPcmFrameWorklet が非同期で走る
     const ws = MockWebSocket.instances[0];
     ws.simulateOpen();
-    await flushPromises();
-    expect(capturedProcessor.onaudioprocess).not.toBeNull();
+    await drainMicrotasks();
+    expect(capturedOnFrame).not.toBeNull();
 
     // ws の readyState を CLOSING に変えて pendingAudio 経路を強制
     ws.readyState = WebSocket.CLOSING;
 
-    // Float32Array (PCM データ) をシミュレート
+    // Float32Array (PCM フレーム) をシミュレート
     const float32Data = new Float32Array([0.5, -0.3, 0.1]);
-    const mockEvent = {
-      inputBuffer: {
-        getChannelData: vi.fn().mockReturnValue(float32Data),
-      },
-    } as unknown as AudioProcessingEvent;
-
-    capturedProcessor.onaudioprocess?.(mockEvent);
+    capturedOnFrame?.({
+      data: float32Data,
+      sequenceNumber: 0,
+      timestampMs: Date.now(),
+    });
 
     // pendingAudio に積まれた buffer を直接確認
     const pending = (service as unknown as { pendingAudio: ArrayBuffer[] })
@@ -537,20 +538,18 @@ describe("VoiceInputService – pendingAudio buffer copy (Bug 5)", () => {
 
     const ws = MockWebSocket.instances[0];
     ws.simulateOpen();
-    await flushPromises();
-    expect(capturedProcessor.onaudioprocess).not.toBeNull();
+    await drainMicrotasks();
+    expect(capturedOnFrame).not.toBeNull();
 
     // ws の readyState を CLOSING に変えて pendingAudio 経路を強制
     ws.readyState = WebSocket.CLOSING;
 
     const float32Data = new Float32Array([0.5]);
-    const mockEvent = {
-      inputBuffer: {
-        getChannelData: vi.fn().mockReturnValue(float32Data),
-      },
-    } as unknown as AudioProcessingEvent;
-
-    capturedProcessor.onaudioprocess?.(mockEvent);
+    capturedOnFrame?.({
+      data: float32Data,
+      sequenceNumber: 0,
+      timestampMs: Date.now(),
+    });
 
     const pending = (service as unknown as { pendingAudio: ArrayBuffer[] })
       .pendingAudio;
@@ -934,14 +933,10 @@ describe("VoiceInputService – reconnect uses latest mediaStream, not stale clo
 
 describe("VoiceInputService – VoiceInputDiagnostics metrics collection (Issue #10)", () => {
   let service: VoiceInputService;
-  let capturedProcessor: {
-    connect: ReturnType<typeof vi.fn>;
-    disconnect: ReturnType<typeof vi.fn>;
-    onaudioprocess: ((e: AudioProcessingEvent) => void) | null;
-  };
 
   beforeEach(() => {
     vi.useFakeTimers();
+    capturedOnFrame = null;
     MockWebSocket.instances.length = 0;
 
     vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));
@@ -954,39 +949,7 @@ describe("VoiceInputService – VoiceInputDiagnostics metrics collection (Issue 
       },
     });
 
-    capturedProcessor = {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      onaudioprocess: null,
-    };
-    const mockGain = {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      gain: { value: 1.0 },
-    };
-    const mockCompressor = {
-      connect: vi.fn(),
-      threshold: { value: 0 },
-      knee: { value: 0 },
-      ratio: { value: 1 },
-      attack: { value: 0.003 },
-      release: { value: 0.1 },
-    };
-    const mockSource = { connect: vi.fn() };
-
-    class MockAudioContextCapture {
-      state = "running";
-      sampleRate = 16000;
-      destination = {};
-      createMediaStreamSource = vi.fn().mockReturnValue(mockSource);
-      createGain = vi.fn().mockReturnValue(mockGain);
-      createDynamicsCompressor = vi.fn().mockReturnValue(mockCompressor);
-      createScriptProcessor = vi.fn().mockReturnValue(capturedProcessor);
-      resume = vi.fn().mockResolvedValue(undefined);
-      close = vi.fn().mockResolvedValue(undefined);
-    }
-
-    vi.stubGlobal("AudioContext", MockAudioContextCapture);
+    setupAudioContextMock();
 
     service = new VoiceInputService();
   });
@@ -1025,25 +988,23 @@ describe("VoiceInputService – VoiceInputDiagnostics metrics collection (Issue 
     expect(d.wsReadyState).toBe(WebSocket.OPEN);
   });
 
-  it("onaudioprocess が呼ばれると framesSent が増加する", async () => {
+  it("onFrame が呼ばれると framesSent が増加する", async () => {
     const startPromise = service.start();
     await flushPromises();
     await startPromise;
 
     const ws = MockWebSocket.instances[0];
     ws.simulateOpen();
-    await flushPromises();
-    expect(capturedProcessor.onaudioprocess).not.toBeNull();
+    await drainMicrotasks();
+    expect(capturedOnFrame).not.toBeNull();
 
-    // WS が OPEN のまま onaudioprocess を呼び出す
+    // WS が OPEN のまま onFrame を呼び出す
     const float32Data = new Float32Array([0.5, -0.3, 0.1]);
-    const mockEvent = {
-      inputBuffer: {
-        getChannelData: vi.fn().mockReturnValue(float32Data),
-      },
-    } as unknown as AudioProcessingEvent;
-
-    capturedProcessor.onaudioprocess?.(mockEvent);
+    capturedOnFrame?.({
+      data: float32Data,
+      sequenceNumber: 0,
+      timestampMs: Date.now(),
+    });
 
     const d = service.getDiagnostics();
     expect(d.framesSent).toBe(1);
@@ -1136,13 +1097,15 @@ describe("VoiceInputService – VoiceInputDiagnostics metrics collection (Issue 
 
     const ws = MockWebSocket.instances[0];
     ws.simulateOpen();
-    await flushPromises();
+    await drainMicrotasks();
 
     // フレームを送信
     const float32Data = new Float32Array([0.5]);
-    capturedProcessor.onaudioprocess?.({
-      inputBuffer: { getChannelData: vi.fn().mockReturnValue(float32Data) },
-    } as unknown as AudioProcessingEvent);
+    capturedOnFrame?.({
+      data: float32Data,
+      sequenceNumber: 0,
+      timestampMs: Date.now(),
+    });
 
     expect(service.getDiagnostics().framesSent).toBe(1);
 
@@ -1198,6 +1161,7 @@ describe("VoiceInputService – Krisp BVC integration", () => {
 
   beforeEach(async () => {
     vi.useFakeTimers();
+    capturedOnFrame = null;
     MockWebSocket.instances.length = 0;
 
     vi.stubGlobal("WebSocket", Object.assign(MockWebSocket, WebSocket));

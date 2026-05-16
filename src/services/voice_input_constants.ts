@@ -32,7 +32,6 @@ export const COMPRESSOR_KNEE_DB = 30;
 export const COMPRESSOR_RATIO = 4;
 export const COMPRESSOR_ATTACK_S = 0.003;
 export const COMPRESSOR_RELEASE_S = 0.1;
-export const AUDIO_PROCESSOR_BUFFER_SIZE = 4096;
 
 // Deepgram パラメータ
 export const DEEPGRAM_UTTERANCE_END_MS = 1000;
