@@ -19,7 +19,21 @@
         "height": 800,
         "resizable": true,
         "fullscreen": false,
-        "url": "index.html"
+        "url": "index.html",
+        "visible": false
+      },
+      {
+        "label": "splash",
+        "title": "Potz Poker Pro",
+        "width": 1200,
+        "height": 800,
+        "resizable": false,
+        "fullscreen": false,
+        "url": "splash.html",
+        "visible": true,
+        "center": true,
+        "decorations": true,
+        "alwaysOnTop": true
       }
     ],
     "security": {
